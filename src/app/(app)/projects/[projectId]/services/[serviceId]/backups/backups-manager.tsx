@@ -4,7 +4,7 @@ import { ALL_DATABASES, readChoice } from "@/lib/backup-databases";
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Loader2, ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2, TriangleAlert, Lock, FlaskConical } from "lucide-react";
+import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2, TriangleAlert, Lock, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState, TimeAgo, Copyable } from "@/components/ui/misc";
 import { Led } from "@/components/ui/status";
@@ -19,7 +19,7 @@ import { Field } from "@/components/ui/field";
 import { SwitchRow } from "@/components/ui/switch";
 import type { BackupChoice } from "@/server/queue";
 import { RestoreDialog } from "./restore-dialog";
-import { ImportCard } from "./import-card";
+import { ImportCard, type Preparing } from "./import-card";
 import { type DatabaseChoices, DatabasePicker, defaultDatabases } from "./database-picker";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 
@@ -301,14 +301,22 @@ export function BackupsManager(props: {
   // An import of a database service: its restore window opens once the file is in. Cancelled
   // there (or failed), the import is deleted, as if it had never been uploaded.
   const [awaiting, setAwaiting] = React.useState<string | null>(null);
+  const [preparing, setPreparing] = React.useState<Preparing | null>(null);
+  // Cancelled while the file was still on its way: discarded once it is in.
+  const dropped = React.useRef(false);
   const unconfirmed = React.useRef<string | null>(null);
   const discard = (id: string) => void deleteBackup(id).then(() => mutate());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the import or the list changes
   React.useEffect(() => {
     if (!awaiting) return;
     const b = backups.find((x) => x.id === awaiting);
     if (!b || b.status === "running") return;
     setAwaiting(null);
-    if (b.status === "success") {
+    setPreparing(null);
+    if (dropped.current) {
+      dropped.current = false;
+      discard(b.id);
+    } else if (b.status === "success") {
       unconfirmed.current = b.id;
       setRestoring(b);
     } else {
@@ -383,11 +391,6 @@ export function BackupsManager(props: {
   );
   const importCard = (
     <>
-      {awaiting && (
-        <p className="flex items-center gap-2 text-[13px] text-muted">
-          <Loader2 className="size-3.5 animate-spin" /> Getting the file ready. The restore window opens next.
-        </p>
-      )}
       {props.isAdmin && (
         <ImportCard
           target={props.target ?? null}
@@ -398,6 +401,7 @@ export function BackupsManager(props: {
           extensions={props.extensions}
           maxUpload={props.maxUpload}
           destinations={props.destinations}
+          onPreparing={setPreparing}
           onStarted={(id) => {
             void mutate();
             // A database service chooses what to restore next, here; a stack's import restores at once.
@@ -442,10 +446,15 @@ export function BackupsManager(props: {
     <>
       <RestoreDialog
         backup={restoring}
+        preparing={preparing}
         onClose={() => {
           setRestoring(null);
           if (unconfirmed.current) discard(unconfirmed.current);
           unconfirmed.current = null;
+          // Still uploading: stop it. Uploaded, not yet in: drop it once it is.
+          if (preparing?.progress != null) preparing.abort?.();
+          else if (awaiting) dropped.current = true;
+          setPreparing(null);
         }}
         onStarted={() => {
           unconfirmed.current = null;

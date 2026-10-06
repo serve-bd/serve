@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { Loader2, X } from "lucide-react";
+import type { Preparing } from "./import-card";
 import { cn } from "@/lib/utils";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,11 +20,14 @@ type Choices = Extract<Awaited<ReturnType<typeof restoreChoices>>, { ok: true }>
  */
 export function RestoreDialog({
   backup,
+  preparing,
   onClose,
   onStarted,
   restoresUsers,
 }: {
   backup: { id: string; filename: string | null; trigger?: string } | null;
+  /** An import on its way in: the window opens at once and shows it until the file is in. */
+  preparing?: Preparing | null;
   onClose: () => void;
   onStarted: () => void;
   restoresUsers?: boolean;
@@ -126,11 +131,24 @@ export function RestoreDialog({
   };
 
   return (
-    <Dialog open={!!backup} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={!!backup || !!preparing} onOpenChange={(o) => !o && onClose()}>
       <DialogContent size="lg">
-        <DialogHeader title="Restore backup" description={backup?.filename ?? undefined} />
+        <DialogHeader title="Restore backup" description={backup?.filename ?? preparing?.name} />
         <DialogBody>
-          {!choices && !loadError && <p className="text-[13px] text-muted">Reading the backup…</p>}
+          {!backup && preparing?.progress != null && (
+            <div className="flex flex-col gap-2 py-6">
+              <div className="h-1.5 overflow-hidden rounded-full bg-sunken">
+                <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.round(preparing.progress * 100)}%` }} />
+              </div>
+              <span className="text-[13px] text-muted tabular-nums">Uploading {Math.round(preparing.progress * 100)}%</span>
+            </div>
+          )}
+          {((!backup && preparing && preparing.progress == null) || (backup && !choices && !loadError)) && (
+            <p className="flex items-center justify-center gap-2 py-8 text-[13px] text-muted">
+              <Loader2 className="size-4 animate-spin text-accent" />
+              {backup ? "Reading the databases in the file…" : "Checking the file…"}
+            </p>
+          )}
           {loadError && <p className="text-[13px] text-bad">{loadError}</p>}
           {needsPassphrase && (
             <div className="flex flex-col gap-1.5">
@@ -181,7 +199,31 @@ export function RestoreDialog({
                         <span className="truncate font-mono text-[12.5px]">{d.label}</span>
                         {choices.tables && <span className="flex-none text-xs text-faint">{d.tables.length === 1 ? "1 table" : `${d.tables.length} tables`}</span>}
                       </label>
-                      <div className="flex min-w-0 flex-col gap-1.5">
+                      {/* A typed name takes the menu's place, with a way back to it. */}
+                      {custom[d.name] ? (
+                        <div className="flex min-w-0 items-center gap-1">
+                          <Input
+                            value={names[d.name] ?? ""}
+                            onChange={(e) => setNames((n) => ({ ...n, [d.name]: e.target.value }))}
+                            placeholder="New database name"
+                            aria-label={`New name for ${d.label}`}
+                            className="h-8 min-w-0 flex-1 font-mono text-[12.5px]"
+                            autoFocus
+                          />
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label="Back to the list"
+                            title="Back to the list"
+                            onClick={() => {
+                              setCustom((c) => ({ ...c, [d.name]: false }));
+                              setNames((n) => ({ ...n, [d.name]: "" }));
+                            }}
+                          >
+                            <X />
+                          </Button>
+                        </div>
+                      ) : (
                         <Select
                           size="sm"
                           value={custom[d.name] ? "__other" : names[d.name] || "__own"}
@@ -210,17 +252,7 @@ export function RestoreDialog({
                             { value: "__other", label: "Other name…" },
                           ]}
                         />
-                        {custom[d.name] && (
-                          <Input
-                            value={names[d.name] ?? ""}
-                            onChange={(e) => setNames((n) => ({ ...n, [d.name]: e.target.value }))}
-                            placeholder="New database name"
-                            aria-label={`New name for ${d.label}`}
-                            className="h-8 font-mono text-[12.5px]"
-                            autoFocus
-                          />
-                        )}
-                      </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -300,7 +332,9 @@ export function RestoreDialog({
               ? `${clash.label} and ${takenBy(goesTo(clash), clash)} both go into ${goesTo(clash)}. Choose another for one of them.`
               : someTables
                 ? `Replaces ${tables.size === 1 ? "1 table" : `${tables.size} tables`} in ${targetName}`
-                : `Replaces the data in ${targetName}`}
+                : choices
+                  ? `Replaces the data in ${targetName}`
+                  : ""}
           </span>
           <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
           <Button size="sm" variant="danger" disabled={!ready} loading={pending} onClick={() => void submit()}>

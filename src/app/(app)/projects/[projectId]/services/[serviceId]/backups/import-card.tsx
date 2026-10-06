@@ -17,6 +17,9 @@ import { cn, formatBytes } from "@/lib/utils";
 
 type Source = "upload" | "url" | "s3";
 
+/** A file on its way in: upload progress (null once uploaded, or for a URL or a bucket), and how to stop it. */
+export type Preparing = { name: string; progress: number | null; abort?: () => void };
+
 /** Restores a dump from a file, a URL or an S3 bucket. The upload streams straight to disk. */
 export function ImportCard(props: {
   serviceId: string;
@@ -31,6 +34,8 @@ export function ImportCard(props: {
   destinations: { id: string; name: string; bucket: string }[];
   /** id: the import, which a database service restores next from the restore window. */
   onStarted: (id?: string) => void;
+  /** A database service: the file on its way in (shown in the restore window); null when it stopped. */
+  onPreparing?: (p: Preparing | null) => void;
 }) {
   const confirm = useConfirm();
   const [source, setSource] = React.useState<Source>("upload");
@@ -80,7 +85,20 @@ export function ImportCard(props: {
         `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}${users ? "&users=1" : ""}${twoStep ? "&restore=0" : ""}${props.target ? `&target=${encodeURIComponent(props.target)}` : ""}`,
       );
       if (passphrase) xhr.setRequestHeader("x-backup-passphrase", passphrase);
-      xhr.upload.onprogress = (e) => e.lengthComputable && setProgress(e.loaded / e.total);
+      // A database service shows the upload in the restore window, which can stop it.
+      const prep = twoStep ? props.onPreparing : undefined;
+      const abort = () => xhr.abort();
+      prep?.({ name: f.name, progress: 0, abort });
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        if (prep) prep({ name: f.name, progress: e.loaded / e.total, abort });
+        else setProgress(e.loaded / e.total);
+      };
+      xhr.onabort = () => {
+        setProgress(null);
+        prep?.(null);
+        resolve();
+      };
       xhr.onload = () => {
         setProgress(null);
         let message = "";
@@ -95,12 +113,17 @@ export function ImportCard(props: {
           try {
             id = (JSON.parse(xhr.responseText) as { id?: string }).id;
           } catch {}
+          prep?.({ name: f.name, progress: null });
           props.onStarted(id);
-        } else showError(message || `Upload failed (HTTP ${xhr.status}).`);
+        } else {
+          prep?.(null);
+          showError(message || `Upload failed (HTTP ${xhr.status}).`);
+        }
         resolve();
       };
       xhr.onerror = () => {
         setProgress(null);
+        prep?.(null);
         showError("The upload was interrupted.");
         resolve();
       };
@@ -121,7 +144,10 @@ export function ImportCard(props: {
       }));
     if (!ok) return;
     if (source === "upload" && file) await upload(file);
-    else await remote.run();
+    else {
+      if (twoStep) props.onPreparing?.({ name: (source === "url" ? url : key).split("/").pop() || "backup", progress: null });
+      if ((await remote.run()) === undefined) props.onPreparing?.(null);
+    }
   };
 
   return (

@@ -277,9 +277,10 @@ const NOISE = /Using a password on the command line interface can be insecure|^\
 
 /**
  * Run a shell command in a database container with `input` on stdin. Returns its output with the
- * password masked; `onOutput` also gets it as it comes, about once a second.
+ * password masked; `onOutput` also gets it as it comes, about once a second. `partial`: the command
+ * may stop reading early (pg_restore -l reads only the table of contents).
  */
-async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream, gz: boolean, onOutput?: (text: string) => void, filter?: NodeJS.ReadWriteStream) {
+async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream, gz: boolean, onOutput?: (text: string) => void, filter?: NodeJS.ReadWriteStream, partial = false) {
   const exec = await t.container.exec({ Cmd: ["sh", "-c", command], AttachStdin: true, AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({ hijack: true, stdin: true });
   let output = "";
@@ -326,7 +327,8 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
         .at(-1) ?? "")
     : clean.slice(-1500);
   if (exitCode !== null && exitCode !== 0) throw new Error(summary || `Command exited with ${exitCode}`);
-  if (readError) throw new Error(`Reading the file failed: ${readError.message}`);
+  const stoppedEarly = partial && exitCode === 0 && (readError as NodeJS.ErrnoException | null)?.code === "EPIPE";
+  if (readError && !stoppedEarly) throw new Error(`Reading the file failed: ${readError.message}`);
   if (exitCode === null) throw new Error(clean.slice(-1500) || "The command did not finish");
   return clean;
 }
@@ -1069,9 +1071,17 @@ export async function backupContents(backupId: string, passphrase?: string | nul
       const custom = cfg.engine === "postgres" && (await peek(file, gz, 5)).toString("latin1") === "PGDMP";
       if (custom) {
         let listing = "";
-        await runIn(await databaseCommands(backup.service), "pg_restore -l", fs.createReadStream(file), gz, (text) => {
-          listing += `${text}\n`;
-        });
+        await runIn(
+          await databaseCommands(backup.service),
+          "pg_restore -l",
+          fs.createReadStream(file),
+          gz,
+          (text) => {
+            listing += `${text}\n`;
+          },
+          undefined,
+          true,
+        );
         const name = listing.match(/^;\s+dbname:\s+(.+)$/m)?.[1]?.trim() ?? main;
         const tables = [...listing.matchAll(/^\d+;\s+\d+\s+\d+\s+TABLE\s+(?!DATA\s)(\S+)\s+(\S+)\s/gm)].map((m) => `${m[1]}.${m[2]}`);
         result = { databases: [{ name: "", label: name, tables: [...new Set(tables)] }], tables: true };

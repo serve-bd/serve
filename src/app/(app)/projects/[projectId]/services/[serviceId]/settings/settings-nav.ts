@@ -56,6 +56,7 @@ export function settingsNav(s: SettingsNavInput): SettingsNavItem[] {
     ...(s.type === "app" || s.type === "compose" ? [{ id: "storage", label: "Persistent storage" }] : []),
     ...(s.type !== "compose" ? [{ id: "resources", label: "Resources" }] : []),
     ...(s.type !== "compose" ? [{ id: "advanced", label: "Advanced" }] : []),
+    ...(s.type === "app" || s.type === "compose" ? [{ id: "access", label: "Access control" }] : []),
     ...(s.type !== "database" ? [{ id: "webhooks", label: "Webhooks" }] : []),
     ...(s.type !== "database" ? [{ id: "maintenance", label: "Maintenance" }] : []),
     { id: "monitoring", label: "Monitoring" },

@@ -62,6 +62,18 @@ export type ServiceProxyConfig = {
 /** The login wall is on: for the team, for guests, or both. */
 export const gateOn = (c: ServiceProxyConfig | null | undefined) => !!c && (!!c.login || !!c.guests?.length);
 
+/** The saved options as the HTTP options form gets them: never a password hash. */
+export function proxyFormInitial(c: ServiceProxyConfig | null | undefined) {
+  if (!c) return null;
+  const { basicAuth, guests, ...rest } = c;
+  return {
+    ...rest,
+    basicAuthUser: basicAuth?.username ?? null,
+    basicAuthHasBcrypt: !!basicAuth?.bcryptHash,
+    guests: (guests ?? []).map((g) => ({ id: g.id, email: g.email })),
+  };
+}
+
 /** Who gets past the login wall, in a few words; null when it is off. */
 export function wallLabel(c: ServiceProxyConfig | null | undefined) {
   if (!gateOn(c)) return null;

@@ -1,4 +1,4 @@
-import { wallLabel } from "@/server/services/proxy-config";
+import { proxyFormInitial, wallLabel } from "@/server/services/proxy-config";
 import { and, asc, eq } from "drizzle-orm";
 import { privateHost } from "@/lib/hostname";
 import { pickPrimaryDomain } from "@/lib/domains";
@@ -56,14 +56,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
       .where(and(eq(schema.cloudflareTunnel.organizationId, ctx.org.id), eq(schema.cloudflareTunnel.serverId, service.serverId))),
   ]);
   // Never send the password hash to the browser.
-  const proxyInitial = service.proxy
-    ? (({ basicAuth, guests, ...rest }) => ({
-        ...rest,
-        basicAuthUser: basicAuth?.username ?? null,
-        basicAuthHasBcrypt: !!basicAuth?.bcryptHash,
-        guests: (guests ?? []).map((g) => ({ id: g.id, email: g.email })),
-      }))(service.proxy)
-    : null;
+  const proxyInitial = proxyFormInitial(service.proxy);
   const hasPorts = service.type === "app" || service.type === "compose";
   const [published, busy, listening] = hasPorts
     ? await Promise.all([publishedPorts(service, server), busyHostPorts(service), listeningPorts(service)])

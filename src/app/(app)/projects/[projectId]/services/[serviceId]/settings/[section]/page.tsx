@@ -13,6 +13,7 @@ import { decryptOrNull } from "@/server/crypto";
 import { serversForOrg } from "@/server/servers/access";
 import { traefikBehindProxy } from "@/server/proxy/trusted-proxies";
 import { notFound } from "next/navigation";
+import { getSettings } from "@/server/settings";
 import { ServiceSettings } from "../service-settings";
 import { settingsNav } from "../settings-nav";
 import { monitorSummary } from "@/server/monitoring/queries";
@@ -214,6 +215,30 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
     const { PublicAccess } = await import("../public-access");
     const view = await databaseAccessView(service, { id: ctx.org.id, can: (p) => ctx.can(p as never) });
     return <PublicAccess serviceId={service.id} view={view} canManage={ctx.can("services.manage") && ctx.can("services.deploy")} canManageDomain={ctx.can("domains.manage")} />;
+  }
+  // The same card as in Domains: who may reach the app (login wall, guests, password, IPs).
+  if (section === "access") {
+    const [{ ProxyOptionsCard }, { proxyFormInitial }, { getServerRow }, settings] = await Promise.all([
+      import("../../domains/proxy-options-card"),
+      import("@/server/services/proxy-config"),
+      import("@/server/servers/context"),
+      getSettings(),
+    ]);
+    const server = await getServerRow(service.serverId);
+    return (
+      <ProxyOptionsCard
+        only="access"
+        key={JSON.stringify(service.proxy ?? null)}
+        serviceId={service.id}
+        initial={proxyFormInitial(service.proxy)}
+        isAdmin={ctx.isAdmin}
+        isInstanceAdmin={ctx.isInstanceAdmin}
+        hasTls={false}
+        proxyKind={server.proxyKind as "nginx" | "caddy" | "traefik"}
+        behindProxy={!!server.trustedProxies && (server.trustedProxies.ranges.length > 0 || server.trustedProxies.cloudflare || !!server.trustedProxies.machine)}
+        dashboardDomain={!!settings.dashboardDomain}
+      />
+    );
   }
   // Maintenance mode changes what visitors get, so saving it needs deploy rights.
   if (section === "maintenance" && !ctx.can("services.deploy")) return <NoAccess permission="services.deploy" />;

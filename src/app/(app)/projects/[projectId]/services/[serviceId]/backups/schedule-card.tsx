@@ -64,11 +64,11 @@ function nextRuns(cron: string, tz: string, count = 3, from?: number): Date[] | 
 
 type KeepKey = "days" | "daily" | "weekly" | "monthly" | "yearly";
 const KEEP_FIELDS: { key: KeepKey; prefix: string; suffix: string }[] = [
-  { key: "days", prefix: "All from", suffix: "days" },
-  { key: "daily", prefix: "1 a day for", suffix: "days" },
-  { key: "weekly", prefix: "1 a week for", suffix: "weeks" },
-  { key: "monthly", prefix: "1 a month for", suffix: "months" },
-  { key: "yearly", prefix: "1 a year for", suffix: "years" },
+  { key: "days", prefix: "Every backup of the last", suffix: "days" },
+  { key: "daily", prefix: "One a day for", suffix: "days" },
+  { key: "weekly", prefix: "One a week for", suffix: "weeks" },
+  { key: "monthly", prefix: "One a month for", suffix: "months" },
+  { key: "yearly", prefix: "One a year for", suffix: "years" },
 ];
 
 export function ScheduleCard(props: {
@@ -363,19 +363,22 @@ export function ScheduleCard(props: {
               <span className="text-[13px] font-medium text-fg-2">
                 Keep longer <span className="font-normal text-muted">Optional</span>
               </span>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="flex flex-col gap-2">
                 {KEEP_FIELDS.map((k) => (
-                  <InputGroup key={k.key} prefix={k.prefix} suffix={k.suffix} className="w-full">
-                    <Input
-                      value={keepRules[k.key]}
-                      onChange={(e) => setKeepRules({ ...keepRules, [k.key]: e.target.value.replace(/\D/g, "").slice(0, 5) })}
-                      inputMode="numeric"
-                      placeholder="0"
-                      aria-label={`${k.prefix} ${k.suffix}`}
-                      className="min-w-0 flex-1 font-mono"
-                      disabled={!props.canEdit}
-                    />
-                  </InputGroup>
+                  <div key={k.key} className="flex items-center justify-between gap-3">
+                    <span className="text-[13px] text-fg-2">{k.prefix}</span>
+                    <InputGroup suffix={k.suffix} className="w-36 flex-none">
+                      <Input
+                        value={keepRules[k.key]}
+                        onChange={(e) => setKeepRules({ ...keepRules, [k.key]: e.target.value.replace(/\D/g, "").slice(0, 5) })}
+                        inputMode="numeric"
+                        placeholder="0"
+                        aria-label={`${k.prefix} ${k.suffix}`}
+                        className="min-w-0 flex-1 font-mono"
+                        disabled={!props.canEdit}
+                      />
+                    </InputGroup>
+                  </div>
                 ))}
               </div>
               <span className="text-xs text-muted">

@@ -6,6 +6,7 @@ import { PassThrough, Readable } from "node:stream";
 import readline from "node:readline";
 import zlib from "node:zlib";
 import { decryptFile, ENCRYPTED_SUFFIX, encryptFile, keyHint } from "./encrypt";
+import { keptBackups, type KeepRules } from "@/lib/retention";
 import { accountsMergeSql, planSql, type SqlEngine, sqlFilterStream, sqlLineFilter } from "./sql-filter";
 import { pipeline } from "node:stream/promises";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -120,6 +121,10 @@ type Target = {
   keepLocal: boolean;
   /** Backups are encrypted with it. */
   passphrase: string | null;
+  /** More buckets each backup is copied to. */
+  copies: string[];
+  /** Kept on top of the newest `retention`/`retentionS3`. */
+  keep: KeepRules | null;
   dump(file: string): Promise<number>;
   /** `onStopped`: the containers a storage restore stopped (empty once they run again). */
   restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string }>;
@@ -489,6 +494,8 @@ export async function targetOf(service: ServiceRow, key: string | null, database
       retentionS3: cfg.backupRetentionS3 ?? cfg.backupRetention,
       keepLocal: !cfg.s3DestinationId || cfg.backupLocal !== false,
       passphrase: cfg.backupPassphrase ? decrypt(cfg.backupPassphrase) : null,
+      copies: (cfg.backupCopyDestinationIds ?? []).filter((id) => id !== cfg.s3DestinationId),
+      keep: cfg.backupKeep ?? null,
       dump: async (file) => dumpWith(await databaseCommands(service, databases), file, { timeoutMinutes: cfg.backupTimeoutMinutes, lowPriority: cfg.backupLowPriority }),
       restore: async (file, log, _onStopped, opts) => restoreWith(await databaseCommands(service), file, log, opts),
     };
@@ -503,6 +510,8 @@ export async function targetOf(service: ServiceRow, key: string | null, database
     retentionS3: cfg?.retentionS3 ?? cfg?.retention ?? 7,
     keepLocal: !cfg?.s3DestinationId || cfg.local !== false,
     passphrase: cfg?.passphrase ? decrypt(cfg.passphrase) : null,
+    copies: (cfg?.copyDestinationIds ?? []).filter((id) => id !== cfg?.s3DestinationId),
+    keep: cfg?.keep ?? null,
   };
   if (parsed.kind === "db") {
     const commands = await composeCommands(service, parsed.name);
@@ -666,12 +675,37 @@ export async function runBackup(backupId: string, protect?: string) {
       }
     }
 
+    // More copies, each in its own bucket. One that fails is noted; the backup still counts.
+    const copies: { destinationId: string; status: "uploaded" | "failed" }[] = [];
+    for (const id of t.copies) {
+      const extra = await s3For(id).catch(() => null);
+      if (!extra) continue;
+      try {
+        await s3Upload(extra, s3Key(extra.prefix, service.slug, filename), file);
+        copies.push({ destinationId: id, status: "uploaded" });
+        await logLine(backup.id, `Copied to S3 bucket ${extra.bucket}`);
+      } catch (e) {
+        copies.push({ destinationId: id, status: "failed" });
+        await logLine(backup.id, `Copy to S3 bucket ${extra.bucket} failed: ${(e as Error).message}`);
+      }
+    }
+
     await db
       .update(schema.backup)
-      .set({ status: "success", filename, size, checksum, keyHint: hint, destination: s3Status === "uploaded" ? s3!.id : "local", s3Status, finishedAt: new Date() })
+      .set({
+        status: "success",
+        filename,
+        size,
+        checksum,
+        keyHint: hint,
+        copies: copies.length ? copies : null,
+        destination: s3Status === "uploaded" ? s3!.id : "local",
+        s3Status,
+        finishedAt: new Date(),
+      })
       .where(eq(schema.backup.id, backup.id));
     // The backup is done: a failing cleanup of older ones must not undo it.
-    await applyRetention(service.id, backup.target, t.keepLocal ? t.retention : 0, t.retentionS3, protect).catch((e) =>
+    await applyRetention(service.id, backup.target, t.keepLocal ? t.retention : 0, t.retentionS3, protect, t.keep).catch((e) =>
       logLine(backup.id, `Removing old backups failed: ${(e as Error).message}`).catch(() => {}),
     );
     if (backup.trigger === "schedule") {
@@ -711,7 +745,31 @@ export async function runBackup(backupId: string, protect?: string) {
  * whose copies are all gone is removed from the list. Imported files are kept.
  */
 /** keepLocal 0: copies live in the bucket only, so each one uploaded loses its file on the server (one that failed to upload keeps it). */
-async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number, protect?: string) {
+/** A backup's S3 copies: its main bucket (destination) and the more buckets it was copied to. */
+function s3Copies(b: typeof schema.backup.$inferSelect) {
+  return [...(b.destination !== "local" ? [b.destination] : []), ...(b.copies ?? []).filter((c) => c.status === "uploaded").map((c) => c.destinationId)];
+}
+
+async function deleteS3Copies(b: typeof schema.backup.$inferSelect, slug: string) {
+  let ok = true;
+  for (const id of s3Copies(b)) {
+    const s3 = await s3For(id).catch(() => null);
+    if (s3)
+      ok =
+        (await s3Delete(s3, s3Key(s3.prefix, slug, b.filename!)).then(
+          () => true,
+          () => false,
+        )) && ok;
+  }
+  return ok;
+}
+
+/**
+ * Removes old backups: the newest `keepLocal` stay on the server and the newest `keepS3` in the
+ * buckets, plus what `keep` asks for (by age, and one per day, week, month and year). With a bucket
+ * the rules are for the bucket copies; without one, for the server's.
+ */
+async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number, protect?: string, keep?: KeepRules | null) {
   const rows = await db
     .select()
     .from(schema.backup)
@@ -720,21 +778,19 @@ async function applyRetention(serviceId: string, target: string | null, keepLoca
   // A backup queued for a restore (marked running when queued) waits for it, after this job.
   const own = rows.filter((b) => b.trigger !== "import" && b.id !== protect && b.restoreStatus !== "running");
   const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, serviceId));
-  for (const [i, b] of own.entries()) {
+  const inBucket = own.filter((b) => s3Copies(b).length > 0);
+  const keepRemote = keptBackups(inBucket, keepS3, keep);
+  const keepHere = keptBackups(own, keepLocal === 0 ? 0 : keepLocal, inBucket.length ? null : keep);
+  for (const b of own) {
     if (!b.filename) continue;
-    const inS3 = b.destination !== "local";
-    const dropLocal = keepLocal === 0 ? inS3 : i >= Math.max(1, keepLocal);
-    let dropS3 = inS3 && i >= Math.max(1, keepS3);
+    const inS3 = s3Copies(b).length > 0;
+    const dropLocal = keepLocal === 0 ? inS3 : !keepHere.has(b.id);
+    let dropS3 = inS3 && !keepRemote.has(b.id);
     if (dropLocal) await fs.promises.rm(backupFile(serviceId, b.filename), { force: true });
     if (dropS3 && svc) {
-      const s3 = await s3For(b.destination);
-      // A failed delete keeps the S3 copy listed, so the next run tries again.
-      if (s3)
-        dropS3 = await s3Delete(s3, s3Key(s3.prefix, svc.slug, b.filename)).then(
-          () => true,
-          () => false,
-        );
-      if (dropS3) await db.update(schema.backup).set({ s3Status: "deleted", destination: "local" }).where(eq(schema.backup.id, b.id));
+      // A failed delete keeps the copies listed, so the next run tries again.
+      dropS3 = await deleteS3Copies(b, svc.slug);
+      if (dropS3) await db.update(schema.backup).set({ s3Status: "deleted", destination: "local", copies: null }).where(eq(schema.backup.id, b.id));
     }
     if (dropLocal && (!inS3 || dropS3)) await db.delete(schema.backup).where(eq(schema.backup.id, b.id));
   }
@@ -747,11 +803,16 @@ export function hasLocalCopy(b: { serviceId: string; filename: string | null }) 
 
 /** Streams a backup stored only in S3. */
 export async function openS3Backup(b: typeof schema.backup.$inferSelect) {
-  if (!b.filename || b.destination === "local") return null;
-  const s3 = await s3For(b.destination);
+  if (!b.filename) return null;
   const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, b.serviceId));
-  if (!s3 || !svc) return null;
-  return s3Stream(s3, s3Key(s3.prefix, svc.slug, b.filename));
+  if (!svc) return null;
+  // The main bucket first, then the copies: one bucket being down does not lose the backup.
+  for (const id of s3Copies(b)) {
+    const s3 = await s3For(id).catch(() => null);
+    const stream = s3 ? await s3Stream(s3, s3Key(s3.prefix, svc.slug, b.filename)).catch(() => null) : null;
+    if (stream) return stream;
+  }
+  return null;
 }
 
 /**
@@ -762,11 +823,8 @@ export async function openS3Backup(b: typeof schema.backup.$inferSelect) {
 export async function deleteBackupFiles(b: typeof schema.backup.$inferSelect, _s3Id?: string | null) {
   if (!b.filename) return;
   await fs.promises.rm(backupFile(b.serviceId, b.filename), { force: true });
-  const s3 = b.destination !== "local" ? await s3For(b.destination) : null;
-  if (s3) {
-    const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, b.serviceId));
-    if (svc) await s3Delete(s3, s3Key(s3.prefix, svc.slug, b.filename)).catch(() => {});
-  }
+  const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, b.serviceId));
+  if (svc) await deleteS3Copies(b, svc.slug);
 }
 
 /**
@@ -848,11 +906,20 @@ async function intoService(source: ServiceRow, id: string) {
 export async function localBackupFile(backup: typeof schema.backup.$inferSelect & { service: ServiceRow }) {
   const file = backupFile(backup.serviceId, backup.filename!);
   if (!fs.existsSync(file)) {
-    const s3 = await s3For(backup.destination !== "local" ? backup.destination : null);
-    if (!s3) throw new Error("The backup file is missing.");
-    await logLine(backup.id, "Downloading from S3");
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
-    await s3Download(s3, s3Key(s3.prefix, backup.service.slug, backup.filename!), file);
+    let done = false;
+    // The main bucket first, then the copies.
+    for (const id of s3Copies(backup)) {
+      const s3 = await s3For(id).catch(() => null);
+      if (!s3) continue;
+      await logLine(backup.id, `Downloading from S3 bucket ${s3.bucket}`);
+      done = await s3Download(s3, s3Key(s3.prefix, backup.service.slug, backup.filename!), file).then(
+        () => true,
+        (e: Error) => (void logLine(backup.id, `Download failed: ${e.message}`), false),
+      );
+      if (done) break;
+    }
+    if (!done) throw new Error("The backup file is missing.");
   }
   return file;
 }

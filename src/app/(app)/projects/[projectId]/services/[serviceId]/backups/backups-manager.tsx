@@ -1,5 +1,6 @@
 "use client";
 
+import type { KeepRules } from "@/lib/retention";
 import { ALL_DATABASES, readChoice } from "@/lib/backup-databases";
 import * as React from "react";
 import useSWR from "swr";
@@ -43,6 +44,7 @@ type Backup = {
   verifyError: string | null;
   /** Encrypted with a passphrase. */
   keyHint: string | null;
+  copies: { destinationId: string; status: "uploaded" | "failed" | "deleted" }[] | null;
 };
 
 const triggerLabel: Record<string, string> = { manual: "Manual", schedule: "Scheduled", import: "Imported", "pre-import": "Before restore" };
@@ -165,7 +167,12 @@ function BackupRow({
           )}
           {b.s3Status === "uploaded" && (
             <Badge tone="info">
-              <Cloud /> S3
+              <Cloud /> S3{(b.copies ?? []).filter((c) => c.status === "uploaded").length ? ` ×${1 + (b.copies ?? []).filter((c) => c.status === "uploaded").length}` : ""}
+            </Badge>
+          )}
+          {(b.copies ?? []).some((c) => c.status === "failed") && (
+            <Badge tone="bad">
+              <CloudOff /> Copy failed
             </Badge>
           )}
           {b.s3Status === "failed" && (
@@ -253,6 +260,8 @@ export function BackupsManager(props: {
   /** Backups are encrypted with a passphrase. */
   encrypted?: boolean;
   verify?: boolean;
+  copyDestinationIds?: string[];
+  keep?: KeepRules | null;
   s3DestinationId: string | null;
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
@@ -368,6 +377,8 @@ export function BackupsManager(props: {
           lowPriority={props.lowPriority}
           encrypted={props.encrypted}
           verify={props.verify}
+          copyDestinationIds={props.copyDestinationIds}
+          keep={props.keep}
           s3DestinationId={props.s3DestinationId}
           destinations={props.destinations}
           timezone={props.timezone}

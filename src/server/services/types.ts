@@ -1,3 +1,4 @@
+import type { KeepRules } from "@/lib/retention";
 /** A webhook Serve registered on the repository through the provider API. */
 export type RepoWebhook = {
   provider: "github" | "gitlab" | "gitea" | "bitbucket";
@@ -322,6 +323,10 @@ export type ComposeBackupConfig = {
   lowPriority?: boolean;
   /** Backups are encrypted with this passphrase (stored encrypted with Serve's key). */
   passphrase?: string | null;
+  /** More buckets each backup is copied to, besides s3DestinationId. */
+  copyDestinationIds?: string[];
+  /** Kept on top of the newest retention: by age, and one per day, week, month and year. */
+  keep?: KeepRules | null;
 };
 
 export type ReplicaInstance = { id: string; serverId: string };
@@ -403,6 +408,10 @@ export type DatabaseConfig = {
   backupPassphrase?: string | null;
   /** Backup proof: each day the newest backup is restored into a throwaway database to prove it works. */
   backupVerify?: boolean;
+  /** More buckets each backup is copied to, besides s3DestinationId. */
+  backupCopyDestinationIds?: string[];
+  /** Kept on top of the newest backupRetention: by age, and one per day, week, month and year. */
+  backupKeep?: KeepRules | null;
 
   /* Everything below is optional so older configs keep working. */
   description?: string | null;

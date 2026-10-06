@@ -532,6 +532,15 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
 /*                                  Settings                                  */
 /* -------------------------------------------------------------------------- */
 
+/** Backups kept on top of the newest ones (see keptBackups). */
+const keepRulesSchema = z.object({
+  days: z.number().int().min(0).max(36500).nullable().optional(),
+  daily: z.number().int().min(0).max(36500).nullable().optional(),
+  weekly: z.number().int().min(0).max(5200).nullable().optional(),
+  monthly: z.number().int().min(0).max(1200).nullable().optional(),
+  yearly: z.number().int().min(0).max(100).nullable().optional(),
+});
+
 const updateSchema = z.object({
   name: serviceName.optional(),
   /** Extra private hostname; "" or null removes it. */
@@ -695,6 +704,8 @@ const updateSchema = z.object({
       /** A new passphrase encrypts the backups from now on; null stops encrypting. */
       backupPassphrase: z.string().min(8, "Use at least 8 characters for the passphrase").max(200).nullable(),
       backupVerify: z.boolean(),
+      backupCopyDestinationIds: z.array(z.string().max(64)),
+      backupKeep: keepRulesSchema.nullable(),
       s3DestinationId: z.string().nullable(),
     })
     .partial()
@@ -891,6 +902,14 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         } catch {
           throw new UserError("The backup schedule is not a valid cron expression.");
         }
+      }
+      // Every bucket a backup goes to must be the organization's.
+      for (const id of data.database.backupCopyDestinationIds ?? []) {
+        const [dest] = await db
+          .select({ id: schema.s3Destination.id })
+          .from(schema.s3Destination)
+          .where(and(eq(schema.s3Destination.id, id), eq(schema.s3Destination.organizationId, ctx.org.id)));
+        if (!dest) throw new UserError("Backup storage not found.");
       }
       if (data.database.s3DestinationId) {
         const [dest] = await db

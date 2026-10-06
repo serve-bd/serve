@@ -1182,6 +1182,8 @@ export const backup = pgTable(
     checksum: text("checksum"),
     /** Encrypted with a passphrase (the file ends in .enc): which one, as keyHint() of it. */
     keyHint: text("key_hint"),
+    /** More buckets it was copied to (besides destination), and how each copy went. */
+    copies: jsonb("copies").$type<{ destinationId: string; status: "uploaded" | "failed" | "deleted" }[]>(),
     /** Backup proof: restored into a throwaway database (running, passed, failed), when, and what came back. */
     verifyStatus: text("verify_status").$type<"running" | "passed" | "failed">(),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),

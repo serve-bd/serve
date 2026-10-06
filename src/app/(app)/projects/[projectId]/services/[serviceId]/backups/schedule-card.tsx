@@ -1,5 +1,6 @@
 "use client";
 
+import type { KeepRules } from "@/lib/retention";
 import { TimeInput } from "@/components/ui/time-input";
 import * as React from "react";
 import Link from "next/link";
@@ -61,6 +62,15 @@ function nextRuns(cron: string, tz: string, count = 3, from?: number): Date[] | 
   }
 }
 
+type KeepKey = "days" | "daily" | "weekly" | "monthly" | "yearly";
+const KEEP_FIELDS: { key: KeepKey; prefix: string; suffix: string }[] = [
+  { key: "days", prefix: "All from", suffix: "days" },
+  { key: "daily", prefix: "1 a day for", suffix: "days" },
+  { key: "weekly", prefix: "1 a week for", suffix: "weeks" },
+  { key: "monthly", prefix: "1 a month for", suffix: "months" },
+  { key: "yearly", prefix: "1 a year for", suffix: "years" },
+];
+
 export function ScheduleCard(props: {
   serviceId: string;
   /** A compose stack's backup key; saved on the stack instead of the database service. */
@@ -85,6 +95,10 @@ export function ScheduleCard(props: {
   encrypted?: boolean;
   /** Database services: the newest backup is test-restored each day. */
   verify?: boolean;
+  /** More buckets each backup is copied to. */
+  copyDestinationIds?: string[];
+  /** Kept on top of the newest ones: by age, and one per day, week, month and year. */
+  keep?: KeepRules | null;
 }) {
   const dumps = props.noun !== "copies";
   const choices = props.databaseChoices ?? null;
@@ -103,8 +117,22 @@ export function ScheduleCard(props: {
       encrypt: !!props.encrypted,
       passphrase: "",
       verify: !!props.verify,
+      copies: props.copyDestinationIds ?? [],
+      keep: Object.fromEntries(KEEP_FIELDS.map((k) => [k.key, props.keep?.[k.key] ? String(props.keep[k.key]) : ""])) as Record<KeepKey, string>,
     }),
-    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId, props.keepLocal, props.timeoutMinutes, props.lowPriority, props.encrypted, props.verify],
+    [
+      props.schedule,
+      props.retention,
+      props.retentionS3,
+      props.s3DestinationId,
+      props.keepLocal,
+      props.timeoutMinutes,
+      props.lowPriority,
+      props.encrypted,
+      props.verify,
+      props.copyDestinationIds,
+      props.keep,
+    ],
   );
   const [enabled, setEnabled] = React.useState(initial.enabled);
   const [plan, setPlan] = React.useState<Plan>(initial.plan);
@@ -117,6 +145,8 @@ export function ScheduleCard(props: {
   const [encrypt, setEncrypt] = React.useState(initial.encrypt);
   const [passphrase, setPassphrase] = React.useState("");
   const [verify, setVerify] = React.useState(initial.verify);
+  const [copies, setCopies] = React.useState<string[]>(initial.copies);
+  const [keepRules, setKeepRules] = React.useState(initial.keep);
   // The plan only counts while the schedule is on: turned off, the saved schedule has none.
   const [saved, setSaved] = React.useState(() =>
     JSON.stringify({ ...initial, plan: initial.enabled ? initial.plan : null, dbs: props.databaseChoices?.selected?.length ? [...props.databaseChoices.selected].sort() : null }),
@@ -139,11 +169,16 @@ export function ScheduleCard(props: {
     encrypt,
     passphrase,
     verify,
+    copies,
+    keepRules,
     dbs: choices ? savedChoice(choices, dbs) : null,
   });
   // Turning encryption on needs a passphrase; a new one replaces the saved one, empty keeps it.
   const needsPassphrase = encrypt && !props.encrypted && passphrase.length < 8;
   const backupPassphrase = encrypt ? passphrase || undefined : null;
+  const keepOut = Object.fromEntries(KEEP_FIELDS.map((k) => [k.key, Number(keepRules[k.key]) || null])) as KeepRules;
+  const keepSaved = KEEP_FIELDS.some((k) => keepOut[k.key]) ? keepOut : null;
+  const copyIds = bucket ? copies.filter((c) => c !== bucket) : [];
   const dirty = snapshot !== saved;
   const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
 
@@ -163,6 +198,8 @@ export function ScheduleCard(props: {
           timeoutMinutes: minutes,
           lowPriority,
           passphrase: backupPassphrase,
+          copyDestinationIds: copyIds,
+          keep: keepSaved,
         });
       return updateService(props.serviceId, {
         database: {
@@ -175,6 +212,8 @@ export function ScheduleCard(props: {
           backupLowPriority: lowPriority,
           ...(backupPassphrase !== undefined ? { backupPassphrase } : {}),
           backupVerify: verify,
+          backupCopyDestinationIds: copyIds,
+          backupKeep: keepSaved,
           ...(choices ? { backupDatabases: savedChoice(choices, dbs) } : {}),
         },
       });
@@ -325,6 +364,29 @@ export function ScheduleCard(props: {
                 </Field>
               )}
             </div>
+            <div className="flex flex-col gap-2">
+              <span className="text-[13px] font-medium text-fg-2">
+                Keep longer <span className="font-normal text-muted">Optional</span>
+              </span>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {KEEP_FIELDS.map((k) => (
+                  <InputGroup key={k.key} prefix={k.prefix} suffix={k.suffix} className="w-full">
+                    <Input
+                      value={keepRules[k.key]}
+                      onChange={(e) => setKeepRules({ ...keepRules, [k.key]: e.target.value.replace(/\D/g, "").slice(0, 5) })}
+                      inputMode="numeric"
+                      placeholder="0"
+                      aria-label={`${k.prefix} ${k.suffix}`}
+                      className="min-w-0 flex-1 font-mono"
+                      disabled={!props.canEdit}
+                    />
+                  </InputGroup>
+                ))}
+              </div>
+              <span className="text-xs text-muted">
+                On top of the latest ones{bucket ? ", for the bucket copies" : ""}: everything from the last days, and the newest backup of each day, week, month and year.
+              </span>
+            </div>
           </>
         )}
 
@@ -337,16 +399,21 @@ export function ScheduleCard(props: {
         <Field label="Store backups in">
           <div className="flex flex-col gap-2">
             {[{ id: "local", name: "This server", bucket: null as string | null }, ...props.destinations].map((d) => {
-              // The server and one bucket can both be on; at least one place is always kept.
-              const on = d.id === "local" ? local : bucket === d.id;
+              // The server and any number of buckets; the first bucket picked is the main one, the
+              // others get copies. At least one place is always kept.
+              const on = d.id === "local" ? local : bucket === d.id || copies.includes(d.id);
               const toggle = () => {
                 if (d.id === "local") {
                   if (local && !bucket) return;
                   setLocal(!local);
                 } else if (bucket === d.id) {
-                  setBucket(null);
-                  setLocal(true);
-                } else setBucket(d.id);
+                  const [next, ...rest] = copies.filter((c) => c !== d.id);
+                  setBucket(next ?? null);
+                  setCopies(rest);
+                  if (!next) setLocal(true);
+                } else if (copies.includes(d.id)) setCopies(copies.filter((c) => c !== d.id));
+                else if (!bucket) setBucket(d.id);
+                else setCopies([...copies, d.id]);
               };
               const last = on && (d.id === "local" ? !bucket : !local);
               return (
@@ -367,7 +434,9 @@ export function ScheduleCard(props: {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-medium text-fg">{d.name}</span>
-                    <span className="block truncate text-xs text-muted">{d.bucket ? `Bucket ${d.bucket}` : "Kept in the data directory; lost if the server is lost"}</span>
+                    <span className="block truncate text-xs text-muted">
+                      {d.bucket ? `Bucket ${d.bucket}${copies.includes(d.id) ? " · a copy" : ""}` : "Kept in the data directory; lost if the server is lost"}
+                    </span>
                   </span>
                   {on && <Check className="size-4 flex-none text-accent" />}
                 </button>
@@ -470,6 +539,8 @@ export function ScheduleCard(props: {
                   setLowPriority(initial.lowPriority);
                   setEncrypt(initial.encrypt);
                   setVerify(initial.verify);
+                  setCopies(initial.copies);
+                  setKeepRules(initial.keep);
                   setPassphrase("");
                 }}
               >

@@ -713,11 +713,28 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
     if (format === "tar.gz" && clean) await logLine(backupId, clean.slice(-2000));
     await db.update(schema.backup).set({ restoreStatus: "success", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));
     await logLine(backupId, "Restore finished");
+    void notify(await orgOfService(service.id), "restore.success", {
+      ok: true,
+      title: `${backup.trigger === "import" ? "Import" : "Restore"} into ${t.label} finished`,
+      body: backup.filename,
+      url: `/projects/${service.projectId}/services/${service.id}/backups`,
+      serviceId: service.id,
+      data: { backupId },
+    });
     return clean;
   } catch (error) {
     const message = (error as Error).message;
     await db.update(schema.backup).set({ restoreStatus: "failed", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));
     await logLine(backupId, `Restore failed: ${message.slice(0, 2000)}`);
+    void notify(await orgOfService(service.id), "restore.failed", {
+      ok: false,
+      title: `${backup.trigger === "import" ? "Import" : "Restore"} into ${service.name} failed`,
+      body: message.slice(0, 400),
+      url: `/projects/${service.projectId}/services/${service.id}/backups`,
+      error: message.slice(0, 2000),
+      serviceId: service.id,
+      data: { backupId },
+    });
     throw error;
   }
 }

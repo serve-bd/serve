@@ -53,6 +53,9 @@ type Pending = ConfirmOptions & { resolve: (ok: boolean) => void };
 
 const ConfirmContext = React.createContext<(opts: ConfirmOptions) => Promise<boolean>>(async () => false);
 
+/** Keep browsers and password managers out: a confirmation is typed, never filled in. */
+const NO_AUTOFILL = { autoComplete: "off", "data-1p-ignore": true, "data-lpignore": "true", "data-bwignore": true, "data-form-type": "other" } as const;
+
 export function useConfirm() {
   return React.useContext(ConfirmContext);
 }
@@ -165,13 +168,26 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                       <span>
                         Type <CopyChip text={pending.typeToConfirm} /> to confirm
                       </span>
-                      <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+                      <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} {...NO_AUTOFILL} />
                     </label>
                   )}
                   {askPassword && (
                     <label className="mt-2 flex flex-col gap-1.5 text-[13px] text-fg-2">
                       <span>Your password</span>
-                      <Input type="password" autoFocus={!pending?.typeToConfirm} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+                      <Input
+                        type="password"
+                        autoFocus={!pending?.typeToConfirm}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        {...NO_AUTOFILL}
+                        // "new-password": browsers do not fill a saved password (nor its email into the field above).
+                        autoComplete="new-password"
+                        // Read-only until focused: autofill skips it while the dialog opens.
+                        readOnly
+                        onFocus={(e) => {
+                          e.currentTarget.readOnly = false;
+                        }}
+                      />
                     </label>
                   )}
                 </div>

@@ -172,6 +172,63 @@ export async function changeDatabasePassword(serviceId: string, password?: strin
   });
 }
 
+/** The databases on a running server that can become its main one (Postgres, MySQL, MariaDB). */
+export async function mainDatabaseChoices(serviceId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    const cfg = service.database;
+    if (!cfg || !MAIN_ENGINES.has(cfg.engine) || service.status !== "running") return { databases: [] as string[], main: cfg?.database ?? null };
+    const { listDatabases } = await import("@/server/databases/list");
+    return { databases: await listDatabases(service), main: cfg.database };
+  });
+}
+
+const MAIN_ENGINES = new Set(["postgres", "mysql", "mariadb"]);
+
+/**
+ * Makes another database on the server the main one: the connection URL and ${{name.DATABASE_URL}}
+ * point at it (a restore that kept a dump's own database name, like ecommerce). On MySQL and
+ * MariaDB the account apps connect with gets it too.
+ */
+export async function setMainDatabase(serviceId: string, name: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    const cfg = service.database;
+    if (!cfg || !MAIN_ENGINES.has(cfg.engine)) throw new UserError("Only PostgreSQL, MySQL and MariaDB have a main database to choose.");
+    if (name === cfg.database) throw new UserError(`${name} is the main database already.`);
+    if (service.status !== "running") throw new UserError("Start the database first: the choice comes from the databases on it.");
+    const { listDatabases } = await import("@/server/databases/list");
+    if (!(await listDatabases(service)).includes(name)) throw new UserError(`There is no database named ${name}.`);
+    if (cfg.engine !== "postgres" && cfg.username !== "root") {
+      const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+      const sql = `GRANT ALL PRIVILEGES ON \`${name.replaceAll("`", "``")}\`.* TO '${cfg.username.replaceAll("'", "''")}'@'%';`;
+      const server = await serverOf(service);
+      const result = await execInContainer(service.slug, ["sh", "-c", `MYSQL_PWD=${q(decrypt(cfg.password))} ${cfg.engine} -uroot -e ${q(sql)}`], {}, server.docker).catch(
+        (e: Error) => ({
+          exitCode: 1,
+          output: e.message,
+        }),
+      );
+      if (result.exitCode !== 0) throw new UserError(`The database refused the change: ${result.output.trim().split("\n").at(-1) ?? ""}`);
+    }
+    await db
+      .update(schema.service)
+      .set({ database: { ...cfg, database: name } })
+      .where(eq(schema.service.id, serviceId));
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "database.main",
+      targetType: "service",
+      targetId: service.id,
+      message: `Made ${name} the main database of ${service.name}`,
+    });
+    return { dependents: await dependentsOf(service) };
+  });
+}
+
 /** Redeploys running services (after a database password change). */
 export async function redeployServices(serviceIds: string[]) {
   return act(async () => {

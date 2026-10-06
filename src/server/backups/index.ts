@@ -943,6 +943,10 @@ async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line
         ? `Restoring the dump's database ${named[0]} into ${t.database}.`
         : `Restoring into ${t.database || "the database"}.`,
   );
+  // The data lands in databases of the dump's own names, none of them the one the connection URL names.
+  const landed = named.filter((d) => !opts.databases?.length || opts.databases.includes(d)).map((d) => opts.renames?.[d] || d);
+  if (keepNames && landed.length && !plan.databases.includes("") && !landed.includes(t.database))
+    log(`The connection URL names ${t.database}, which this dump does not fill. To connect to ${landed[0]} instead, open Settings → Credentials and choose Use another.`);
   log(
     opts.users
       ? "The dump's users, roles and rights are restored too, except Serve's own accounts, which stay as they are."

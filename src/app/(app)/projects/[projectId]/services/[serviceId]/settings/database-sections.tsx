@@ -15,6 +15,8 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import {
   changeDatabasePassword,
+  mainDatabaseChoices,
+  setMainDatabase,
   databaseAddonStatus,
   redeployServices,
   setDatabasePooler,
@@ -157,6 +159,22 @@ function CredentialsSection(props: DatabaseSettingsProps) {
   });
   const redeploy = useAction((ids: string[]) => redeployServices(ids), { onSuccess: () => setDependents(null) });
   const { engine, config } = props;
+  // The main database: the one the connection URL names. Another one on the server can take its place.
+  const [picking, setPicking] = React.useState<string[] | null>(null);
+  const [main, setMain] = React.useState(config.database);
+  const loadChoices = useAction(() => mainDatabaseChoices(props.serviceId), {
+    onSuccess: (r) => {
+      setMain(r.main ?? config.database);
+      setPicking(r.databases);
+    },
+  });
+  const changeMain = useAction((name: string) => setMainDatabase(props.serviceId, name), {
+    onSuccess: (r) => {
+      setPicking(null);
+      setDependents(r.dependents);
+    },
+  });
+  const canPickMain = props.isAdmin && props.running && ["postgres", "mysql", "mariadb"].includes(config.engine);
   return (
     <Card id="credentials" className="scroll-mt-6">
       <CardHeader
@@ -181,7 +199,21 @@ function CredentialsSection(props: DatabaseSettingsProps) {
             <SecretField value={props.password} hidden={props.hideSecrets} />
           </Field>
           {engine.hasDatabase && (
-            <Field label="Database" description="Created on the first start.">
+            <Field
+              label="Database"
+              description={
+                canPickMain ? (
+                  <>
+                    The one the connection URL names.{" "}
+                    <button type="button" className="text-accent hover:underline" onClick={() => loadChoices.run()} disabled={loadChoices.pending}>
+                      Use another
+                    </button>
+                  </>
+                ) : (
+                  "Created on the first start."
+                )
+              }
+            >
               <CopyField value={config.database} />
             </Field>
           )}
@@ -189,8 +221,8 @@ function CredentialsSection(props: DatabaseSettingsProps) {
         {dependents && dependents.length > 0 && (
           <div className="flex flex-col gap-2 rounded-xl bg-warn-soft px-3.5 py-3 text-[13px] text-fg-2 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              {dependents.map((d) => d.name).join(", ")} {dependents.length === 1 ? "uses" : "use"} this password. Redeploy so {dependents.length === 1 ? "it picks" : "they pick"}{" "}
-              up the new one.
+              {dependents.map((d) => d.name).join(", ")} {dependents.length === 1 ? "connects" : "connect"} with these credentials. Redeploy so{" "}
+              {dependents.length === 1 ? "it picks" : "they pick"} them up.
             </span>
             <Button size="sm" variant="primary" loading={redeploy.pending} onClick={() => redeploy.run(dependents.map((d) => d.id))}>
               <RefreshCw /> Redeploy {dependents.length}
@@ -198,6 +230,27 @@ function CredentialsSection(props: DatabaseSettingsProps) {
           </div>
         )}
       </CardBody>
+      <Dialog open={!!picking} onOpenChange={(o) => !o && setPicking(null)}>
+        <DialogContent size="sm">
+          <DialogHeader
+            title="Main database"
+            description="The connection URL and ${{name.DATABASE_URL}} name this database. Apps that use them pick it up when they are redeployed."
+          />
+          <DialogBody>
+            <Field label="Database">
+              <Select value={main} onValueChange={setMain} options={(picking ?? []).map((d) => ({ value: d, label: d }))} />
+            </Field>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setPicking(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" loading={changeMain.pending} disabled={main === config.database} onClick={() => changeMain.run(main)}>
+              Use {main}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="sm">
           <DialogHeader title="Change password" description={`The password is changed inside the running ${engine.label} and saved, then the database restarts.`} />

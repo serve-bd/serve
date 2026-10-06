@@ -29,10 +29,8 @@ export function ImportCard(props: {
   extensions: string[];
   maxUpload: string | null;
   destinations: { id: string; name: string; bucket: string }[];
-  /** The databases on the server (Postgres, MySQL, MariaDB): the file's one database can go into one of them. */
-  databases?: string[];
-  main?: string;
-  onStarted: () => void;
+  /** id: the import, which a database service restores next from the restore window. */
+  onStarted: (id?: string) => void;
 }) {
   const confirm = useConfirm();
   const [source, setSource] = React.useState<Source>("upload");
@@ -42,8 +40,8 @@ export function ImportCard(props: {
   const [key, setKey] = React.useState("");
   const [backupFirst, setBackupFirst] = React.useState(true);
   const [users, setUsers] = React.useState(false);
-  // "": every database the file holds keeps its own name.
-  const [intoDatabase, setIntoDatabase] = React.useState("");
+  // A database service only receives the file here; the restore window then sets what goes where.
+  const twoStep = !props.target;
   const [passphrase, setPassphrase] = React.useState("");
   const [progress, setProgress] = React.useState<number | null>(null);
   const [drag, setDrag] = React.useState(false);
@@ -57,10 +55,11 @@ export function ImportCard(props: {
         users,
         passphrase || undefined,
         props.target ?? null,
-        intoDatabase || null,
+        null,
+        twoStep,
       ),
     {
-      onSuccess: () => props.onStarted(),
+      onSuccess: (r) => props.onStarted(r?.id),
     },
   );
 
@@ -78,7 +77,7 @@ export function ImportCard(props: {
       const xhr = new XMLHttpRequest();
       xhr.open(
         "POST",
-        `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}${users ? "&users=1" : ""}${intoDatabase ? `&database=${encodeURIComponent(intoDatabase)}` : ""}${props.target ? `&target=${encodeURIComponent(props.target)}` : ""}`,
+        `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}${users ? "&users=1" : ""}${twoStep ? "&restore=0" : ""}${props.target ? `&target=${encodeURIComponent(props.target)}` : ""}`,
       );
       if (passphrase) xhr.setRequestHeader("x-backup-passphrase", passphrase);
       xhr.upload.onprogress = (e) => e.lengthComputable && setProgress(e.loaded / e.total);
@@ -92,7 +91,11 @@ export function ImportCard(props: {
         }
         if (xhr.status >= 200 && xhr.status < 300) {
           setFile(null);
-          props.onStarted();
+          let id: string | undefined;
+          try {
+            id = (JSON.parse(xhr.responseText) as { id?: string }).id;
+          } catch {}
+          props.onStarted(id);
         } else showError(message || `Upload failed (HTTP ${xhr.status}).`);
         resolve();
       };
@@ -105,14 +108,17 @@ export function ImportCard(props: {
     });
 
   const start = async () => {
-    const ok = await confirm({
-      title: `Import into ${props.engineLabel}?`,
-      description: backupFirst
-        ? "The current data is backed up first, then replaced with the imported dump."
-        : "The current data is replaced with the imported dump. There is no safety backup.",
-      confirmLabel: "Import and restore",
-      danger: true,
-    });
+    // Nothing is replaced yet: the restore window comes next.
+    const ok =
+      twoStep ||
+      (await confirm({
+        title: `Import into ${props.engineLabel}?`,
+        description: backupFirst
+          ? "The current data is backed up first, then replaced with the imported dump."
+          : "The current data is replaced with the imported dump. There is no safety backup.",
+        confirmLabel: "Import and restore",
+        danger: true,
+      }));
     if (!ok) return;
     if (source === "upload" && file) await upload(file);
     else await remote.run();
@@ -120,7 +126,7 @@ export function ImportCard(props: {
 
   return (
     <Card>
-      <CardHeader title="Import backup" description={`Restore a dump made elsewhere: ${props.extensions.join(", ")}.`} />
+      <CardHeader title="Import backup" description={`A dump made elsewhere: ${props.extensions.join(", ")}.`} />
       <CardBody className="flex flex-col gap-4 py-5">
         <Tabs value={source} onValueChange={(v) => setSource(v as Source)}>
           <TabsList>
@@ -213,35 +219,21 @@ export function ImportCard(props: {
           </div>
         )}
 
-        {!props.target && props.databases && props.databases.length > 0 && (
-          <Field
-            label="Restore into"
-            description={
-              intoDatabase
-                ? `The file's database is merged into ${intoDatabase}: its tables replace ones of the same name, the others stay. A file of several databases is refused.`
-                : "Each database keeps the name it has in the file. A file without names goes into the main database."
-            }
-          >
-            <Select
-              value={intoDatabase}
-              onValueChange={setIntoDatabase}
-              options={[{ value: "", label: "The names in the file" }, ...props.databases.map((d) => ({ value: d, label: d === props.main ? `${d} (main)` : d }))]}
-            />
-          </Field>
+        {!twoStep && (
+          <label className="flex items-start gap-2 text-[13px] text-fg-2">
+            <Checkbox checked={backupFirst} onCheckedChange={(c) => setBackupFirst(!!c)} className="mt-0.5" />
+            <span>
+              Back up the current data first
+              <span className="block text-xs text-muted">Recommended. The restore stops if this backup fails.</span>
+            </span>
+          </label>
         )}
-        <label className="flex items-start gap-2 text-[13px] text-fg-2">
-          <Checkbox checked={backupFirst} onCheckedChange={(c) => setBackupFirst(!!c)} className="mt-0.5" />
-          <span>
-            Back up the current data first
-            <span className="block text-xs text-muted">Recommended. The restore stops if this backup fails.</span>
-          </span>
-        </label>
         {encrypted && (
           <Field label="Backup passphrase" description="This file is encrypted. Enter the passphrase it was made with.">
             <Input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
           </Field>
         )}
-        {props.restoresUsers && (
+        {!twoStep && props.restoresUsers && (
           <label className="flex items-start gap-2 text-[13px] text-fg-2">
             <Checkbox checked={users} onCheckedChange={(c) => setUsers(!!c)} className="mt-0.5" />
             <span>
@@ -261,9 +253,9 @@ export function ImportCard(props: {
         )}
       </CardBody>
       <CardFooter>
-        <span className="truncate text-xs text-muted">Existing data is overwritten.</span>
-        <Button size="sm" variant="danger" disabled={!ready || progress !== null} loading={remote.pending || progress !== null} onClick={start}>
-          Import and restore
+        <span className="truncate text-xs text-muted">{twoStep ? "Next, choose what to restore and where." : "Existing data is overwritten."}</span>
+        <Button size="sm" variant={twoStep ? "primary" : "danger"} disabled={!ready || progress !== null} loading={remote.pending || progress !== null} onClick={start}>
+          {twoStep ? "Import" : "Import and restore"}
         </Button>
       </CardFooter>
     </Card>

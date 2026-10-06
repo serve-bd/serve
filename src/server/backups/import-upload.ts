@@ -33,6 +33,8 @@ export async function receiveImport(opts: {
   body: ReadableStream | null;
   declared: number;
   backupFirst: boolean;
+  /** Only receive the file: it is restored later, from the restore window. */
+  receiveOnly?: boolean;
   /** Restore the file's one database into this database of the server. */
   intoDatabase?: string | null;
   users: boolean;
@@ -78,6 +80,7 @@ export async function receiveImport(opts: {
     "backup.import",
     {
       backupId: id,
+      ...(opts.receiveOnly ? { receiveOnly: true } : {}),
       backupFirst: opts.backupFirst,
       users: opts.users,
       ...(opts.intoDatabase ? { intoDatabase: opts.intoDatabase } : {}),

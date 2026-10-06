@@ -171,15 +171,15 @@ export function RestoreDialog({
                       <div className="flex min-w-0 flex-col gap-1.5">
                         <Select
                           size="sm"
-                          value={custom[d.name] ? "__other" : (names[d.name] ?? "")}
+                          value={custom[d.name] ? "__other" : names[d.name] || "__own"}
                           onValueChange={(v) => {
                             setCustom((c) => ({ ...c, [d.name]: v === "__other" }));
-                            setNames((n) => ({ ...n, [d.name]: v === "__other" ? "" : v }));
+                            setNames((n) => ({ ...n, [d.name]: v === "__other" || v === "__own" ? "" : v }));
                           }}
                           disabled={!picked[d.name]}
                           aria-label={`Restore ${d.label} into`}
                           options={[
-                            { value: "", label: `Into ${defaultName(d)}`, description: "Its own name" },
+                            { value: "__own", label: `Into ${defaultName(d)}`, description: "Its own name" },
                             // The server's databases (this service only): merged, tables of the same name replaced.
                             ...(target ? [] : (choices.existing ?? []))
                               .filter((x) => x !== defaultName(d))

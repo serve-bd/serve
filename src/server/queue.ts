@@ -86,7 +86,8 @@ export type JobPayloads = {
   "backup.run": { backupId: string; choice?: BackupChoice };
   "backup.verify": { backupId: string };
   "backup.restore": { backupId: string; users?: boolean } & RestoreChoice;
-  "backup.import": { backupId: string; backupFirst?: boolean; users?: boolean; url?: string; s3?: { destinationId: string; key: string } } & RestoreChoice;
+  /** receiveOnly: the file is fetched and checked, and restored later from the restore window. */
+  "backup.import": { backupId: string; receiveOnly?: boolean; backupFirst?: boolean; users?: boolean; url?: string; s3?: { destinationId: string; key: string } } & RestoreChoice;
   "proxy.sync": Record<string, never>;
   /** A status page notice was posted or changed: tell its subscribers and team channels. */
   "status.notify": {

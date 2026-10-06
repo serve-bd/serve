@@ -2184,7 +2184,7 @@ export async function restoreChoices(backupId: string, passphrase?: string) {
     const encrypted = !!b.filename?.endsWith(".enc");
     // The databases on the server now: a backup's database can be restored into one of them.
     const { backupableDatabases } = await import("@/server/backups");
-    const existing = !b.target && service.status === "running" ? ((await backupableDatabases(service).catch(() => null)) ?? []) : [];
+    const existing = !b.target && service.status === "running" ? ((await backupableDatabases(service).catch(() => null)) ?? []).filter((d) => !SYSTEM_DATABASES.has(d)) : [];
     return {
       ...contents,
       encrypted,

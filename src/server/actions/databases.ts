@@ -312,6 +312,8 @@ export async function importBackupFromRemote(
   target?: string | null,
   /** Restore the file's one database into this database of the server. */
   intoDatabase?: string | null,
+  /** Only fetch the file: it is restored later, from the restore window. */
+  receiveOnly = false,
 ) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
@@ -346,6 +348,7 @@ export async function importBackupFromRemote(
       "backup.import",
       {
         backupId: id,
+        ...(receiveOnly ? { receiveOnly: true } : {}),
         backupFirst,
         users,
         ...(intoDatabase ? { intoDatabase } : {}),

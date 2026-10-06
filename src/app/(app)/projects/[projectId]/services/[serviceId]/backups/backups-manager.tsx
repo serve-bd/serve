@@ -2,7 +2,7 @@
 
 import { ALL_DATABASES, readChoice } from "@/lib/backup-databases";
 import * as React from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2, TriangleAlert, Lock, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -298,6 +298,17 @@ export function BackupsManager(props: {
   const users = React.useRef(false);
   // Database services get the full restore window; compose targets the plain confirmation.
   const [restoring, setRestoring] = React.useState<Backup | null>(null);
+  // An import waiting to be restored (?restore=id from the Import page): its window opens when the file is in.
+  const search = useSearchParams();
+  const [awaiting, setAwaiting] = React.useState<string | null>(() => search.get("restore"));
+  React.useEffect(() => {
+    if (!awaiting) return;
+    const b = backups.find((x) => x.id === awaiting);
+    if (!b || b.status === "running") return;
+    setAwaiting(null);
+    if (search.get("restore")) router.replace(pathname);
+    if (b.status === "success") setRestoring(b);
+  }, [awaiting, backups, search, router, pathname]);
 
   const list = (
     <>
@@ -375,13 +386,12 @@ export function BackupsManager(props: {
           extensions={props.extensions}
           maxUpload={props.maxUpload}
           destinations={props.destinations}
-          // SQL dumps only: their databases can be told apart and renamed on the way in.
-          databases={["postgres", "mysql", "mariadb"].includes(props.databaseChoices?.engine ?? "") ? props.databaseChoices?.databases : undefined}
-          main={props.databaseChoices?.main}
-          onStarted={() => {
+          onStarted={(id) => {
             void mutate();
-            // From its own page: on to the backups, where the import and its log show.
-            if (props.view === "import") router.push(pathname.replace(/\/import$/, ""));
+            // A database service restores the import next: the restore window opens once it is in.
+            const list = pathname.replace(/\/import$/, "");
+            if (props.view === "import") router.push(id && !props.target ? `${list}?restore=${id}` : list);
+            else if (id && !props.target) setAwaiting(id);
           }}
         />
       )}

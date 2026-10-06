@@ -1255,7 +1255,10 @@ export function importFilenameFor(extensions: string[], slug: string, original: 
   return `${slug}-import-${stamp}-${base}`;
 }
 
-export async function importBackup(backupId: string, opts: RestoreOptions & { backupFirst?: boolean; url?: string; s3?: { destinationId: string; key: string } }) {
+export async function importBackup(
+  backupId: string,
+  opts: RestoreOptions & { receiveOnly?: boolean; backupFirst?: boolean; url?: string; s3?: { destinationId: string; key: string } },
+) {
   const backup = await db.query.backup.findFirst({ where: eq(schema.backup.id, backupId), with: { service: true } });
   if (!backup?.filename || (!backup.target && !backup.service.database)) throw new Error("Import not found");
   const service = backup.service;
@@ -1311,6 +1314,10 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
     throw error;
   }
 
+  if (opts.receiveOnly) {
+    await logLine(backupId, "Ready: restore it to choose where each database goes");
+    return;
+  }
   // Restoring from here on (the safety backup first): the import shows it right away.
   await db.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));
   // A dump of another engine fails before anything is backed up or replaced.

@@ -18,7 +18,7 @@ Push to deploy, get a domain with HTTPS and manage it all from one dashboard.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
-  <img src="docs/images/overview-light.png" alt="The Serve overview: projects, servers, recent deploys and a year of deploy activity" width="100%">
+  <img src="docs/images/overview-light.png" alt="The Serve overview: projects, servers and recent deploys" width="100%">
 </picture>
 
 </div>

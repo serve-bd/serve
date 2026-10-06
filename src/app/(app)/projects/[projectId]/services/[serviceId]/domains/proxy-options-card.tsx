@@ -132,6 +132,41 @@ export function ProxyOptionsCard({
   const showBalancing = replicas > 1 || !!across || balancingOf(initial) !== "round-robin";
   const access = (
     <>
+      <OptionsCard
+        {...props}
+        title="HTTP Basic Auth"
+        description="One shared user name and password. The browser asks for it in its own pop-up."
+        keys={["authOn", "authUser", "authPassword"]}
+        toggle="authOn"
+      >
+        {(form, set) => (
+          <>
+            {form.authOn && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="User name">
+                  <Input value={form.authUser} onChange={(e) => set("authUser", e.target.value)} placeholder="admin" />
+                </Field>
+                <Field
+                  label="Password"
+                  error={
+                    proxyKind === "caddy" && initial?.basicAuthUser && !initial.basicAuthHasBcrypt && !form.authPassword
+                      ? "Enter the password again: Caddy needs a new hash. Until then the site answers 503."
+                      : undefined
+                  }
+                  description={initial?.basicAuthUser ? "Leave empty to keep the current password." : undefined}
+                >
+                  <Input
+                    type="password"
+                    value={form.authPassword}
+                    onChange={(e) => set("authPassword", e.target.value)}
+                    placeholder={initial?.basicAuthUser ? "••••••••" : "At least 6 characters"}
+                  />
+                </Field>
+              </div>
+            )}
+          </>
+        )}
+      </OptionsCard>
       <OptionsCard {...props} title="Login wall" description="Visitors sign in before they reach the app." keys={["login", "guests"]}>
         {(form, set) => (
           <>
@@ -203,41 +238,6 @@ export function ProxyOptionsCard({
             </div>
             {(form.login || form.guests.some((g) => g.email.trim())) && !dashboardDomain && (
               <p className="text-[12.5px] text-warn">Give the dashboard its own domain in Settings first. Visitors sign in there, and other servers check sign-ins there.</p>
-            )}
-          </>
-        )}
-      </OptionsCard>
-      <OptionsCard
-        {...props}
-        title="HTTP Basic Auth"
-        description="One shared user name and password. The browser asks for it in its own pop-up."
-        keys={["authOn", "authUser", "authPassword"]}
-        toggle="authOn"
-      >
-        {(form, set) => (
-          <>
-            {form.authOn && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="User name">
-                  <Input value={form.authUser} onChange={(e) => set("authUser", e.target.value)} placeholder="admin" />
-                </Field>
-                <Field
-                  label="Password"
-                  error={
-                    proxyKind === "caddy" && initial?.basicAuthUser && !initial.basicAuthHasBcrypt && !form.authPassword
-                      ? "Enter the password again: Caddy needs a new hash. Until then the site answers 503."
-                      : undefined
-                  }
-                  description={initial?.basicAuthUser ? "Leave empty to keep the current password." : undefined}
-                >
-                  <Input
-                    type="password"
-                    value={form.authPassword}
-                    onChange={(e) => set("authPassword", e.target.value)}
-                    placeholder={initial?.basicAuthUser ? "••••••••" : "At least 6 characters"}
-                  />
-                </Field>
-              </div>
             )}
           </>
         )}

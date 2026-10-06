@@ -826,13 +826,25 @@ export const serviceRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/backups",
     tag: "Backups",
     summary: "Back up now",
-    description: `target picks a compose service's backup (see the stack's backup settings). databases (a database service): the databases of the server to take, or ["*"] for every one, new ones included; without it the service's choice (database.backupDatabases) or the main database.`,
+    description: `target picks a compose service's backup (see the stack's backup settings). databases (a database service): the databases of the server to take, or ["*"] for every one, new ones included; without it the service's choice (database.backupDatabases) or the main database. choice (a database service): other settings for this backup only: s3DestinationId (null: this server only), copies (more buckets), local (keep a copy on the server too), users, encrypt (false leaves out encryption; admins only).`,
     needs: ["databases.backups"],
-    body: z.object({ target: z.string().nullable().optional(), databases: z.array(z.string()).optional() }),
+    body: z.object({
+      target: z.string().nullable().optional(),
+      databases: z.array(z.string()).optional(),
+      choice: z
+        .object({
+          s3DestinationId: z.string().nullable().optional(),
+          copies: z.array(z.string()).optional(),
+          local: z.boolean().optional(),
+          users: z.boolean().optional(),
+          encrypt: z.boolean().optional(),
+        })
+        .optional(),
+    }),
     status: 202,
     handler: async ({ auth, params, body }) => {
       await loadService(auth, params.serviceId);
-      return (await unwrap(actions.createBackup(params.serviceId, body.target ?? null, { databases: body.databases }))) ?? { ok: true };
+      return (await unwrap(actions.createBackup(params.serviceId, body.target ?? null, { databases: body.databases, choice: body.choice }))) ?? { ok: true };
     },
   }),
   route({

@@ -2072,7 +2072,15 @@ export async function generateDomain(serviceId: string) {
 /* -------------------------------------------------------------------------- */
 
 /** Starts a backup of a database service, or of one backup target of a compose stack. */
-export async function createBackup(serviceId: string, target?: string | null, opts: { databases?: string[] | null } = {}) {
+const backupChoiceSchema = z.object({
+  s3DestinationId: z.string().max(64).nullable().optional(),
+  copies: z.array(z.string().max(64)).max(20).optional(),
+  local: z.boolean().optional(),
+  users: z.boolean().optional(),
+  encrypt: z.boolean().optional(),
+});
+
+export async function createBackup(serviceId: string, target?: string | null, opts: { databases?: string[] | null; choice?: z.input<typeof backupChoiceSchema> } = {}) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
@@ -2102,8 +2110,22 @@ export async function createBackup(serviceId: string, target?: string | null, op
       if (missing.length) throw new UserError(`There is no database named ${missing[0]}.`);
       databases = [...new Set(list)];
     }
+    // Settings for this backup only (a database service): buckets of this organization; only admins leave out encryption.
+    const choice = !target && opts.choice ? backupChoiceSchema.parse(opts.choice) : undefined;
+    if (choice) {
+      const buckets = [choice.s3DestinationId, ...(choice.copies ?? [])].filter((b): b is string => !!b);
+      if (buckets.length) {
+        const own = await db
+          .select({ id: schema.s3Destination.id })
+          .from(schema.s3Destination)
+          .where(and(inArray(schema.s3Destination.id, buckets), eq(schema.s3Destination.organizationId, ctx.org.id)));
+        if (own.length !== new Set(buckets).size) throw new UserError("Choose S3 storage of this organization.");
+      }
+      if (choice.encrypt === false && service.database?.backupPassphrase && !ctx.isAdmin) throw new UserError("Only organization admins can back up without encryption.");
+      if (choice.copies && choice.s3DestinationId) choice.copies = choice.copies.filter((c) => c !== choice.s3DestinationId);
+    }
     await db.insert(schema.backup).values({ id, serviceId, target: target ?? null, trigger: "manual", databases });
-    await enqueue("backup.run", { backupId: id }, { concurrencyKey: `backup:${serviceId}` });
+    await enqueue("backup.run", { backupId: id, ...(choice ? { choice } : {}) }, { concurrencyKey: `backup:${serviceId}` });
     return { id };
   });
 }

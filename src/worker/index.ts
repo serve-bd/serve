@@ -95,7 +95,7 @@ async function handle(job: Job, signal: AbortSignal) {
     case "certificate.renew-all":
       return renewDueCertificates();
     case "backup.run":
-      return runBackup(p.backupId);
+      return runBackup(p.backupId, undefined, (job.payload as JobPayloads["backup.run"]).choice);
     case "backup.verify": {
       const { verifyBackup } = await import("@/server/backups/verify");
       return void (await verifyBackup(p.backupId));

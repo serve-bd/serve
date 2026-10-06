@@ -13,7 +13,10 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { createBackup, deleteBackup, restoreFromBackup, testBackup } from "@/server/actions/services";
 import { cn, formatBytes } from "@/lib/utils";
-import { ScheduleCard } from "./schedule-card";
+import { type Places, ScheduleCard, StoragePlaces } from "./schedule-card";
+import { Field } from "@/components/ui/field";
+import { SwitchRow } from "@/components/ui/switch";
+import type { BackupChoice } from "@/server/queue";
 import { RestoreDialog } from "./restore-dialog";
 import { ImportCard } from "./import-card";
 import { type DatabaseChoices, DatabasePicker, defaultDatabases } from "./database-picker";
@@ -275,7 +278,7 @@ export function BackupsManager(props: {
     refreshInterval: (d) => (d?.backups.some((b) => b.status === "running" || b.restoreStatus === "running" || b.verifyStatus === "running") ? 1500 : 10000),
   });
 
-  const run = useAction((databases?: string[]) => createBackup(props.serviceId, props.target ?? null, { databases }), {
+  const run = useAction((databases?: string[], choice?: BackupChoice) => createBackup(props.serviceId, props.target ?? null, { databases, choice }), {
     onSuccess: () => {
       setPicking(false);
       void mutate();
@@ -300,7 +303,7 @@ export function BackupsManager(props: {
           title={props.title ?? "Backups"}
           description={props.description ?? "Consistent dumps taken with the database's own tools. Download, restore or import one."}
           actions={
-            <Button size="sm" variant="primary" onClick={() => (choices ? setPicking(true) : run.run())} loading={run.pending && !picking} disabled={!props.running}>
+            <Button size="sm" variant="primary" onClick={() => (props.target ? run.run() : setPicking(true))} loading={run.pending && !picking} disabled={!props.running}>
               <Play /> Back up now
             </Button>
           }
@@ -395,7 +398,23 @@ export function BackupsManager(props: {
       {props.aside}
     </>
   );
-  const dialogs = <>{picking && choices && <BackupNowDialog choices={choices} pending={run.pending} onClose={() => setPicking(false)} onRun={(dbs) => void run.run(dbs)} />}</>;
+  const saved: Places = { bucket: props.s3DestinationId, local: !props.s3DestinationId || props.keepLocal !== false, copies: props.copyDestinationIds ?? [] };
+  const dialogs = (
+    <>
+      {picking && (
+        <BackupNowDialog
+          choices={choices}
+          destinations={props.destinations}
+          saved={saved}
+          users={props.users}
+          encrypted={!!props.encrypted}
+          pending={run.pending}
+          onClose={() => setPicking(false)}
+          onRun={(dbs, choice) => void run.run(choices ? dbs : undefined, choice)}
+        />
+      )}
+    </>
+  );
 
   // One part per page (the database's Backups, Import backup and Auto backup pages), or all of them.
   if (props.view)
@@ -417,26 +436,71 @@ export function BackupsManager(props: {
   );
 }
 
-/** Back up now, for a server with several databases: which of them this backup takes. */
-function BackupNowDialog({ choices, pending, onClose, onRun }: { choices: DatabaseChoices; pending: boolean; onClose: () => void; onRun: (databases: string[]) => void }) {
-  const [picked, setPicked] = React.useState<string[]>(() => (choices.selected?.length ? choices.selected : defaultDatabases(choices)));
+/**
+ * Back up now: the databases this backup takes (a server with several), and where it goes, whether
+ * it holds the users and whether it is encrypted, filled in from the saved settings, for this backup only.
+ */
+function BackupNowDialog(props: {
+  choices: DatabaseChoices | null;
+  destinations: { id: string; name: string; bucket: string }[];
+  saved: Places;
+  /** Left out: the engine has no users to include. */
+  users?: boolean;
+  encrypted: boolean;
+  pending: boolean;
+  onClose: () => void;
+  onRun: (databases: string[], choice?: BackupChoice) => void;
+}) {
+  const { choices } = props;
+  const [picked, setPicked] = React.useState<string[]>(() => (choices ? (choices.selected?.length ? choices.selected : defaultDatabases(choices)) : []));
+  const [places, setPlaces] = React.useState(props.saved);
+  const [users, setUsers] = React.useState(!!props.users);
+  const [encrypt, setEncrypt] = React.useState(props.encrypted);
+  // Only what differs from the saved settings is sent.
+  const choice: BackupChoice = {
+    ...(JSON.stringify(places) !== JSON.stringify(props.saved) ? { s3DestinationId: places.bucket, copies: places.copies, local: places.local } : {}),
+    ...(props.users !== undefined && users !== !!props.users ? { users } : {}),
+    ...(encrypt !== props.encrypted ? { encrypt } : {}),
+  };
   return (
-    <Dialog open onOpenChange={(o) => !o && !pending && onClose()}>
-      <DialogContent size="sm">
-        <DialogHeader title="Back up now" description="The databases this backup takes. A restore brings each back as it was." />
-        <DialogBody>
-          <DatabasePicker choices={choices} value={picked} onChange={setPicked} />
+    <Dialog open onOpenChange={(o) => !o && !props.pending && props.onClose()}>
+      <DialogContent size="md">
+        <DialogHeader title="Back up now" description="Filled in from the backup settings. Changes here are for this backup only." />
+        <DialogBody className="flex flex-col gap-5">
+          {choices && (
+            <Field label="Databases">
+              <DatabasePicker choices={choices} value={picked} onChange={setPicked} />
+            </Field>
+          )}
+          <Field label="Store in">
+            <StoragePlaces destinations={props.destinations} value={places} onChange={setPlaces} />
+          </Field>
+          {(props.users !== undefined || props.encrypted) && (
+            <div className="flex flex-col gap-2">
+              {props.users !== undefined && (
+                <SwitchRow title="Include users and passwords" description="A restore brings them back only when you ask." checked={users} onCheckedChange={setUsers} />
+              )}
+              {props.encrypted && <SwitchRow title="Encrypt" description="With the backup passphrase." checked={encrypt} onCheckedChange={setEncrypt} />}
+            </div>
+          )}
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={pending}>
+          <Button variant="ghost" onClick={props.onClose} disabled={props.pending}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => onRun(picked)} loading={pending} disabled={!picked.length}>
-            {picked.includes(ALL_DATABASES)
-              ? readChoice(picked).skip.length
-                ? `Back up all but ${readChoice(picked).skip.length}`
-                : "Back up every database"
-              : `Back up ${picked.length === 1 ? "1 database" : `${picked.length} databases`}`}
+          <Button
+            variant="primary"
+            onClick={() => props.onRun(picked, Object.keys(choice).length ? choice : undefined)}
+            loading={props.pending}
+            disabled={!!choices && !picked.length}
+          >
+            {!choices
+              ? "Back up now"
+              : picked.includes(ALL_DATABASES)
+                ? readChoice(picked).skip.length
+                  ? `Back up all but ${readChoice(picked).skip.length}`
+                  : "Back up every database"
+                : `Back up ${picked.length === 1 ? "1 database" : `${picked.length} databases`}`}
           </Button>
         </DialogFooter>
       </DialogContent>

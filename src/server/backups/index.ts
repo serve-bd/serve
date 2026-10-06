@@ -1,3 +1,4 @@
+import type { BackupChoice } from "@/server/queue";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -639,13 +640,29 @@ export async function checkIntegrity(backup: { id: string; checksum: string | nu
   await logLine(backup.id, "Checksum verified");
 }
 
-export async function runBackup(backupId: string, protect?: string) {
+export async function runBackup(backupId: string, protect?: string, choice?: BackupChoice) {
   const backup = await db.query.backup.findFirst({
     where: eq(schema.backup.id, backupId),
     with: { service: true },
   });
   if (!backup) return;
-  const service = backup.service;
+  const saved = backup.service;
+  // Back up now with other settings: this backup only. Retention keeps following the saved ones.
+  const cfg = saved.database;
+  const service =
+    choice && cfg && !backup.target
+      ? {
+          ...saved,
+          database: {
+            ...cfg,
+            s3DestinationId: choice.s3DestinationId !== undefined ? choice.s3DestinationId : cfg.s3DestinationId,
+            backupCopyDestinationIds: choice.copies ?? cfg.backupCopyDestinationIds,
+            backupLocal: choice.local ?? cfg.backupLocal,
+            backupUsers: choice.users ?? cfg.backupUsers,
+            backupPassphrase: choice.encrypt === false ? null : cfg.backupPassphrase,
+          },
+        }
+      : saved;
   if (!backup.target && !service.database) return;
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   let file: string | null = null;
@@ -732,7 +749,10 @@ export async function runBackup(backupId: string, protect?: string) {
       })
       .where(eq(schema.backup.id, backup.id));
     // The backup is done: a failing cleanup of older ones must not undo it.
-    await applyRetention(service.id, backup.target, t.keepLocal ? t.retention : 0, t.retentionS3, protect).catch((e) =>
+    // Chosen for this backup only: in the bucket only, its file leaves the server once uploaded.
+    if (service !== saved && !t.keepLocal && s3Status === "uploaded") await fs.promises.rm(file, { force: true });
+    const kept = service === saved ? t : await targetOf(saved, null, databases);
+    await applyRetention(service.id, backup.target, kept.keepLocal ? kept.retention : 0, kept.retentionS3, protect).catch((e) =>
       logLine(backup.id, `Removing old backups failed: ${(e as Error).message}`).catch(() => {}),
     );
     // The backup is there, but not everywhere it should be: a bucket-only setup may have no copy off the server.

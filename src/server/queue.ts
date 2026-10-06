@@ -12,6 +12,18 @@ export type RestoreChoice = {
   passphrase?: string;
 };
 
+/** Back up now with other settings than the saved ones, for that backup only. */
+export type BackupChoice = {
+  /** The main bucket (null: none) and more buckets for copies. */
+  s3DestinationId?: string | null;
+  copies?: string[];
+  /** A copy stays on the server (only with a bucket). */
+  local?: boolean;
+  users?: boolean;
+  /** false: not encrypted, though a passphrase is set. */
+  encrypt?: boolean;
+};
+
 export type JobType =
   | "deploy"
   | "service.stop"
@@ -69,7 +81,7 @@ export type JobPayloads = {
   "certificate.issue": { certificateId: string };
   "certificate.retire": { certificateId: string };
   "certificate.renew-all": Record<string, never>;
-  "backup.run": { backupId: string };
+  "backup.run": { backupId: string; choice?: BackupChoice };
   "backup.verify": { backupId: string };
   "backup.restore": { backupId: string; users?: boolean } & RestoreChoice;
   "backup.import": { backupId: string; backupFirst?: boolean; users?: boolean; url?: string; s3?: { destinationId: string; key: string } } & RestoreChoice;

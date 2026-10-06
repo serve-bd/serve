@@ -22,6 +22,9 @@ export function DatabaseOverview(props: {
   engine: { label: string; port: number; hasUser: boolean; hasDatabase: boolean };
   creds: { username: string; password: string; database: string };
   internalUrl: string;
+  /** Through the connection pooler, and to the read replicas: while they are on. */
+  poolerUrl?: string | null;
+  replicaUrl?: string | null;
   publicUrl: string | null;
   host: string;
   publicPort: number | null;
@@ -65,6 +68,16 @@ export function DatabaseOverview(props: {
             <Field label="Private connection URL">
               <SecretField value={swap(props.internalUrl)} hidden={props.hideSecrets} shape={swap(props.internalUrl)} />
             </Field>
+            {props.poolerUrl && (
+              <Field label="Pooled connection URL" description="Through the connection pooler: for apps that open many short connections.">
+                <SecretField value={swap(props.poolerUrl)} hidden={props.hideSecrets} shape={swap(props.poolerUrl)} />
+              </Field>
+            )}
+            {props.replicaUrl && (
+              <Field label="Read replica URL" description="Reads only: spreads read queries over the replicas.">
+                <SecretField value={swap(props.replicaUrl)} hidden={props.hideSecrets} shape={swap(props.replicaUrl)} />
+              </Field>
+            )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Host">
                 <CopyField value={props.host} />

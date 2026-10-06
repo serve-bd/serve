@@ -94,6 +94,9 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           engine={{ label: engine.label, port: engine.port, hasUser: engine.hasUser, hasDatabase: engine.hasDatabase }}
           creds={creds}
           internalUrl={databaseUrl(cfg, creds, privateHost(service), engine.port)}
+          // The pooler's and the read replicas' addresses, while they are on.
+          poolerUrl={cfg.pooler?.enabled ? databaseUrl(cfg, creds, `${privateHost(service)}-pooler`, engine.port) : null}
+          replicaUrl={cfg.replica?.enabled ? databaseUrl(cfg, creds, `${privateHost(service)}-replica`, engine.port, { replica: true }) : null}
           publicUrl={published ? databaseUrl(cfg, creds, published.address, published.host, { public: true }) : null}
           host={privateHost(service)}
           publicPort={cfg.publicPort ?? null}

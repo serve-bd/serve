@@ -162,6 +162,12 @@ export const DEFAULT_LABELS = {
   "sub.submit": "Subscribe",
   "sub.checkEmail": "Check your inbox: we sent a link to confirm.",
   "sub.done": "You are subscribed.",
+  "msg.status": "Status",
+  "msg.impact": "Impact",
+  "msg.affected": "Affected",
+  "msg.starts": "Starts",
+  "msg.ends": "Ends",
+  "msg.view": "View status page",
 } as const;
 
 export type LabelKey = keyof typeof DEFAULT_LABELS;

@@ -1,3 +1,4 @@
+import net from "node:net";
 import { and, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/server/db";
@@ -7,7 +8,8 @@ import { UserError } from "@/server/action";
 import { publicRequest } from "@/server/net/public-fetch";
 import { renderEmail } from "@/server/email/templates";
 import { isEmailConfigured, sendEmail } from "@/server/email/send";
-import { chatWebhookProblem, designOf, IMPACT_TEXT, labelsOf, type LabelKey, maintenancePhase, type SubscriberKind, subscribeOf } from "@/lib/status-page";
+import { chatWebhookProblem, designOf, IMPACT_TEXT, labelsOf, type LabelKey, type Labels, maintenancePhase, type SubscriberKind, subscribeOf } from "@/lib/status-page";
+import { pageIconUrl } from "./data";
 import { pageUrl } from "./urls";
 
 type Page = typeof schema.statusPage.$inferSelect;
@@ -85,15 +87,15 @@ export async function subscribe(page: Page, input: { kind: string; target: strin
   }
 
   // A webhook: it must take a message now, or it is not kept.
-  const words = labelsOf(designOf(page.design));
-  const url = await pageUrl(page);
+  const brand = await brandOf(page);
   const sent = await post(kind, target, {
-    page: { name: page.name, url },
+    page: brand,
     event: "subscribed",
     title: `Subscribed to ${page.name}`,
-    state: words["sub.done"],
+    state: brand.words["sub.done"],
+    impact: null,
     message: `This ${kind === "webhook" ? "webhook" : "channel"} now gets the incidents and maintenance of ${page.name}.`,
-    url,
+    url: brand.url,
     level: "operational",
     notice: null,
   });
@@ -106,9 +108,12 @@ export async function subscribe(page: Page, input: { kind: string; target: strin
 }
 
 async function sendConfirmation(page: Page, to: string, token: string) {
-  const url = await pageUrl(page);
+  const brand = await brandOf(page);
+  const url = brand.url;
   const { html, text } = renderEmail({
     brand: page.name,
+    logo: brand.logoUrl,
+    accent: brand.accent,
     heading: `Confirm your subscription to ${page.name}`,
     paragraphs: [`Someone, hopefully you, asked to get incident and maintenance updates of ${page.name} at this address.`],
     action: { label: "Confirm", url: `${url}/confirm?token=${encodeURIComponent(token)}` },
@@ -148,12 +153,51 @@ export async function pruneSubscribers() {
 
 export type StatusEvent = "created" | "updated" | "maintenance-started" | "maintenance-ended" | "outage" | "outage-resolved";
 
-type Message = {
-  page: { name: string; url: string };
+/** What a message carries of its page: name, address, images and words. */
+export type PageBrand = {
+  name: string;
+  url: string;
+  /** Public image URLs, or null when the page is not reachable from outside (chat apps fetch them). */
+  iconUrl: string | null;
+  logoUrl: string | null;
+  accent: string | null;
+  words: Labels;
+};
+
+/** An image URL a chat app or mail client can load: https on a public name. */
+function publicImage(url: string | null) {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    const host = u.hostname;
+    if (u.protocol !== "https:" || !host.includes(".") || host.endsWith(".local") || host.endsWith(".internal") || net.isIP(host)) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+async function brandOf(page: Page): Promise<PageBrand> {
+  const url = await pageUrl(page);
+  const design = designOf(page.design);
+  return {
+    name: page.name,
+    url,
+    iconUrl: publicImage(await pageIconUrl(page.id, url, page.images)),
+    logoUrl: publicImage(page.images.logo ? `${url}/logo?v=${page.images.logo.hash}` : null),
+    accent: design.accent,
+    words: labelsOf(design),
+  };
+}
+
+export type Message = {
+  page: PageBrand;
   event: StatusEvent | "subscribed";
   title: string;
   /** Investigating, Resolved, Scheduled… in the page's words. */
   state: string;
+  /** Slow or partly broken, Partly down, Fully down; null for maintenance and when it is over. */
+  impact: string | null;
   message: string;
   url: string;
   level: "operational" | "maintenance" | "degraded" | "partial" | "major";
@@ -168,25 +212,102 @@ type Message = {
   } | null;
 };
 
-const COLOR: Record<Message["level"], number> = { operational: 0x1a9a52, maintenance: 0x2f6fdb, degraded: 0xc47a00, partial: 0xe0601b, major: 0xd9342b };
+const COLOR: Record<Message["level"], string> = { operational: "#1a9a52", maintenance: "#2f6fdb", degraded: "#c47a00", partial: "#e0601b", major: "#d9342b" };
+const DOT: Record<Message["level"], string> = { operational: "🟢", maintenance: "🔧", degraded: "🟡", partial: "🟠", major: "🔴" };
+
+const unix = (iso: string) => Math.floor(Date.parse(iso) / 1000);
+const utc = (iso: string) => new Date(iso).toUTCString().replace(" GMT", " UTC");
+/** A maintenance window's times, when the message is about one that has not ended. */
+const windowOf = (m: Message) => (m.notice?.kind === "maintenance" && m.notice.startsAt && m.notice.endsAt && m.level !== "operational" ? m.notice : null);
+
+/** Discord: the page's name and icon as the sender, an embed with the status as fields. Times show in each reader's zone. */
+export function discordBody(m: Message) {
+  const w = m.page.words;
+  const win = windowOf(m);
+  const fields = [
+    { name: w["msg.status"], value: `${DOT[m.level]} ${m.state}`, inline: true },
+    ...(m.impact ? [{ name: w["msg.impact"], value: m.impact, inline: true }] : []),
+    ...(m.notice?.components.length ? [{ name: w["msg.affected"], value: m.notice.components.join(", ").slice(0, 1000), inline: false }] : []),
+    ...(win
+      ? [
+          { name: w["msg.starts"], value: `<t:${unix(win.startsAt!)}:f> (<t:${unix(win.startsAt!)}:R>)`, inline: true },
+          { name: w["msg.ends"], value: `<t:${unix(win.endsAt!)}:f>`, inline: true },
+        ]
+      : []),
+  ];
+  return {
+    username: m.page.name.slice(0, 80),
+    ...(m.page.iconUrl ? { avatar_url: m.page.iconUrl } : {}),
+    embeds: [
+      {
+        author: { name: m.page.name.slice(0, 256), url: m.page.url, ...(m.page.iconUrl ? { icon_url: m.page.iconUrl } : {}) },
+        title: m.title.slice(0, 256),
+        url: m.url,
+        ...(m.message ? { description: m.message.slice(0, 4000) } : {}),
+        color: Number.parseInt(COLOR[m.level].slice(1), 16),
+        fields,
+        footer: { text: `${w["msg.view"]} · ${new URL(m.page.url).host}`.slice(0, 2048), ...(m.page.iconUrl ? { icon_url: m.page.iconUrl } : {}) },
+        timestamp: new Date().toISOString(),
+      },
+    ],
+    allowed_mentions: { parse: [] },
+  };
+}
+
+const slackEscape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** Slack: blocks in a colored attachment, the page's icon and name on top, a button to the page. */
+export function slackBody(m: Message) {
+  const w = m.page.words;
+  const win = windowOf(m);
+  const date = (iso: string) => `<!date^${unix(iso)}^{date_short_pretty} {time}|${utc(iso)}>`;
+  const fields = [
+    { type: "mrkdwn", text: `*${w["msg.status"]}*\n${DOT[m.level]} ${slackEscape(m.state)}` },
+    ...(m.impact ? [{ type: "mrkdwn", text: `*${w["msg.impact"]}*\n${slackEscape(m.impact)}` }] : []),
+    ...(m.notice?.components.length ? [{ type: "mrkdwn", text: `*${w["msg.affected"]}*\n${slackEscape(m.notice.components.join(", ")).slice(0, 1900)}` }] : []),
+    ...(win
+      ? [
+          { type: "mrkdwn", text: `*${w["msg.starts"]}*\n${date(win.startsAt!)}` },
+          { type: "mrkdwn", text: `*${w["msg.ends"]}*\n${date(win.endsAt!)}` },
+        ]
+      : []),
+  ];
+  const blocks = [
+    {
+      type: "context",
+      elements: [...(m.page.iconUrl ? [{ type: "image", image_url: m.page.iconUrl, alt_text: m.page.name }] : []), { type: "mrkdwn", text: `*${slackEscape(m.page.name)}*` }],
+    },
+    { type: "section", text: { type: "mrkdwn", text: `*<${m.url}|${slackEscape(m.title)}>*${m.message ? `\n${slackEscape(m.message).slice(0, 2800)}` : ""}` } },
+    { type: "section", fields },
+    { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: w["msg.view"].slice(0, 75) }, url: m.url }] },
+  ];
+  return {
+    text: `${m.title} · ${m.state}`,
+    username: m.page.name,
+    ...(m.page.iconUrl ? { icon_url: m.page.iconUrl } : {}),
+    attachments: [{ color: COLOR[m.level], blocks }],
+  };
+}
+
+/** A plain webhook: everything as data, branding included, for tools that draw it themselves. */
+function webhookBody(m: Message) {
+  return {
+    page: { name: m.page.name, url: m.page.url, iconUrl: m.page.iconUrl, logoUrl: m.page.logoUrl, accent: m.page.accent },
+    event: m.event,
+    title: m.title,
+    state: m.state,
+    impact: m.impact,
+    level: m.level,
+    color: COLOR[m.level],
+    message: m.message,
+    url: m.url,
+    incident: m.notice,
+  };
+}
 
 /** Post one message to a webhook. Returns why it failed, or null. */
 async function post(kind: Exclude<SubscriberKind, "email">, url: string, m: Message): Promise<string | null> {
-  const line = `${m.title} · ${m.state}`;
-  const body =
-    kind === "slack"
-      ? { text: `*${m.title}* · ${m.state}\n${m.message}\n<${m.url}|${m.page.name} status>` }
-      : kind === "discord"
-        ? { username: m.page.name.slice(0, 80), embeds: [{ title: line.slice(0, 256), description: m.message.slice(0, 4000), url: m.url, color: COLOR[m.level] }] }
-        : {
-            page: m.page,
-            event: m.event,
-            title: m.title,
-            state: m.state,
-            message: m.message,
-            url: m.url,
-            incident: m.notice,
-          };
+  const body = kind === "slack" ? slackBody(m) : kind === "discord" ? discordBody(m) : webhookBody(m);
   try {
     const res = await publicRequest(url, {
       method: "POST",
@@ -203,16 +324,37 @@ async function post(kind: Exclude<SubscriberKind, "email">, url: string, m: Mess
 async function deliver(page: Page, subscriber: Subscriber, m: Message) {
   let error: string | null = null;
   if (subscriber.kind === "email") {
+    const w = m.page.words;
+    const win = windowOf(m);
     const unsubscribe = `${m.page.url}/unsubscribe?token=${encodeURIComponent(subscriber.token)}`;
     const { html, text } = renderEmail({
       brand: page.name,
+      logo: m.page.logoUrl ?? m.page.iconUrl,
+      accent: m.page.accent,
       heading: m.title,
-      paragraphs: [m.state, ...m.message.split("\n").filter(Boolean)],
-      details: m.notice?.components.length ? [{ label: "Affected", value: m.notice.components.join(", ") }] : undefined,
-      action: { label: "View the status page", url: m.url },
-      note: `You get this because you subscribed to ${page.name}. Unsubscribe: ${unsubscribe}`,
+      badge: { text: m.impact ? `${m.state} · ${m.impact}` : m.state, color: COLOR[m.level] },
+      paragraphs: m.message.split("\n").filter(Boolean),
+      details: [
+        ...(m.notice?.components.length ? [{ label: w["msg.affected"], value: m.notice.components.join(", ") }] : []),
+        ...(win
+          ? [
+              { label: w["msg.starts"], value: utc(win.startsAt!) },
+              { label: w["msg.ends"], value: utc(win.endsAt!) },
+            ]
+          : []),
+      ],
+      action: { label: w["msg.view"], url: m.url },
+      note: `You get this because you subscribed to ${page.name}.`,
+      noteLink: { label: "Unsubscribe", url: unsubscribe },
     });
-    await sendEmail({ to: subscriber.target, subject: `[${page.name}] ${m.title}`, text, html }).catch((e) => {
+    await sendEmail({
+      to: subscriber.target,
+      subject: `[${page.name}] ${m.title} · ${m.state}`,
+      text: `${text}\nUnsubscribe: ${unsubscribe}\n`,
+      html,
+      // Mail apps show their own Unsubscribe button; one click posts to the link (RFC 8058).
+      headers: { "List-Unsubscribe": `<${unsubscribe}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    }).catch((e) => {
       error = (e as Error).message;
     });
   } else {
@@ -259,7 +401,7 @@ async function broadcast(page: Page, componentIds: string[], m: Message, notify 
     const { notifyChannels } = await import("@/server/notifications/deliver");
     await notifyChannels(page.organizationId, channels, "status.incident", {
       title: `${page.name}: ${m.title}`,
-      body: `${m.state}${m.message ? `\n${m.message}` : ""}`,
+      body: `${m.state}${m.impact ? ` · ${m.impact}` : ""}${m.message ? `\n${m.message}` : ""}`,
       url: m.url,
       ok: m.level === "operational",
       severity: m.level === "major" || m.level === "partial" ? "critical" : m.level === "degraded" ? "warning" : "info",
@@ -305,18 +447,15 @@ export async function notifyNotice(noticeId: string, event: StatusEvent, opts: {
           : maintenancePhase({ startsAt: n.startsAt?.toISOString() ?? null, endsAt: n.endsAt?.toISOString() ?? null, resolvedAt: n.resolvedAt?.toISOString() ?? null })
       : null;
   const state = words[`state.${phase ?? n.state}` as LabelKey] ?? n.state;
-  const when =
-    n.kind === "maintenance" && n.startsAt && n.endsAt && phase === "scheduled"
-      ? `From ${n.startsAt.toUTCString().replace(" GMT", " UTC")} to ${n.endsAt.toUTCString().replace(" GMT", " UTC")}.`
-      : "";
   const url = await pageUrl(page);
   const done = phase ? phase === "completed" : !!n.resolvedAt;
   const m: Message = {
-    page: { name: page.name, url },
+    page: await brandOf(page),
     event,
     title: n.title,
-    state: n.kind === "incident" && !done ? `${state} · ${IMPACT_TEXT[n.impact]}` : state,
-    message: [latest?.body ?? "", when].filter(Boolean).join("\n"),
+    state,
+    impact: n.kind === "incident" && !done ? IMPACT_TEXT[n.impact] : null,
+    message: latest?.body ?? "",
     url,
     level: levelOf(n.kind, n.impact, done),
     notice: {
@@ -373,10 +512,11 @@ export async function notifyOutage(serviceId: string, incident: { id: string; st
       page,
       ids,
       {
-        page: { name: page.name, url },
+        page: await brandOf(page),
         event: back ? "outage-resolved" : "outage",
         title: (back ? words.outageOnePast : words.outageOne).replace("{name}", name),
         state: back ? words["state.resolved"] : words["state.investigating"],
+        impact: back ? null : IMPACT_TEXT.critical,
         message: "",
         url,
         level: back ? "operational" : "major",

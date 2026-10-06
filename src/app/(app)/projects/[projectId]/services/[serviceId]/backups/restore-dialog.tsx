@@ -36,6 +36,8 @@ export function RestoreDialog({
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [into, setInto] = React.useState("");
   const [elsewhere, setElsewhere] = React.useState(false);
+  // The backup as it is, as a rule; choosing databases, names or tables only when asked for.
+  const [customize, setCustomize] = React.useState(false);
   const [picked, setPicked] = React.useState<Record<string, boolean>>({});
   const [names, setNames] = React.useState<Record<string, string>>({});
   // A name typed in (Other name…) rather than picked from the server's databases.
@@ -56,6 +58,7 @@ export function RestoreDialog({
     setLoadError(null);
     setInto("");
     setElsewhere(false);
+    setCustomize(false);
     setCustom({});
     setNames({});
     setSomeTables(false);
@@ -195,7 +198,26 @@ export function RestoreDialog({
                 </div>
               )}
 
-              {dbs.length > 0 && (
+              {dbs.length > 0 && !customize && (
+                <div className="flex flex-col gap-2">
+                  <span className="text-[13px] font-medium text-fg-2">What the backup holds</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {dbs.map((d) => (
+                      <span key={d.name} className="rounded-lg bg-surface-2 px-2.5 py-1 font-mono text-[12.5px] text-fg-2">
+                        {defaultName(d)}
+                        {choices.tables && (
+                          <span className="font-sans text-faint"> · {d.tables.length === 0 ? "empty" : d.tables.length === 1 ? "1 table" : `${d.tables.length} tables`}</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                  <button type="button" className="w-fit text-[13px] text-accent hover:underline" onClick={() => setCustomize(true)}>
+                    Choose databases or names…
+                  </button>
+                </div>
+              )}
+
+              {dbs.length > 0 && customize && (
                 <div className="flex flex-col gap-2">
                   <span className="text-[13px] font-medium text-fg-2">{dbs.length > 1 ? "Databases" : "Database"}</span>
                   {dbs.map((d) => (
@@ -264,7 +286,7 @@ export function RestoreDialog({
                 </div>
               )}
 
-              {one && choices.tables && tableList.length > 0 && (
+              {customize && one && choices.tables && tableList.length > 0 && (
                 <div className="flex flex-col gap-2">
                   <span className="text-[13px] font-medium text-fg-2">Tables</span>
                   <Select

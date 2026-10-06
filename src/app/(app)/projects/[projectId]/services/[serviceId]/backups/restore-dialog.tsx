@@ -1,9 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import type { Preparing } from "./import-card";
-import { cn } from "@/lib/utils";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -36,15 +35,7 @@ export function RestoreDialog({
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [into, setInto] = React.useState("");
   const [elsewhere, setElsewhere] = React.useState(false);
-  // The backup as it is, as a rule; choosing databases, names or tables only when asked for.
-  const [customize, setCustomize] = React.useState(false);
   const [picked, setPicked] = React.useState<Record<string, boolean>>({});
-  const [names, setNames] = React.useState<Record<string, string>>({});
-  // A name typed in (Other name…) rather than picked from the server's databases.
-  const [custom, setCustom] = React.useState<Record<string, boolean>>({});
-  const [someTables, setSomeTables] = React.useState(false);
-  const [tables, setTables] = React.useState<Set<string>>(new Set());
-  const [query, setQuery] = React.useState("");
   const [backupFirst, setBackupFirst] = React.useState(true);
   const [users, setUsers] = React.useState(false);
   const [pending, setPending] = React.useState(false);
@@ -58,12 +49,6 @@ export function RestoreDialog({
     setLoadError(null);
     setInto("");
     setElsewhere(false);
-    setCustomize(false);
-    setCustom({});
-    setNames({});
-    setSomeTables(false);
-    setTables(new Set());
-    setQuery("");
     setBackupFirst(true);
     setUsers(false);
     setError(null);
@@ -87,20 +72,8 @@ export function RestoreDialog({
         ? // A backup of this service goes back where it was taken; an import of an unnamed dump into the main one.
           (target?.database ?? (backup?.trigger === "import" ? choices?.main : d.label) ?? d.label)
         : d.name;
-  const one = chosen.length === 1 ? chosen[0] : null;
-  // Where each chosen database goes; two never share one.
-  const goesTo = (d: { name: string; label: string }) => names[d.name]?.trim() || defaultName(d);
-  const takenBy = (x: string, d: { name: string }) => chosen.find((e) => e.name !== d.name && goesTo(e) === x)?.label;
-  const clash = chosen.find((d) => takenBy(goesTo(d), d));
-  const tableList = one && choices?.tables ? one.tables : [];
-  // Tables picked in one database never carry over to another.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the one database changes
-  React.useEffect(() => {
-    setTables(new Set());
-    setSomeTables(false);
-  }, [one?.name]);
-  const shown = tableList.filter((t) => t.toLowerCase().includes(query.trim().toLowerCase()));
-  const ready = !!choices && !clash && (dbs.length === 0 || chosen.length > 0) && (!someTables || tables.size > 0) && (!choices.encrypted || !choices.unreadable || !!passphrase);
+  const all = dbs.length > 0 && chosen.length === dbs.length;
+  const ready = !!choices && (dbs.length === 0 || chosen.length > 0) && (!choices.encrypted || !choices.unreadable || !!passphrase);
 
   // An encrypted backup made with another passphrase: read again with the one typed in.
   const unlock = async () => {
@@ -118,19 +91,12 @@ export function RestoreDialog({
     if (!backup) return;
     setPending(true);
     setError(null);
-    const renames: Record<string, string> = {};
-    for (const d of chosen) {
-      const as = names[d.name]?.trim();
-      if (as && as !== defaultName(d)) renames[d.name] = as;
-    }
     const res = await restoreFromBackup(backup.id, {
       backupFirst,
       users,
       into: into || undefined,
-      // Tables always name their database.
-      databases: someTables && one ? [one.name] : chosen.length < dbs.length ? chosen.map((d) => d.name) : undefined,
-      renames,
-      tables: someTables && one ? [...tables] : undefined,
+      // All of them: the whole backup, and the server holds exactly that. Some: only those are replaced.
+      databases: all ? undefined : chosen.map((d) => d.name),
       passphrase: passphrase || undefined,
     });
     setPending(false);
@@ -198,135 +164,27 @@ export function RestoreDialog({
                 </div>
               )}
 
-              {dbs.length > 0 && !customize && (
+              {dbs.length > 1 && (
                 <div className="flex flex-col gap-2">
-                  <span className="text-[13px] font-medium text-fg-2">What the backup holds</span>
-                  <div className="flex flex-wrap gap-1.5">
+                  <span className="text-[13px] font-medium text-fg-2">Databases to restore</span>
+                  <div className="flex flex-col divide-y divide-line rounded-lg border border-line">
+                    <label className="flex items-center gap-2 px-3 py-2 text-[13px] text-fg-2">
+                      <Checkbox checked={all} indeterminate={!all && chosen.length > 0} onCheckedChange={(c) => setPicked(Object.fromEntries(dbs.map((d) => [d.name, !!c])))} />
+                      All databases
+                    </label>
                     {dbs.map((d) => (
-                      <span key={d.name} className="rounded-lg bg-surface-2 px-2.5 py-1 font-mono text-[12.5px] text-fg-2">
-                        {defaultName(d)}
+                      <label key={d.name} className="flex items-center gap-2 px-3 py-2 pl-8 text-[13px] text-fg-2">
+                        <Checkbox checked={!!picked[d.name]} onCheckedChange={(c) => setPicked((p) => ({ ...p, [d.name]: !!c }))} />
+                        <span className="truncate font-mono text-[12.5px]">{defaultName(d)}</span>
                         {choices.tables && (
-                          <span className="font-sans text-faint"> · {d.tables.length === 0 ? "empty" : d.tables.length === 1 ? "1 table" : `${d.tables.length} tables`}</span>
+                          <span className="flex-none text-xs text-faint">{d.tables.length === 0 ? "empty" : d.tables.length === 1 ? "1 table" : `${d.tables.length} tables`}</span>
                         )}
-                      </span>
+                      </label>
                     ))}
                   </div>
-                  <button type="button" className="w-fit text-[13px] text-accent hover:underline" onClick={() => setCustomize(true)}>
-                    Choose databases or names…
-                  </button>
-                </div>
-              )}
-
-              {dbs.length > 0 && customize && (
-                <div className="flex flex-col gap-2">
-                  <span className="text-[13px] font-medium text-fg-2">{dbs.length > 1 ? "Databases" : "Database"}</span>
-                  {dbs.map((d) => (
-                    <div key={d.name} className="grid grid-cols-1 items-center gap-2 rounded-lg border border-line px-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                      <label className="flex min-w-0 items-center gap-2 text-[13px] text-fg-2">
-                        {dbs.length > 1 && <Checkbox checked={!!picked[d.name]} onCheckedChange={(c) => setPicked((p) => ({ ...p, [d.name]: !!c }))} />}
-                        <span className="truncate font-mono text-[12.5px]">{d.label}</span>
-                        {choices.tables && <span className="flex-none text-xs text-faint">{d.tables.length === 1 ? "1 table" : `${d.tables.length} tables`}</span>}
-                      </label>
-                      {/* A typed name takes the menu's place, with a way back to it. */}
-                      {custom[d.name] ? (
-                        <div className="flex min-w-0 items-center gap-1">
-                          <Input
-                            value={names[d.name] ?? ""}
-                            onChange={(e) => setNames((n) => ({ ...n, [d.name]: e.target.value }))}
-                            placeholder="New database name"
-                            aria-label={`New name for ${d.label}`}
-                            className="h-8 min-w-0 flex-1 font-mono text-[12.5px]"
-                            autoFocus
-                          />
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            aria-label="Back to the list"
-                            title="Back to the list"
-                            onClick={() => {
-                              setCustom((c) => ({ ...c, [d.name]: false }));
-                              setNames((n) => ({ ...n, [d.name]: "" }));
-                            }}
-                          >
-                            <X />
-                          </Button>
-                        </div>
-                      ) : (
-                        <Select
-                          size="sm"
-                          value={custom[d.name] ? "__other" : names[d.name] || "__own"}
-                          onValueChange={(v) => {
-                            setCustom((c) => ({ ...c, [d.name]: v === "__other" }));
-                            setNames((n) => ({ ...n, [d.name]: v === "__other" || v === "__own" ? "" : v }));
-                          }}
-                          disabled={!picked[d.name]}
-                          aria-label={`Restore ${d.label} into`}
-                          options={[
-                            {
-                              value: "__own",
-                              label: `Into ${defaultName(d)}`,
-                              description: takenBy(defaultName(d), d) ? `${takenBy(defaultName(d), d)} goes there` : "Its own name",
-                              disabled: !!takenBy(defaultName(d), d),
-                            },
-                            // The server's databases (this service only): emptied, then filled with this one.
-                            ...(target ? [] : (choices.existing ?? []))
-                              .filter((x) => x !== defaultName(d))
-                              .map((x) => ({
-                                value: x,
-                                label: `Into ${x}`,
-                                description: takenBy(x, d) ? `${takenBy(x, d)} goes there` : x === choices.main ? "The main database, replaced" : "Replaced",
-                                disabled: !!takenBy(x, d),
-                              })),
-                            { value: "__other", label: "Other name…" },
-                          ]}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {customize && one && choices.tables && tableList.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  <span className="text-[13px] font-medium text-fg-2">Tables</span>
-                  <Select
-                    value={someTables ? "some" : "all"}
-                    onValueChange={(v) => setSomeTables(v === "some")}
-                    options={[
-                      { value: "all", label: "All tables", description: "The whole database is replaced" },
-                      { value: "some", label: "Only some tables", description: "Those tables are replaced; the others stay as they are" },
-                    ]}
-                  />
-                  {someTables && (
-                    <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
-                      <div className="flex items-center gap-2">
-                        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a table" className="h-8 text-[13px]" />
-                        <Button size="sm" variant="ghost" onClick={() => setTables(new Set([...tables, ...shown]))}>
-                          All
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setTables(new Set([...tables].filter((t) => !shown.includes(t))))}>
-                          None
-                        </Button>
-                      </div>
-                      <div className="grid max-h-56 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2">
-                        {shown.map((t) => (
-                          <label key={t} className="flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-[12.5px] text-fg-2 hover:bg-hover">
-                            <Checkbox
-                              checked={tables.has(t)}
-                              onCheckedChange={(c) => {
-                                const next = new Set(tables);
-                                if (c) next.add(t);
-                                else next.delete(t);
-                                setTables(next);
-                              }}
-                            />
-                            <span className="truncate font-mono">{t}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <span className="text-xs text-muted">{tables.size === 1 ? "1 table chosen" : `${tables.size} tables chosen`}</span>
-                    </div>
-                  )}
+                  <span className="text-xs text-muted">
+                    {all ? "Every database on the server is replaced with the backup's." : "Only the ticked databases are replaced; the others stay as they are."}
+                  </span>
                 </div>
               )}
 
@@ -339,7 +197,7 @@ export function RestoreDialog({
                   </span>
                 </span>
               </label>
-              {restoresUsers && !someTables && (
+              {restoresUsers && (
                 <label className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] text-fg-2">
                   <Checkbox checked={users} onCheckedChange={(c) => setUsers(!!c)} className="mt-0.5" />
                   <span>
@@ -357,16 +215,8 @@ export function RestoreDialog({
           <DialogError message={error} />
         </DialogBody>
         <DialogFooter>
-          <span className={cn("mr-auto text-xs", clash ? "text-bad" : "truncate text-muted")}>
-            {clash
-              ? `${clash.label} and ${takenBy(goesTo(clash), clash)} both go into ${goesTo(clash)}. Choose another for one of them.`
-              : someTables
-                ? `Replaces ${tables.size === 1 ? "1 table" : `${tables.size} tables`} in ${targetName}`
-                : choices
-                  ? chosen.length === dbs.length
-                    ? `Everything in ${targetName} is replaced with the backup`
-                    : `Replaces the chosen databases in ${targetName}`
-                  : ""}
+          <span className="mr-auto truncate text-xs text-muted">
+            {choices ? (all || dbs.length <= 1 ? `Everything in ${targetName} is replaced with the backup` : `Replaces the ticked databases in ${targetName}`) : ""}
           </span>
           <DialogClose render={<Button variant="ghost" size="sm" disabled={pending} />}>Cancel</DialogClose>
           <Button size="sm" variant="danger" disabled={!ready} loading={pending} onClick={() => void submit()}>

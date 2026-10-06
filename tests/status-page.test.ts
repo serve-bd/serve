@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatWebhookProblem,
+  maskTarget,
+  subscribeOf,
   cleanCss,
   cleanUrl,
   componentLevel,
@@ -106,5 +109,29 @@ describe("status page words", () => {
   it("fills placeholders and leaves unknown ones", () => {
     expect(fill("{days} days ago", { days: 90 })).toBe("90 days ago");
     expect(fill("{name} is down {x}", { name: "API" })).toBe("API is down {x}");
+  });
+});
+
+describe("status page subscriptions", () => {
+  it("accepts only real Slack and Discord webhook addresses", () => {
+    expect(chatWebhookProblem("slack", "https://hooks.slack.com/services/T0/B0/xyz")).toBeNull();
+    expect(chatWebhookProblem("slack", "https://hooks.slack.com.evil.com/services/x")).not.toBeNull();
+    expect(chatWebhookProblem("slack", "http://hooks.slack.com/services/x")).not.toBeNull();
+    expect(chatWebhookProblem("discord", "https://discord.com/api/webhooks/1/abc")).toBeNull();
+    expect(chatWebhookProblem("discord", "https://ptb.discord.com/api/webhooks/1/abc")).toBeNull();
+    expect(chatWebhookProblem("discord", "https://discord.com.evil.com/api/webhooks/1")).not.toBeNull();
+    expect(chatWebhookProblem("discord", "https://user:pw@discord.com/api/webhooks/1/abc")).not.toBeNull();
+    expect(chatWebhookProblem("slack", "not a url")).not.toBeNull();
+  });
+
+  it("never shows a webhook's secret path", () => {
+    expect(maskTarget("discord", "https://discord.com/api/webhooks/1/secret")).toBe("discord.com/…");
+    expect(maskTarget("email", "a@b.co")).toBe("a@b.co");
+  });
+
+  it("offers RSS and nothing that sends by default", () => {
+    const c = subscribeOf(null);
+    expect([c.email, c.slack, c.discord, c.webhook, c.rss]).toEqual([false, false, false, false, true]);
+    expect(subscribeOf({ email: true }).email).toBe(true);
   });
 });

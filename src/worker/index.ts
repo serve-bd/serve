@@ -126,6 +126,18 @@ async function handle(job: Job, signal: AbortSignal) {
       return runUpdate(p.to);
     case "notification.deliver":
       return void (await attemptDelivery(p.deliveryId));
+    case "status.notify": {
+      const { notifyNotice } = await import("@/server/status-pages/subscribers");
+      const q = job.payload as JobPayloads["status.notify"];
+      return notifyNotice(q.noticeId, q.event, { notify: q.notify });
+    }
+    case "status.outage": {
+      const { notifyOutage } = await import("@/server/status-pages/subscribers");
+      const q = job.payload as JobPayloads["status.outage"];
+      const [incident] = await db.select().from(schema.incident).where(eq(schema.incident.id, q.incidentId));
+      if (incident) await notifyOutage(q.serviceId, incident);
+      return;
+    }
     case "commit.status": {
       const { reportCommitStatus } = await import("@/server/git/commit-status");
       const q = job.payload as JobPayloads["commit.status"];
@@ -895,6 +907,11 @@ async function main() {
   every(10_000, "server-listener", () => syncTunnels(), true);
   // Uptime checks run every 15 s and pick the monitors that are due.
   every(15_000, "uptime", runUptimeChecks, true);
+  every(60_000, "status-maintenance", async () => {
+    const { maintenanceTick, pruneSubscribers } = await import("@/server/status-pages/subscribers");
+    await maintenanceTick();
+    await pruneSubscribers();
+  });
   // CLI sign-ins: tokens nobody collected, and sign-ins a day past their time.
   every(60_000, "cli-logins", pruneCliLogins);
   every(3600_000, "cloudflare-oauth", async () => (await import("@/server/cloudflare/oauth")).renewIdleOauth((l) => log(l)), true);

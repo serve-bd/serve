@@ -545,6 +545,8 @@ const noticeInput = z.object({
   body: z.string().trim().max(5000),
   startsAt: date,
   endsAt: date,
+  /** Tell subscribers (default). Team channels hear every post. */
+  notify: z.boolean().optional(),
 });
 
 async function onlyPageComponents(pageId: string, ids: string[]) {
@@ -581,6 +583,8 @@ export async function createStatusNotice(pageId: string, input: z.input<typeof n
         startsAt: data.kind === "maintenance" ? data.startsAt : (data.startsAt ?? new Date()),
         endsAt: data.kind === "maintenance" ? data.endsAt : null,
         resolvedAt: resolved ? new Date() : null,
+        // A window that already started is announced as posted, not once more by the minute tick.
+        startNotified: data.kind === "maintenance" && !!data.startsAt && data.startsAt <= new Date(),
         createdBy: ctx.user.id,
       });
       if (data.body) await tx.insert(schema.statusNoticeUpdate).values({ id: newId(), noticeId: id, state: data.kind === "incident" ? data.state : "scheduled", body: data.body });
@@ -594,12 +598,13 @@ export async function createStatusNotice(pageId: string, input: z.input<typeof n
       targetType: "status-page",
       targetId: pageId,
     });
+    await enqueue("status.notify", { noticeId: id, event: "created", notify: data.notify ?? true }, { maxAttempts: 1 });
     return { id };
   });
 }
 
 /** A new message on an incident; "resolved" closes it. Maintenance messages keep its times. */
-export async function addStatusUpdate(noticeId: string, input: { state: string; body: string }) {
+export async function addStatusUpdate(noticeId: string, input: { state: string; body: string; notify?: boolean }) {
   return act(async () => {
     const ctx = await requireStatusManager();
     const notice = await noticeOfOrg(noticeId, ctx.org.id);
@@ -607,6 +612,7 @@ export async function addStatusUpdate(noticeId: string, input: { state: string; 
       .object({
         state: z.enum(["investigating", "identified", "monitoring", "resolved", "scheduled", "in-progress", "completed"]),
         body: z.string().trim().min(1, "Write the update.").max(5000),
+        notify: z.boolean().optional(),
       })
       .parse(input);
     const patch: Partial<typeof schema.statusNotice.$inferInsert> = {};
@@ -616,12 +622,18 @@ export async function addStatusUpdate(noticeId: string, input: { state: string; 
       patch.resolvedAt = data.state === "resolved" ? (notice.resolvedAt ?? new Date()) : null;
     } else if (data.state === "completed") {
       patch.resolvedAt = notice.resolvedAt ?? new Date();
+      // This update says it: the minute tick must not announce the start or the end again.
+      patch.startNotified = true;
+      patch.endNotified = true;
+    } else if (data.state === "in-progress") {
+      patch.startNotified = true;
     }
     await db.transaction(async (tx) => {
       if (Object.keys(patch).length) await tx.update(schema.statusNotice).set(patch).where(eq(schema.statusNotice.id, noticeId));
       await tx.insert(schema.statusNoticeUpdate).values({ id: newId(), noticeId, state: data.state, body: data.body });
     });
     await touch(notice.pageId);
+    await enqueue("status.notify", { noticeId, event: "updated", notify: data.notify ?? true }, { maxAttempts: 1 });
     return null;
   });
 }
@@ -730,4 +742,72 @@ async function noticeOfOrg(noticeId: string, organizationId: string) {
     .where(and(eq(schema.statusNotice.id, noticeId), eq(schema.statusPage.organizationId, organizationId)));
   if (!row) throw new UserError("Not found.");
   return row.notice;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                         Subscribers and team channels                       */
+/* -------------------------------------------------------------------------- */
+
+const subscribeInput = z.object({
+  email: z.boolean(),
+  slack: z.boolean(),
+  discord: z.boolean(),
+  webhook: z.boolean(),
+  rss: z.boolean(),
+  components: z.boolean(),
+  outages: z.boolean(),
+});
+
+/** Which ways to subscribe the page offers, and the team channels that get every post. */
+export async function saveStatusSubscriptions(pageId: string, input: { subscribe: z.input<typeof subscribeInput>; teamChannelIds: string[] }) {
+  return act(async () => {
+    const ctx = await requireStatusManager();
+    const page = await pageInOrg(pageId, ctx.org.id);
+    const subscribe = subscribeInput.parse(input.subscribe);
+    const wanted = [...new Set(z.array(z.string()).parse(input.teamChannelIds))];
+    const channels = wanted.length
+      ? await db
+          .select({ id: schema.notificationChannel.id })
+          .from(schema.notificationChannel)
+          .where(and(eq(schema.notificationChannel.organizationId, ctx.org.id), inArray(schema.notificationChannel.id, wanted)))
+      : [];
+    if (channels.length !== wanted.length) throw new UserError("A channel was not found. Reload the page and try again.");
+    await db.update(schema.statusPage).set({ subscribe, teamChannelIds: wanted, updatedAt: new Date() }).where(eq(schema.statusPage.id, pageId));
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      action: "status-page.update",
+      message: `Changed the subscriptions of the status page ${page.name}`,
+      targetType: "status-page",
+      targetId: pageId,
+    });
+    return null;
+  });
+}
+
+export async function removeStatusSubscriber(subscriberId: string) {
+  return act(async () => {
+    const ctx = await requireStatusManager();
+    const [row] = await db
+      .select({ id: schema.statusSubscriber.id })
+      .from(schema.statusSubscriber)
+      .innerJoin(schema.statusPage, eq(schema.statusSubscriber.pageId, schema.statusPage.id))
+      .where(and(eq(schema.statusSubscriber.id, subscriberId), eq(schema.statusPage.organizationId, ctx.org.id)));
+    if (!row) throw new UserError("Subscriber not found.");
+    await db.delete(schema.statusSubscriber).where(eq(schema.statusSubscriber.id, subscriberId));
+    return null;
+  });
+}
+
+/** More subscribers for the list, or a search (email addresses; webhooks by type only). */
+export async function listStatusSubscribers(pageId: string, input: { q?: string; kind?: string; offset?: number }) {
+  return act(async () => {
+    const ctx = await requireStatusManager();
+    await pageInOrg(pageId, ctx.org.id);
+    const data = z
+      .object({ q: z.string().max(200).optional(), kind: z.enum(["email", "slack", "discord", "webhook"]).optional(), offset: z.number().int().min(0).max(1_000_000).optional() })
+      .parse(input);
+    const { subscriberRows } = await import("@/server/status-pages/admin");
+    return subscriberRows(pageId, data);
+  });
 }

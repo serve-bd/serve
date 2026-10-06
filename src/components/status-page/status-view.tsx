@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, CircleCheck, CircleDashed, CircleX, Rss, TriangleAlert, Wrench } from "lucide-react";
+import { Bell, CircleAlert, CircleCheck, CircleDashed, CircleX, Rss, TriangleAlert, Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { cleanCss, fill, formatPercent, type Labels, labelsOf, type StatusDesign, type StatusLevel } from "@/lib/status-page";
 import type { ComponentView, NoticeView, StatusView as View } from "@/server/status-pages/data";
@@ -12,7 +12,8 @@ const LIGHT = `--sp-bg:#f6f7f9;--sp-surface:#ffffff;--sp-sunken:#eef0f3;--sp-fg:
 const DARK = `--sp-bg:#0c0d10;--sp-surface:#15171b;--sp-sunken:#1c1f24;--sp-fg:#f2f3f5;--sp-fg2:#c9ccd2;--sp-muted:#8b9099;--sp-line:rgb(255 255 255/.08);--sp-ok:#2fbf6c;--sp-warn:#e2a03a;--sp-orange:#f07a3a;--sp-bad:#f0564c;--sp-maint:#5b8ff0;--sp-idle:#30343b;color-scheme:dark;`;
 
 function themeCss(accent: string | null) {
-  const a = accent ? `--sp-accent:${accent};` : "--sp-accent:var(--sp-fg);";
+  // Text on accent buttons: white on a chosen color, the page's background on the default (its text color).
+  const a = accent ? `--sp-accent:${accent};--sp-accent-fg:#fff;` : "--sp-accent:var(--sp-fg);--sp-accent-fg:var(--sp-bg);";
   return [
     `.sp{${LIGHT}${a}}`,
     `.sp[data-theme-mode="dark"]{${DARK}}`,
@@ -100,9 +101,13 @@ export type StatusViewProps = {
   note?: string | null;
   /** The footer credit: the product's name, and a link only for the default one. */
   poweredBy: { name: string; url: string | null };
+  /** Ways to subscribe the page offers; null shows no Subscribe button. */
+  subscribe?: SubscribeOptions | null;
 };
 
-export function StatusView({ view, design, base, live, note, poweredBy }: StatusViewProps) {
+export type SubscribeOptions = { email: boolean; slack: boolean; discord: boolean; webhook: boolean; rss: boolean; components: boolean };
+
+export function StatusView({ view, design, base, live, note, poweredBy, subscribe }: StatusViewProps) {
   const router = useRouter();
   React.useEffect(() => {
     if (!live) return;
@@ -127,7 +132,7 @@ export function StatusView({ view, design, base, live, note, poweredBy }: Status
         {css && <style>{css}</style>}
         {note && <div className="sp-note bg-[var(--sp-maint)] px-4 py-2 text-center text-[13px] font-medium text-white">{note}</div>}
         <div className={cn("mx-auto w-full max-w-[760px] px-4 sm:px-6", design.density === "compact" ? "py-8" : "py-12")}>
-          <Header view={view} design={design} />
+          <Header view={view} design={design} base={base} live={!!live} subscribe={subscribe ?? null} />
           {design.announcement?.text && (
             <div
               className="sp-announcement mt-6 rounded-[var(--sp-radius)] border px-4 py-3 text-[14px] leading-relaxed"
@@ -157,14 +162,17 @@ export function StatusView({ view, design, base, live, note, poweredBy }: Status
           )}
           <Components view={view} design={design} />
           {design.historyDays > 0 && <History view={view} days={design.historyDays} />}
-          <Footer design={design} base={base} poweredBy={poweredBy} />
+          <Footer design={design} base={base} poweredBy={poweredBy} rss={subscribe?.rss !== false} />
         </div>
       </div>
     </Words.Provider>
   );
 }
 
-function Header({ view, design }: { view: View; design: StatusDesign }) {
+function Header({ view, design, base, live, subscribe }: { view: View; design: StatusDesign; base: string; live: boolean; subscribe: SubscribeOptions | null }) {
+  const { w } = useWords();
+  const [open, setOpen] = React.useState(false);
+  const offers = !!subscribe && (subscribe.email || subscribe.slack || subscribe.discord || subscribe.webhook || subscribe.rss);
   const logo = view.logoUrl && (
     <>
       <img src={view.logoUrl} alt={design.showName ? "" : view.name} className={cn("sp-logo h-9 w-auto max-w-[220px] object-contain", view.logoDarkUrl && "sp-light-only")} />
@@ -186,8 +194,8 @@ function Header({ view, design }: { view: View; design: StatusDesign }) {
       ) : (
         brand
       )}
-      {design.links.length > 0 && (
-        <nav className="sp-links flex flex-wrap items-center gap-x-5 gap-y-1 text-[14px]">
+      {(design.links.length > 0 || offers) && (
+        <nav className="sp-links flex flex-wrap items-center gap-x-5 gap-y-2 text-[14px]">
           {design.links.map((l) => (
             <a
               key={`${l.label}-${l.url}`}
@@ -198,8 +206,18 @@ function Header({ view, design }: { view: View; design: StatusDesign }) {
               {l.label}
             </a>
           ))}
+          {offers && (
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              className="sp-subscribe inline-flex h-9 items-center gap-2 rounded-[min(var(--sp-radius),10px)] border border-[var(--sp-line)] bg-[var(--sp-surface)] px-3.5 text-[13px] font-semibold text-[var(--sp-fg)] transition-colors hover:border-[var(--sp-accent)]"
+            >
+              <Bell className="size-3.5" /> {w["sub.button"]}
+            </button>
+          )}
         </nav>
       )}
+      {open && subscribe && <SubscribeDialog view={view} base={base} live={live} options={subscribe} onClose={() => setOpen(false)} />}
       {design.description && <p className="sp-description w-full text-[15px] leading-relaxed text-[var(--sp-muted)]">{design.description}</p>}
     </header>
   );
@@ -517,15 +535,17 @@ function History({ view, days }: { view: View; days: number }) {
   );
 }
 
-function Footer({ design, base, poweredBy }: { design: StatusDesign; base: string; poweredBy: StatusViewProps["poweredBy"] }) {
+function Footer({ design, base, poweredBy, rss }: { design: StatusDesign; base: string; poweredBy: StatusViewProps["poweredBy"]; rss: boolean }) {
   const { w } = useWords();
   return (
     <footer className="sp-footer mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--sp-line)] pt-5 text-[13px] text-[var(--sp-muted)]">
       <span className="whitespace-pre-line">{design.footer}</span>
       <span className="flex items-center gap-4">
-        <a href={`${base}/feed.xml`} className="inline-flex items-center gap-1.5 hover:text-[var(--sp-accent)]">
-          <Rss className="size-3.5" /> {w.subscribe}
-        </a>
+        {rss && (
+          <a href={`${base}/feed.xml`} className="inline-flex items-center gap-1.5 hover:text-[var(--sp-accent)]">
+            <Rss className="size-3.5" /> {w.subscribe}
+          </a>
+        )}
         {!design.hideBadge &&
           (poweredBy.url ? (
             <a href={poweredBy.url} className="hover:text-[var(--sp-accent)]" rel="noopener">
@@ -538,5 +558,148 @@ function Footer({ design, base, poweredBy }: { design: StatusDesign; base: strin
           ))}
       </span>
     </footer>
+  );
+}
+
+type Way = "email" | "slack" | "discord" | "webhook" | "rss";
+
+const PLACEHOLDER: Record<Exclude<Way, "rss">, string> = {
+  email: "you@example.com",
+  slack: "https://hooks.slack.com/services/…",
+  discord: "https://discord.com/api/webhooks/…",
+  webhook: "https://example.com/hooks/status",
+};
+
+/** The Subscribe dialog: one tab per way the page offers. */
+function SubscribeDialog({ view, base, live, options, onClose }: { view: View; base: string; live: boolean; options: SubscribeOptions; onClose: () => void }) {
+  const { w } = useWords();
+  const ways = (["email", "slack", "discord", "webhook", "rss"] as const).filter((k) => options[k]);
+  const [way, setWay] = React.useState<Way>(ways[0] ?? "rss");
+  const [target, setTarget] = React.useState("");
+  const [picked, setPicked] = React.useState<string[]>([]);
+  const [state, setState] = React.useState<{ busy?: boolean; error?: string; done?: string } | null>(null);
+  const components = view.groups.flatMap((g) => g.components);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const feed = typeof window === "undefined" ? `${base}/feed.xml` : new URL(`${base}/feed.xml`, window.location.href).toString();
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (way === "rss") return;
+    if (!live) return setState({ error: "This is a preview: subscribing works on the published page." });
+    setState({ busy: true });
+    const res = await fetch(`${base}/subscribe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: way, target, componentIds: picked }),
+    }).catch(() => null);
+    const data = (await res?.json().catch(() => null)) as { state?: string; error?: string } | null;
+    if (!res?.ok || !data?.state) return setState({ error: data?.error ?? "That did not work. Try again." });
+    setState({ done: data.state === "check-email" ? w["sub.checkEmail"] : w["sub.done"] });
+  };
+
+  return (
+    <div
+      className="sp-dialog fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-16 backdrop-blur-[2px]"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sp-sub-title"
+        className="relative w-full max-w-[420px] rounded-[var(--sp-radius)] border border-[var(--sp-line)] bg-[var(--sp-surface)] p-6 text-[var(--sp-fg)] shadow-2xl"
+      >
+        <button type="button" onClick={onClose} aria-label="Close" className="absolute top-4 right-4 rounded-md p-1 text-[var(--sp-muted)] hover:text-[var(--sp-fg)]">
+          <X className="size-4" />
+        </button>
+        <h2 id="sp-sub-title" className="text-[18px] font-semibold tracking-tight">
+          {w["sub.title"]}
+        </h2>
+        <p className="mt-1 text-[14px] text-[var(--sp-muted)]">{w["sub.intro"]}</p>
+        {ways.length > 1 && (
+          <div className="mt-4 flex flex-wrap gap-1 rounded-lg bg-[var(--sp-sunken)] p-1" role="tablist">
+            {ways.map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={way === k}
+                onClick={() => {
+                  setWay(k);
+                  setTarget("");
+                  setState(null);
+                }}
+                className={cn(
+                  "flex-1 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[var(--sp-muted)] transition-colors",
+                  way === k && "bg-[var(--sp-surface)] text-[var(--sp-fg)] shadow-sm",
+                )}
+              >
+                {w[`sub.${k}`]}
+              </button>
+            ))}
+          </div>
+        )}
+        {state?.done ? (
+          <p className="mt-5 flex items-start gap-2 text-[14px] text-[var(--sp-fg2)]">
+            <CircleCheck className="mt-0.5 size-4 flex-none" style={{ color: "var(--sp-ok)" }} /> {state.done}
+          </p>
+        ) : way === "rss" ? (
+          <div className="mt-5">
+            <input
+              readOnly
+              value={feed}
+              onFocus={(e) => e.currentTarget.select()}
+              className="h-10 w-full rounded-lg border border-[var(--sp-line)] bg-transparent px-3 font-mono text-[12px] outline-none"
+              aria-label="RSS feed address"
+            />
+            <a href={feed} className="mt-3 inline-flex text-[13px] font-medium text-[var(--sp-accent)] hover:underline">
+              <Rss className="mr-1.5 size-3.5 self-center" /> {w["sub.rss"]}
+            </a>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="mt-5 flex flex-col gap-3">
+            <input
+              type={way === "email" ? "email" : "url"}
+              required
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder={PLACEHOLDER[way]}
+              aria-label={w[`sub.${way}`]}
+              autoComplete={way === "email" ? "email" : "off"}
+              className="h-10 w-full rounded-lg border border-[var(--sp-line)] bg-transparent px-3 text-[14px] outline-none focus:border-[var(--sp-accent)]"
+            />
+            {options.components && components.length > 1 && (
+              <fieldset className="rounded-lg border border-[var(--sp-line)] px-3 py-2">
+                <legend className="px-1 text-[12px] text-[var(--sp-muted)]">{w["sub.components"]}</legend>
+                <div className="flex max-h-40 flex-col gap-1.5 overflow-y-auto py-1">
+                  {components.map((c) => (
+                    <label key={c.id} className="flex items-center gap-2 text-[13px]">
+                      <input type="checkbox" checked={picked.includes(c.id)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, c.id] : p.filter((x) => x !== c.id)))} />
+                      {c.name}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+            {state?.error && (
+              <p className="text-[13px]" style={{ color: "var(--sp-bad)" }}>
+                {state.error}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={state?.busy}
+              className="h-10 rounded-lg text-[14px] font-semibold disabled:opacity-60"
+              style={{ background: "var(--sp-accent)", color: "var(--sp-accent-fg)" }}
+            >
+              {w["sub.submit"]}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }

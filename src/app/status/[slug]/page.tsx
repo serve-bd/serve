@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { designOf } from "@/lib/status-page";
 import { pageIconUrl, statusView } from "@/server/status-pages/data";
+import { subscribeOptions } from "@/server/status-pages/subscribers";
 import { poweredBy, publicPage } from "@/server/status-pages/public";
 import { StatusView } from "@/components/status-page/status-view";
 import { LockedPage } from "./locked-page";
@@ -40,5 +41,5 @@ export default async function StatusPage(props: PageProps<"/status/[slug]">) {
       : member && page.visibility === "password"
         ? "Visitors need the password. You see the page because you are signed in."
         : null;
-  return <StatusView view={view} design={design} base={base} live note={note} poweredBy={await poweredBy()} />;
+  return <StatusView view={view} design={design} base={base} live note={note} poweredBy={await poweredBy()} subscribe={await subscribeOptions(page)} />;
 }

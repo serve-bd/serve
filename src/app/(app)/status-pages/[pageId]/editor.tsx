@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ExternalLink, Eye, Megaphone, Palette, Rows3, Settings2 } from "lucide-react";
+import { Bell, ExternalLink, Eye, Megaphone, Palette, Rows3, Settings2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tab, Tabs, TabsList, TabsPanel } from "@/components/ui/tabs";
 import { useAction } from "@/hooks/use-action";
@@ -11,9 +11,10 @@ import { ComponentsTab } from "./components-tab";
 import { NoticesTab } from "./notices-tab";
 import { DesignTab } from "./design-tab";
 import { SettingsTab } from "./settings-tab";
+import { SubscribersTab } from "./subscribers-tab";
 import { cn } from "@/lib/utils";
 
-const TABS = ["components", "incidents", "design", "settings"] as const;
+const TABS = ["components", "incidents", "subscribers", "design", "settings"] as const;
 type TabKey = (typeof TABS)[number];
 
 export type PoweredBy = { name: string; url: string | null };
@@ -54,6 +55,10 @@ export function StatusPageEditor({ data, canManage, poweredBy, tab }: { data: Ed
               <Megaphone /> Incidents
               {open > 0 && <span className="ml-0.5 rounded-full bg-bad px-1.5 text-[11px] leading-[18px] font-semibold text-white tabular-nums">{open}</span>}
             </Tab>
+            <Tab value="subscribers">
+              <Bell /> Subscribers
+              {data.subscriberCounts.confirmed > 0 && <span className="ml-0.5 text-[11px] text-muted tabular-nums">{data.subscriberCounts.confirmed}</span>}
+            </Tab>
             <Tab value="design">
               <Palette /> Design
             </Tab>
@@ -70,6 +75,9 @@ export function StatusPageEditor({ data, canManage, poweredBy, tab }: { data: Ed
         </TabsPanel>
         <TabsPanel value="incidents" className="mt-5">
           <NoticesTab data={data} canManage={canManage} />
+        </TabsPanel>
+        <TabsPanel value="subscribers" className="mt-5">
+          <SubscribersTab data={data} canManage={canManage} />
         </TabsPanel>
         <TabsPanel value="design" className="mt-5">
           <DesignTab data={data} canManage={canManage} poweredBy={poweredBy} />

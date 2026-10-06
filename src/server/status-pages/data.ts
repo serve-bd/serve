@@ -31,6 +31,7 @@ export const pageColumns = {
   visibility: schema.statusPage.visibility,
   passwordHash: schema.statusPage.passwordHash,
   design: schema.statusPage.design,
+  subscribe: schema.statusPage.subscribe,
   updatedAt: schema.statusPage.updatedAt,
 };
 

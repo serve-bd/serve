@@ -10,6 +10,7 @@ import { networkingRoutes } from "./routes/networking";
 import { orgRoutes } from "./routes/org";
 import { projectRoutes } from "./routes/projects";
 import { serviceRoutes } from "./routes/services";
+import { statusPageRoutes } from "./routes/status-pages";
 import { type ApiRoute, createRouter, needLabel } from "./router";
 
 export const apiRoutes: ApiRoute[] = [
@@ -22,6 +23,7 @@ export const apiRoutes: ApiRoute[] = [
   ...networkingRoutes,
   ...logDrainRoutes,
   ...metricsRoutes,
+  ...statusPageRoutes,
 ];
 
 const TAGS = [
@@ -40,6 +42,7 @@ const TAGS = [
   ["Logs", "Container logs."],
   ["Console", "Commands and shells in containers and on servers."],
   ["Monitoring", "Uptime checks."],
+  ["Status pages", "Incidents and maintenance on public status pages, for CI and scripts."],
   ["Metrics", "Resource, request and deployment metrics in the Prometheus text format."],
   ["Servers", "Servers, their proxy, SSH keys and private networks."],
   ["Tailscale", "Servers in a Tailscale tailnet (Root admins)."],

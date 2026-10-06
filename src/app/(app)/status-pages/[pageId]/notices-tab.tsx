@@ -85,7 +85,7 @@ export function NoticesTab({ data, canManage }: { data: EditorData; canManage: b
       )}
       {data.templates.length > 0 && <Templates data={data} canManage={canManage} />}
       <NoticeDialog data={data} kind={creating ?? editing?.kind ?? null} notice={editing} onClose={() => (setCreating(null), setEditing(null))} />
-      <UpdateDialog notice={updating} onClose={() => setUpdating(null)} />
+      <UpdateDialog data={data} notice={updating} onClose={() => setUpdating(null)} />
     </Card>
   );
 }
@@ -167,6 +167,22 @@ function NoticeRow({
   );
 }
 
+/** "Notify N subscribers": on by default, off for a quiet fix (a typo, a backfilled incident). */
+function NotifyBox({ data, checked, onChange }: { data: EditorData; checked: boolean; onChange: (v: boolean) => void }) {
+  const n = data.subscriberCounts.confirmed;
+  const team = data.teamChannelIds.length;
+  if (!n && !team) return null;
+  return (
+    <label className="flex items-start gap-2 text-[13px] text-fg-2">
+      <Checkbox checked={checked} onCheckedChange={(on) => onChange(!!on)} className="mt-0.5" disabled={!n} />
+      <span>
+        {n ? `Notify ${n} subscriber${n === 1 ? "" : "s"}` : "No subscribers yet"}
+        {team > 0 && <span className="block text-xs text-muted">Your {team === 1 ? "team channel gets" : `${team} team channels get`} it either way.</span>}
+      </span>
+    </label>
+  );
+}
+
 function DateTimeField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const [date, time] = value.split("T");
   return (
@@ -191,12 +207,14 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
   const [endsAt, setEndsAt] = React.useState("");
   const [postmortem, setPostmortem] = React.useState("");
   const [keep, setKeep] = React.useState(false);
+  const [notify, setNotify] = React.useState(true);
   const [templateName, setTemplateName] = React.useState("");
 
   React.useEffect(() => {
     if (!kind) return;
     setPostmortem(notice?.postmortem ?? "");
     setKeep(false);
+    setNotify(true);
     setTemplateName("");
     // A new window starts at the next full hour and lasts one hour.
     const start = new Date();
@@ -230,6 +248,7 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
             state,
             componentIds: components,
             body,
+            notify,
             startsAt: kind === "maintenance" ? iso(startsAt) : null,
             endsAt: kind === "maintenance" ? iso(endsAt) : null,
           }),
@@ -336,6 +355,7 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
                 <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={5000} />
               </Field>
             )}
+            {!notice && <NotifyBox data={data} checked={notify} onChange={setNotify} />}
             {!notice && !maintenance && (
               <div className="flex flex-col gap-2">
                 <label className="flex items-center gap-2 text-[13px] text-fg-2">
@@ -370,7 +390,8 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
   );
 }
 
-function UpdateDialog({ notice, onClose }: { notice: Notice | null; onClose: () => void }) {
+function UpdateDialog({ data, notice, onClose }: { data: EditorData; notice: Notice | null; onClose: () => void }) {
+  const [notify, setNotify] = React.useState(true);
   const maintenance = notice?.kind === "maintenance";
   const [state, setState] = React.useState("monitoring");
   const [body, setBody] = React.useState("");
@@ -380,8 +401,9 @@ function UpdateDialog({ notice, onClose }: { notice: Notice | null; onClose: () 
     const next = INCIDENT_STATES[Math.min(INCIDENT_STATES.indexOf(notice.state) + 1, INCIDENT_STATES.length - 1)];
     setState(notice.kind === "maintenance" ? (maintenancePhase(notice) === "scheduled" ? "scheduled" : "in-progress") : next);
     setBody("");
+    setNotify(true);
   }, [notice]);
-  const save = useAction(() => addStatusUpdate(notice!.id, { state, body }), { onSuccess: onClose });
+  const save = useAction(() => addStatusUpdate(notice!.id, { state, body, notify }), { onSuccess: onClose });
   const states = maintenance ? (["scheduled", "in-progress", "completed"] as const) : INCIDENT_STATES;
   return (
     <Dialog open={!!notice} onOpenChange={(o) => !o && onClose()}>
@@ -403,6 +425,7 @@ function UpdateDialog({ notice, onClose }: { notice: Notice | null; onClose: () 
             <Field label="Message">
               <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={5000} autoFocus />
             </Field>
+            <NotifyBox data={data} checked={notify} onChange={setNotify} />
           </DialogBody>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" />}>Cancel</DialogClose>

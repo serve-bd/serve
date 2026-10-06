@@ -338,6 +338,25 @@ export async function notify(organizationId: string | null, event: NotifyEvent, 
   }
 }
 
+/**
+ * Sends to the named channels of the organization, whatever events they follow (a status page posts
+ * its incidents to the channels its owner picked). Disabled channels are skipped. Never throws.
+ */
+export async function notifyChannels(organizationId: string, channelIds: string[], event: string, input: NotifyInput) {
+  if (!channelIds.length) return;
+  try {
+    const channels = await db
+      .select()
+      .from(schema.notificationChannel)
+      .where(and(eq(schema.notificationChannel.enabled, true), eq(schema.notificationChannel.organizationId, organizationId), inArray(schema.notificationChannel.id, channelIds)));
+    if (!channels.length) return;
+    const m = await resolveMessage(organizationId, event, input);
+    await Promise.allSettled(channels.map((c) => deliverToChannel(c, m)));
+  } catch (e) {
+    console.error("[notify]", e);
+  }
+}
+
 /** A sample message for "Send test" and the template preview. */
 export function sampleMessage(org: { id: string; name: string }, kind: string, brand = "Serve", url: string | null = null): OutgoingMessage {
   const alerting = !!providerInfo(kind)?.alerting;

@@ -9,6 +9,7 @@ import { orgOfService } from "@/server/notify";
 import { publicGet } from "@/server/net/public-fetch";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { openIncident, openIncidentFor, resolveIncident } from "./incidents";
+import { enqueue } from "@/server/queue";
 import { alertActive, dayKey, isCrashLooping, nextMonitorState, parseExpectedStatus, type RestartSample } from "./state";
 import { alertsFor } from "./config";
 
@@ -114,7 +115,7 @@ export async function recordCheck(m: Monitor, service: Service, result: CheckRes
   if (next.transition === "down") {
     const org = await orgOfService(service.id);
     if (org) {
-      await openIncident({
+      const incident = await openIncident({
         organizationId: org,
         key: `down:${service.id}`,
         kind: "down",
@@ -124,9 +125,12 @@ export async function recordCheck(m: Monitor, service: Service, result: CheckRes
         event: "service.down",
         url,
       });
+      // Status pages that send outages tell their subscribers, in the background: webhooks can be slow.
+      await enqueue("status.outage", { serviceId: service.id, incidentId: incident.id }).catch(() => {});
     }
   } else if (next.transition === "recovered") {
-    await resolveIncident(`down:${service.id}`, { event: "service.recovered", title: `${service.name} is back up`, body: "The uptime check passes again.", url });
+    const incident = await resolveIncident(`down:${service.id}`, { event: "service.recovered", title: `${service.name} is back up`, body: "The uptime check passes again.", url });
+    if (incident) await enqueue("status.outage", { serviceId: service.id, incidentId: incident.id }).catch(() => {});
   }
   return next;
 }

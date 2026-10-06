@@ -1,16 +1,17 @@
-import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { publicBaseUrl } from "@/server/git/github-app";
 import { getSettings } from "@/server/settings";
 import { certificateCovers } from "@/server/ssl/match";
-import { designOf } from "@/lib/status-page";
+import { designOf, maskTarget, subscribeOf } from "@/lib/status-page";
+import { decryptOrNull } from "@/server/crypto";
+import { isEmailConfigured } from "@/server/email/send";
+import { subscribeOptions } from "./subscribers";
 import { pageColumns, statusView } from "./data";
+import { pageUrl } from "./urls";
 
-export async function pageUrl(page: { slug: string; domain: string | null; https: boolean }) {
-  if (page.domain) return `${page.https ? "https" : "http"}://${page.domain}`;
-  return `${await publicBaseUrl()}/status/${page.slug}`;
-}
+export { pageUrl };
 
 /** The organization's pages for the list. */
 export async function orgStatusPages(organizationId: string) {
@@ -52,7 +53,7 @@ export type EditorService = { id: string; name: string; project: string; check: 
 /** Everything the editor shows. Null when the page is not the organization's. */
 export async function editorData(pageId: string, organizationId: string) {
   const [page] = await db
-    .select({ ...pageColumns, images: schema.statusPage.images, templates: schema.statusPage.templates })
+    .select({ ...pageColumns, images: schema.statusPage.images, templates: schema.statusPage.templates, teamChannelIds: schema.statusPage.teamChannelIds })
     .from(schema.statusPage)
     .where(and(eq(schema.statusPage.id, pageId), eq(schema.statusPage.organizationId, organizationId)));
   if (!page) return null;
@@ -146,6 +147,17 @@ export async function editorData(pageId: string, organizationId: string) {
     })),
     view,
     templates: page.templates,
+    subscribers: await subscriberRows(pageId, {}),
+    subscriberCounts: await subscriberCounts(pageId),
+    channels: await db
+      .select({ id: schema.notificationChannel.id, name: schema.notificationChannel.name, kind: schema.notificationChannel.kind, enabled: schema.notificationChannel.enabled })
+      .from(schema.notificationChannel)
+      .where(eq(schema.notificationChannel.organizationId, organizationId))
+      .orderBy(asc(schema.notificationChannel.name)),
+    emailReady: await isEmailConfigured(),
+    subscribe: subscribeOf(page.subscribe),
+    subscribeOptions: await subscribeOptions(page),
+    teamChannelIds: page.teamChannelIds,
     domain: {
       serverIp: settings.serverIp ?? null,
       proxy: local[0]?.kind ?? "nginx",
@@ -165,3 +177,55 @@ export async function editorData(pageId: string, organizationId: string) {
 }
 
 export type EditorData = NonNullable<Awaited<ReturnType<typeof editorData>>>;
+
+export const SUBSCRIBERS_PER_PAGE = 25;
+
+/** A page of a page's subscribers, newest first. `q` searches email addresses (webhook URLs are encrypted). */
+export async function subscriberRows(pageId: string, opts: { q?: string; kind?: string; offset?: number }) {
+  const q = opts.q?.trim().toLowerCase();
+  const rows = await db
+    .select()
+    .from(schema.statusSubscriber)
+    .where(
+      and(
+        eq(schema.statusSubscriber.pageId, pageId),
+        opts.kind ? eq(schema.statusSubscriber.kind, opts.kind as never) : undefined,
+        q ? and(eq(schema.statusSubscriber.kind, "email"), ilike(schema.statusSubscriber.target, `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)) : undefined,
+      ),
+    )
+    .orderBy(desc(schema.statusSubscriber.createdAt))
+    .limit(SUBSCRIBERS_PER_PAGE + 1)
+    .offset(opts.offset ?? 0);
+  return {
+    hasMore: rows.length > SUBSCRIBERS_PER_PAGE,
+    rows: rows.slice(0, SUBSCRIBERS_PER_PAGE).map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      // Webhook URLs carry their own secret: the dashboard shows only where they point.
+      target: r.kind === "email" ? r.target : maskTarget(r.kind, decryptOrNull(r.target) ?? ""),
+      componentIds: r.componentIds,
+      confirmed: r.confirmed,
+      failures: r.failures,
+      lastError: r.lastError,
+      lastSentAt: r.lastSentAt?.toISOString() ?? null,
+      createdAt: r.createdAt.toISOString(),
+    })),
+  };
+}
+
+export type SubscriberRow = Awaited<ReturnType<typeof subscriberRows>>["rows"][number];
+
+async function subscriberCounts(pageId: string) {
+  const rows = await db
+    .select({ kind: schema.statusSubscriber.kind, confirmed: schema.statusSubscriber.confirmed, n: count() })
+    .from(schema.statusSubscriber)
+    .where(eq(schema.statusSubscriber.pageId, pageId))
+    .groupBy(schema.statusSubscriber.kind, schema.statusSubscriber.confirmed);
+  const byKind: Record<string, number> = {};
+  for (const r of rows) if (r.confirmed) byKind[r.kind] = (byKind[r.kind] ?? 0) + r.n;
+  return {
+    confirmed: rows.filter((r) => r.confirmed).reduce((a, r) => a + r.n, 0),
+    pending: rows.filter((r) => !r.confirmed).reduce((a, r) => a + r.n, 0),
+    byKind,
+  };
+}

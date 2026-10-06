@@ -21,7 +21,7 @@ import type { ChannelScope, MessageTemplate, NotificationKind, QuietHours, Sever
 import type { OrgLimits } from "@/lib/limits";
 import type { TrustedProxies } from "@/lib/trusted-proxies";
 import type { DashboardLayout } from "@/lib/dashboard";
-import type { IncidentImpact, IncidentState, NoticeKind, StatusDesign, StatusImage, StatusTemplate, StatusVisibility } from "@/lib/status-page";
+import type { IncidentImpact, IncidentState, NoticeKind, StatusDesign, StatusImage, StatusTemplate, StatusVisibility, SubscribeConfig, SubscriberKind } from "@/lib/status-page";
 import type { SecretProviderAccess, SecretProviderConfig, SecretProviderKind } from "@/lib/secret-providers";
 
 const id = () => text("id").primaryKey();
@@ -1542,6 +1542,10 @@ export const statusPage = pgTable("status_page", {
   design: jsonb("design").$type<Partial<StatusDesign>>().notNull().default({}),
   /** Saved incident messages, to post in two clicks during an outage. */
   templates: jsonb("templates").$type<StatusTemplate[]>().notNull().default([]),
+  /** Which ways to subscribe the page offers (lib/status-page SubscribeConfig). */
+  subscribe: jsonb("subscribe").$type<Partial<SubscribeConfig>>().notNull().default({}),
+  /** The organization's notification channels that get every incident and update posted here. */
+  teamChannelIds: jsonb("team_channel_ids").$type<string[]>().notNull().default([]),
   /** Uploaded logos (light, dark) and favicon, as base64 with their type. */
   images: jsonb("images")
     .$type<{ logo?: StatusImage & { data: string }; logoDark?: StatusImage & { data: string }; favicon?: StatusImage & { data: string } }>()
@@ -1591,10 +1595,42 @@ export const statusNotice = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     /** What happened and what changes, written after the incident. */
     postmortem: text("postmortem"),
+    /** Subscribers were told a maintenance window started, and that it ended. */
+    startNotified: boolean("start_notified").notNull().default(false),
+    endNotified: boolean("end_notified").notNull().default(false),
     createdBy: text("created_by"),
     createdAt: createdAt(),
   },
   (t) => [index("status_notice_page_idx").on(t.pageId, t.createdAt)],
+);
+
+/**
+ * Someone who gets a page's incidents and maintenance: an email address (confirmed by a link first)
+ * or a Slack, Discord or plain webhook. Webhook URLs are encrypted: they carry their own secret.
+ */
+export const statusSubscriber = pgTable(
+  "status_subscriber",
+  {
+    id: id(),
+    pageId: text("page_id")
+      .notNull()
+      .references(() => statusPage.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<SubscriberKind>().notNull(),
+    /** The email address, or the encrypted webhook URL. */
+    target: text("target").notNull(),
+    /** sha256 of the normalized address: one subscription per address and page. */
+    targetHash: text("target_hash").notNull(),
+    /** Empty: every component. */
+    componentIds: jsonb("component_ids").$type<string[]>().notNull().default([]),
+    confirmed: boolean("confirmed").notNull().default(false),
+    /** For the confirm and unsubscribe links. */
+    token: text("token").notNull().unique(),
+    failures: integer("failures").notNull().default(0),
+    lastError: text("last_error"),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("status_subscriber_target_idx").on(t.pageId, t.targetHash), index("status_subscriber_page_idx").on(t.pageId, t.confirmed)],
 );
 
 /** One message on a notice, newest last. */

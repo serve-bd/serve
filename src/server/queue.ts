@@ -15,6 +15,8 @@ export type JobType =
   | "backup.restore"
   | "backup.import"
   | "proxy.sync"
+  | "status.notify"
+  | "status.outage"
   | "cleanup"
   | "task.run"
   | "server.setup"
@@ -60,6 +62,10 @@ export type JobPayloads = {
   "backup.restore": { backupId: string; users?: boolean };
   "backup.import": { backupId: string; backupFirst?: boolean; users?: boolean; url?: string; s3?: { destinationId: string; key: string } };
   "proxy.sync": Record<string, never>;
+  /** A status page notice was posted or changed: tell its subscribers and team channels. */
+  "status.notify": { noticeId: string; event: import("@/server/status-pages/subscribers").StatusEvent; notify?: boolean };
+  /** An uptime check found a service down or back: status pages that send outages tell their subscribers. */
+  "status.outage": { serviceId: string; incidentId: string };
   cleanup: { full?: boolean; serverId?: string };
   "server.setup": { serverId: string; installDocker?: boolean };
   "server.os-updates": { serverId: string; op: "check" | "install"; what?: "all" | string[]; notify?: boolean };

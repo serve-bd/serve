@@ -150,6 +150,18 @@ export const DEFAULT_LABELS = {
   outageOnePast: "{name} was unavailable",
   poweredBy: "Powered by",
   subscribe: "RSS",
+  "sub.button": "Subscribe",
+  "sub.title": "Get updates",
+  "sub.intro": "Hear about incidents and maintenance as they happen.",
+  "sub.email": "Email",
+  "sub.slack": "Slack",
+  "sub.discord": "Discord",
+  "sub.webhook": "Webhook",
+  "sub.rss": "RSS",
+  "sub.components": "Only these components",
+  "sub.submit": "Subscribe",
+  "sub.checkEmail": "Check your inbox: we sent a link to confirm.",
+  "sub.done": "You are subscribed.",
 } as const;
 
 export type LabelKey = keyof typeof DEFAULT_LABELS;
@@ -236,6 +248,60 @@ export function designOf(saved: Partial<StatusDesign> | null | undefined): Statu
 }
 
 export type StatusVisibility = "public" | "password" | "draft";
+
+/* -------------------------------------------------------------------------- */
+/*                                Subscriptions                               */
+/* -------------------------------------------------------------------------- */
+
+export const SUBSCRIBER_KINDS = ["email", "slack", "discord", "webhook"] as const;
+export type SubscriberKind = (typeof SUBSCRIBER_KINDS)[number];
+
+/** Which ways to subscribe a page offers, and what subscribers hear about. */
+export type SubscribeConfig = {
+  email: boolean;
+  slack: boolean;
+  discord: boolean;
+  webhook: boolean;
+  rss: boolean;
+  /** Subscribers may pick the components they care about. */
+  components: boolean;
+  /** Outages found by uptime checks are sent too (the page must show them). */
+  outages: boolean;
+};
+
+export const defaultSubscribe: SubscribeConfig = { email: false, slack: false, discord: false, webhook: false, rss: true, components: true, outages: false };
+
+export function subscribeOf(saved: Partial<SubscribeConfig> | null | undefined): SubscribeConfig {
+  return { ...defaultSubscribe, ...(saved ?? {}) };
+}
+
+/** Where a chat webhook must point: a visitor's URL never reaches anything else. */
+export function chatWebhookProblem(kind: "slack" | "discord", raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return "That is not a valid URL.";
+  }
+  if (url.protocol !== "https:" || url.username || url.password) return "Use the https:// webhook URL.";
+  if (kind === "slack")
+    return url.hostname === "hooks.slack.com" && url.pathname.startsWith("/services/") ? null : "A Slack webhook URL starts with https://hooks.slack.com/services/.";
+  const host = url.hostname.replace(/^(ptb|canary)\./, "");
+  return (host === "discord.com" || host === "discordapp.com") && url.pathname.startsWith("/api/webhooks/")
+    ? null
+    : "A Discord webhook URL starts with https://discord.com/api/webhooks/.";
+}
+
+/** How a subscriber's address shows in the dashboard: webhook URLs carry secrets, so only their host. */
+export function maskTarget(kind: SubscriberKind, target: string) {
+  if (kind === "email") return target;
+  try {
+    const u = new URL(target);
+    return `${u.host}/…`;
+  } catch {
+    return "…";
+  }
+}
 
 export const RESERVED_SLUGS = ["new", "api", "admin", "login", "status"];
 

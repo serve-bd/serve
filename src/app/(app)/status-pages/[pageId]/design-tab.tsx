@@ -374,7 +374,7 @@ export function DesignTab({ data, canManage, poweredBy }: { data: EditorData; ca
           )}
         >
           <div className="max-h-[calc(100dvh-9rem)] overflow-y-auto">
-            <StatusView view={view} design={preview} base={`/status/${data.page.slug}`} poweredBy={poweredBy} />
+            <StatusView view={view} design={preview} base={`/status/${data.page.slug}`} poweredBy={poweredBy} subscribe={data.subscribeOptions} />
           </div>
         </div>
       </div>

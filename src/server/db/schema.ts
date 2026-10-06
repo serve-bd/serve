@@ -1178,6 +1178,8 @@ export const backup = pgTable(
     status: text("status").$type<BackupStatus>().notNull().default("running"),
     filename: text("filename"),
     size: bigint("size", { mode: "number" }),
+    /** SHA-256 of the file as it was written: checked before a restore, so a damaged copy is caught. */
+    checksum: text("checksum"),
     destination: text("destination").notNull().default("local"),
     error: text("error"),
     trigger: text("trigger").notNull().default("manual"),

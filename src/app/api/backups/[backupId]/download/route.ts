@@ -29,6 +29,8 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/backups/[backup
         "content-type": "application/octet-stream",
         ...(remote.size ? { "content-length": String(remote.size) } : {}),
         "content-disposition": `attachment; filename="${b.filename}"`,
+        // The SHA-256 recorded when the backup was made: compare with sha256sum after downloading.
+        ...(b.checksum ? { "x-checksum-sha256": b.checksum } : {}),
       },
     });
   }
@@ -38,6 +40,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/backups/[backup
       "content-type": "application/octet-stream",
       "content-length": String(stat.size),
       "content-disposition": `attachment; filename="${b.filename}"`,
+      ...(b.checksum ? { "x-checksum-sha256": b.checksum } : {}),
     },
   });
 }

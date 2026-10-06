@@ -29,7 +29,7 @@ async function outsideDatabases(docker: Docker, h: Handoff, service: Service) {
  */
 export async function copyDatabaseInto(service: Service, docker: Docker, h: Handoff, line: (s: string) => void) {
   const cfg = service.database!;
-  const { backupFile, dumpOutsideDatabase, restoreBackup } = await import("@/server/backups");
+  const { backupFile, dumpOutsideDatabase, fileSha256, restoreBackup } = await import("@/server/backups");
   const databases = await outsideDatabases(docker, h, service);
   line(`Copying ${databases ? databases.join(", ") : "the data"} from ${h.name}, which keeps running`);
   const id = newId();
@@ -59,6 +59,7 @@ export async function copyDatabaseInto(service: Service, docker: Docker, h: Hand
     status: "success",
     filename,
     size,
+    checksum: await fileSha256(file),
     databases: databases && databases.length > 1 ? databases : null,
     log: `Copied from the container ${h.name}\n`,
   });

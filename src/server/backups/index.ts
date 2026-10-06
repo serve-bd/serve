@@ -584,6 +584,21 @@ async function backupDatabasesNow(service: ServiceRow, asked: string[] | null, l
 }
 
 /** Takes a backup. `protect` is a backup retention must keep (the one a safety backup precedes). */
+/** SHA-256 of a file, read as a stream. */
+export async function fileSha256(file: string) {
+  const hash = crypto.createHash("sha256");
+  await pipeline(fs.createReadStream(file), hash);
+  return hash.digest("hex");
+}
+
+/** Fails when the file is not the one the backup wrote (damaged on disk, or in the bucket). Older backups have no checksum. */
+async function checkIntegrity(backup: { id: string; checksum: string | null }, file: string) {
+  if (!backup.checksum) return;
+  const now = await fileSha256(file);
+  if (now !== backup.checksum) throw new Error("The backup file is damaged: its checksum does not match the one recorded when it was made. Nothing was restored.");
+  await logLine(backup.id, "Checksum verified");
+}
+
 export async function runBackup(backupId: string, protect?: string) {
   const backup = await db.query.backup.findFirst({
     where: eq(schema.backup.id, backupId),
@@ -610,8 +625,9 @@ export async function runBackup(backupId: string, protect?: string) {
     await db.update(schema.backup).set({ filename }).where(eq(schema.backup.id, backup.id));
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
     const size = await t.dump(file);
+    const checksum = await fileSha256(file);
 
-    await logLine(backup.id, `Dumped ${filename} (${size} bytes)`);
+    await logLine(backup.id, `Dumped ${filename} (${size} bytes, SHA-256 ${checksum.slice(0, 12)})`);
 
     // A failed upload keeps the local copy; the backup still counts.
     const s3 = await s3For(t.s3DestinationId);
@@ -629,7 +645,7 @@ export async function runBackup(backupId: string, protect?: string) {
 
     await db
       .update(schema.backup)
-      .set({ status: "success", filename, size, destination: s3Status === "uploaded" ? s3!.id : "local", s3Status, finishedAt: new Date() })
+      .set({ status: "success", filename, size, checksum, destination: s3Status === "uploaded" ? s3!.id : "local", s3Status, finishedAt: new Date() })
       .where(eq(schema.backup.id, backup.id));
     // The backup is done: a failing cleanup of older ones must not undo it.
     await applyRetention(service.id, backup.target, t.keepLocal ? t.retention : 0, t.retentionS3, protect).catch((e) =>
@@ -844,6 +860,7 @@ export async function backupContents(backupId: string): Promise<BackupContents> 
     result = { databases: (backup.databases ?? []).filter((d) => d !== "*" && !d.startsWith("!")).map((d) => ({ name: d, label: d, tables: [] })), tables: false };
   } else if (cfg.engine === "postgres" || cfg.engine === "mysql" || cfg.engine === "mariadb") {
     const file = await localBackupFile(backup);
+    await checkIntegrity(backup, file);
     const gz = /\.gz$/i.test(file);
     const custom = cfg.engine === "postgres" && (await peek(file, gz, 5)).toString("latin1") === "PGDMP";
     if (custom) {
@@ -990,7 +1007,10 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
     const { size } = await fs.promises.stat(file);
     if (!size) throw new Error("The file is empty.");
     if (backup.status !== "success") {
-      await db.update(schema.backup).set({ status: "success", size, finishedAt: new Date() }).where(eq(schema.backup.id, backupId));
+      await db
+        .update(schema.backup)
+        .set({ status: "success", size, checksum: await fileSha256(file), finishedAt: new Date() })
+        .where(eq(schema.backup.id, backupId));
       await logLine(backupId, `Received ${backup.filename} (${size} bytes)`);
     }
   } catch (error) {

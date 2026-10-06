@@ -7,7 +7,7 @@ import { encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
-import { backupFile, importFilenameFor, importTarget } from "./index";
+import { backupFile, importFilenameFor, importTarget, takenFilenames } from "./index";
 
 /** Largest file an upload import takes. */
 const MAX_BYTES = 20 * 1024 ** 3;
@@ -42,7 +42,7 @@ export async function receiveImport(opts: {
   let filename: string;
   try {
     const into = await importTarget(service, opts.target);
-    filename = importFilenameFor(into.extensions, into.stem, opts.filename);
+    filename = importFilenameFor(into.extensions, into.stem, opts.filename, await takenFilenames(service.id));
   } catch (e) {
     throw new ImportError(400, (e as Error).message);
   }

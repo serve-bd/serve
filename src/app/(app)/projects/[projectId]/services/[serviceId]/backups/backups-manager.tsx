@@ -2,6 +2,7 @@
 
 import { ALL_DATABASES, readChoice } from "@/lib/backup-databases";
 import * as React from "react";
+import { usePathname, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2, TriangleAlert, Lock, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -273,6 +274,8 @@ export function BackupsManager(props: {
   databaseChoices?: DatabaseChoices | null;
 }) {
   const confirm = useConfirm();
+  const router = useRouter();
+  const pathname = usePathname();
   const [picking, setPicking] = React.useState(false);
   const { data, mutate } = useSWR<{ backups: Backup[] }>(`/api/services/${props.serviceId}/backups${props.target ? `?target=${encodeURIComponent(props.target)}` : ""}`, {
     refreshInterval: (d) => (d?.backups.some((b) => b.status === "running" || b.restoreStatus === "running" || b.verifyStatus === "running") ? 1500 : 10000),
@@ -372,7 +375,11 @@ export function BackupsManager(props: {
           extensions={props.extensions}
           maxUpload={props.maxUpload}
           destinations={props.destinations}
-          onStarted={() => void mutate()}
+          onStarted={() => {
+            void mutate();
+            // From its own page: on to the backups, where the import and its log show.
+            if (props.view === "import") router.push(pathname.replace(/\/import$/, ""));
+          }}
         />
       )}
     </>

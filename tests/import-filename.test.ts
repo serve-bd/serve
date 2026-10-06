@@ -9,7 +9,9 @@ import { importFilename } from "@/server/backups";
 
 describe("importFilename", () => {
   it("accepts pg_dump files with a .dmp extension", () => {
-    expect(importFilename("postgres", "app", "pg-dump-app-1727000000.dmp")).toMatch(/^app-import-.*-pg-dump-app-1727000000\.dmp$/);
+    expect(importFilename("postgres", "app", "pg-dump-app-1727000000.dmp", new Set())).toBe("pg-dump-app-1727000000.dmp");
+    // A name a backup of the service has already gets the service and the time in front.
+    expect(importFilename("postgres", "app", "pg-dump-app-1727000000.dmp", new Set(["pg-dump-app-1727000000.dmp"]))).toMatch(/^app-import-.*-pg-dump-app-1727000000\.dmp$/);
     expect(importFilename("postgres", "app", "app.dmp.gz")).toMatch(/\.dmp\.gz$/);
   });
 

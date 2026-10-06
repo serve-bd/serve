@@ -269,12 +269,12 @@ export async function importBackupFromRemote(
     if (source.kind === "url" && (await resolvesToPrivate(new URL(source.url).hostname))) {
       throw new UserError("The URL points at a private address. Use a public URL or upload the file.");
     }
-    const { importFilenameFor, importTarget } = await import("@/server/backups");
+    const { importFilenameFor, importTarget, takenFilenames } = await import("@/server/backups");
     const original = source.kind === "url" ? new URL(source.url).pathname : source.key;
     let filename: string;
     try {
       const into = await importTarget(service, target ?? null);
-      filename = importFilenameFor(into.extensions, into.stem, original);
+      filename = importFilenameFor(into.extensions, into.stem, original, await takenFilenames(service.id));
     } catch (e) {
       throw new UserError((e as Error).message);
     }

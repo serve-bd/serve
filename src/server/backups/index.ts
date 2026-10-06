@@ -1210,12 +1210,23 @@ export async function importTarget(service: ServiceRow, target: string | null) {
   return { extensions: IMPORT_EXTENSIONS[engine], stem: `${service.slug}-${parsed.name}` };
 }
 
-export function importFilename(engine: DatabaseConfig["engine"], slug: string, original: string) {
-  return importFilenameFor(IMPORT_EXTENSIONS[engine], slug, original);
+export function importFilename(engine: DatabaseConfig["engine"], slug: string, original: string, taken?: Set<string>) {
+  return importFilenameFor(IMPORT_EXTENSIONS[engine], slug, original, taken);
 }
 
-/** A safe, unique file name for an imported file of one of `extensions`. Throws when it is not one. */
-export function importFilenameFor(extensions: string[], slug: string, original: string) {
+/** File names a service's backups use already, listed or on disk: an import must not take one. */
+export async function takenFilenames(serviceId: string) {
+  const rows = await db.select({ filename: schema.backup.filename }).from(schema.backup).where(eq(schema.backup.serviceId, serviceId));
+  const files = await fs.promises.readdir(path.join(paths.backups, serviceId)).catch(() => [] as string[]);
+  return new Set([...rows.map((r) => r.filename).filter((f): f is string => !!f), ...files]);
+}
+
+/**
+ * A safe file name for an imported file of one of `extensions`: its own name, or with the service
+ * and the time in front when a backup of the service has that name (`taken`). Throws when it is
+ * not one of them.
+ */
+export function importFilenameFor(extensions: string[], slug: string, original: string, taken?: Set<string>) {
   const base = path
     .basename(original)
     .toLowerCase()
@@ -1224,6 +1235,7 @@ export function importFilenameFor(extensions: string[], slug: string, original: 
   // An encrypted backup (.enc after the usual extension) is imported as it is, decrypted when restored.
   const ext = extensions.find((e) => base.endsWith(e) || base.endsWith(`${e}${ENCRYPTED_SUFFIX}`));
   if (!ext) throw new Error(`Upload a ${extensions.join(", ")} file.`);
+  if (taken && !taken.has(base)) return base;
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   return `${slug}-import-${stamp}-${base}`;
 }
@@ -1297,13 +1309,12 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
     // A backup of chosen databases replaces those: the safety backup takes the same ones, not only
     // the service's usual choice (which may be the main database alone).
     // Into another service: that one's usual backup.
-    await db
-      .insert(schema.backup)
-      .values(
-        opts.into
-          ? { id, serviceId: opts.into, target: null, trigger: "pre-import", databases: null }
-          : { id, serviceId: service.id, target: backup.target, trigger: "pre-import", databases: backup.databases },
-      );
+    await db.insert(schema.backup).values(
+      opts.into
+        ? { id, serviceId: opts.into, target: null, trigger: "pre-import", databases: null }
+        : // Listed under the import it was taken for: it holds what was there before.
+          { id, serviceId: service.id, target: backup.target, trigger: "pre-import", databases: backup.databases, createdAt: new Date(backup.createdAt.getTime() - 1000) },
+    );
     await logLine(backupId, "Backing up the current data first");
     try {
       await runBackup(id, backupId);

@@ -17,7 +17,6 @@ import { useNow } from "@/hooks/use-client";
 import { updateService } from "@/server/actions/services";
 import { saveComposeBackup } from "@/server/actions/compose-backups";
 import { cn } from "@/lib/utils";
-import { readChoice } from "@/lib/backup-databases";
 import { type DatabaseChoices, DatabasePicker, defaultDatabases, savedChoice } from "./database-picker";
 
 type Mode = "hourly" | "daily" | "weekly" | "custom";
@@ -61,13 +60,6 @@ function nextRuns(cron: string, tz: string, count = 3, from?: number): Date[] | 
   } catch {
     return null;
   }
-}
-
-/** What a database choice takes, in a few words. */
-function pickedLabel(dbs: string[]) {
-  const { all, skip } = readChoice(dbs);
-  if (all) return skip.length ? `every database except ${skip.join(", ")}` : "every database";
-  return dbs.length === 1 ? `the ${dbs[0]} database` : `${dbs.length} databases`;
 }
 
 type KeepKey = "days" | "daily" | "weekly" | "monthly" | "yearly";
@@ -158,8 +150,6 @@ export function ScheduleCard(props: {
   const [passphrase, setPassphrase] = React.useState("");
   const [verify, setVerify] = React.useState(initial.verify);
   const [users, setUsers] = React.useState(initial.users);
-  // Off, the settings Back up now uses fold into one line until opened.
-  const [open, setOpen] = React.useState(false);
   const [copies, setCopies] = React.useState<string[]>(initial.copies);
   const [keepRules, setKeepRules] = React.useState(initial.keep);
   // The plan only counts while the schedule is on: turned off, the saved schedule has none.
@@ -395,19 +385,7 @@ export function ScheduleCard(props: {
           </>
         )}
 
-        {!enabled && !open && !dirty ? (
-          <div className="flex items-center gap-3 rounded-xl bg-surface-2 px-3.5 py-3">
-            <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-muted">
-              {`Backups take ${choices ? pickedLabel(dbs) : "the database"} and are kept on ${[local && "this server", ...[bucket, ...copies].filter(Boolean).map((id) => props.destinations.find((d) => d.id === id)?.name)].filter(Boolean).join(" and ")}`}
-              {[encrypt && ", encrypted", users && ", with users and passwords", verify && ", tested daily"].filter(Boolean).join("")}.
-            </p>
-            {props.canEdit && (
-              <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
-                Change
-              </Button>
-            )}
-          </div>
-        ) : (
+        {enabled && (
           <>
             {choices && (
               <Field label="Databases to back up" description="Every backup takes these, also Back up now (which can pick others).">
@@ -552,7 +530,7 @@ export function ScheduleCard(props: {
           </>
         )}
       </CardBody>
-      {props.canEdit && (enabled || open || dirty) && (
+      {props.canEdit && (enabled || dirty) && (
         <CardFooter>
           <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : ""}</span>
           <div className="flex flex-none gap-2">

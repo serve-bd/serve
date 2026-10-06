@@ -349,8 +349,9 @@ export function BackupsManager(props: {
           )}
         </Card>
         <RestoreDialog backup={restoring} onClose={() => setRestoring(null)} onStarted={() => void mutate()} restoresUsers={props.restoresUsers} />
-        {props.isAdmin && !props.target && (
+        {props.isAdmin && (
           <ImportCard
+            target={props.target ?? null}
             serviceId={props.serviceId}
             running={props.running}
             engineLabel={props.engineLabel}

@@ -21,6 +21,8 @@ export function ImportCard(props: {
   serviceId: string;
   running: boolean;
   engineLabel: string;
+  /** One backup of a compose stack (db:…, volume:…, dir:…) instead of the database service. */
+  target?: string | null;
   /** The dump's users can be restored too (MongoDB, and plain SQL dumps of Postgres, MySQL, MariaDB). */
   restoresUsers?: boolean;
   extensions: string[];
@@ -41,7 +43,15 @@ export function ImportCard(props: {
   const [drag, setDrag] = React.useState(false);
   const input = React.useRef<HTMLInputElement>(null);
   const remote = useAction(
-    () => importBackupFromRemote(props.serviceId, source === "url" ? { kind: "url", url } : { kind: "s3", destinationId: dest, key }, backupFirst, users, passphrase || undefined),
+    () =>
+      importBackupFromRemote(
+        props.serviceId,
+        source === "url" ? { kind: "url", url } : { kind: "s3", destinationId: dest, key },
+        backupFirst,
+        users,
+        passphrase || undefined,
+        props.target ?? null,
+      ),
     {
       onSuccess: () => props.onStarted(),
     },
@@ -59,7 +69,10 @@ export function ImportCard(props: {
   const upload = (f: File) =>
     new Promise<void>((resolve) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}${users ? "&users=1" : ""}`);
+      xhr.open(
+        "POST",
+        `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}${users ? "&users=1" : ""}${props.target ? `&target=${encodeURIComponent(props.target)}` : ""}`,
+      );
       if (passphrase) xhr.setRequestHeader("x-backup-passphrase", passphrase);
       xhr.upload.onprogress = (e) => e.lengthComputable && setProgress(e.loaded / e.total);
       xhr.onload = () => {

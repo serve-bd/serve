@@ -243,14 +243,21 @@ const remoteImportSchema = z.union([
 ]);
 
 /** Imports a dump from a URL or an S3 destination, then restores it. */
-export async function importBackupFromRemote(serviceId: string, input: z.input<typeof remoteImportSchema>, backupFirst: boolean, users = false, passphrase?: string) {
+export async function importBackupFromRemote(
+  serviceId: string,
+  input: z.input<typeof remoteImportSchema>,
+  backupFirst: boolean,
+  users = false,
+  passphrase?: string,
+  /** One backup of a compose stack (db:postgres, volume:data…) instead of a database service. */
+  target?: string | null,
+) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
     // Importing overwrites live data: admins only, like restoring.
     if (!ctx.isAdmin) throw new UserError("Only organization admins can import backups.");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
-    if (!service.database) throw new UserError("Not a database.");
-    if (service.status !== "running") throw new UserError("Start the database before importing.");
+    if (service.status !== "running") throw new UserError(service.database ? "Start the database before importing." : "Start the stack before importing.");
     const source = remoteImportSchema.parse(input);
     if (source.kind === "s3") {
       const [dest] = await db
@@ -262,16 +269,17 @@ export async function importBackupFromRemote(serviceId: string, input: z.input<t
     if (source.kind === "url" && (await resolvesToPrivate(new URL(source.url).hostname))) {
       throw new UserError("The URL points at a private address. Use a public URL or upload the file.");
     }
-    const { importFilename } = await import("@/server/backups");
+    const { importFilenameFor, importTarget } = await import("@/server/backups");
     const original = source.kind === "url" ? new URL(source.url).pathname : source.key;
     let filename: string;
     try {
-      filename = importFilename(service.database.engine, service.slug, original);
+      const into = await importTarget(service, target ?? null);
+      filename = importFilenameFor(into.extensions, into.stem, original);
     } catch (e) {
       throw new UserError((e as Error).message);
     }
     const id = newId();
-    await db.insert(schema.backup).values({ id, serviceId, trigger: "import", status: "running", filename });
+    await db.insert(schema.backup).values({ id, serviceId, target: target ?? null, trigger: "import", status: "running", filename });
     await enqueue(
       "backup.import",
       {

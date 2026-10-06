@@ -198,7 +198,8 @@ export function ComposeBackups(props: {
         isAdmin={props.isAdmin}
         running={props.running && configured}
         engineLabel={name}
-        extensions={[]}
+        // Checked exactly by the server against the container's engine.
+        extensions={kind === "db" ? [".sql", ".sql.gz", ".dump", ".dmp", ".backup", ".dump.gz", ".dmp.gz", ".archive.gz", ".gz", ".rdb"] : [".tar.gz", ".tgz"]}
         maxUpload={null}
         title={kind === "db" ? `${name} backups` : `Backups of ${shortName({ kind, name }, props.slug)}`}
         description={

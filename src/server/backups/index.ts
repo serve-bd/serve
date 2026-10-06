@@ -1110,15 +1110,43 @@ export const IMPORT_EXTENSIONS: Record<DatabaseConfig["engine"], string[]> = {
 };
 
 /** A safe, unique file name for an imported dump. Throws when the extension is not restorable. */
+/** Files a volume or folder of a stack takes: a .tar.gz of its contents. */
+const ARCHIVE_EXTENSIONS = [".tar.gz", ".tgz"];
+
+/**
+ * What an import can go into, and the file types it takes: a database service, or one backup of a
+ * compose stack (a database container, a volume or a folder) that is set up. Throws with what is wrong.
+ */
+export async function importTarget(service: ServiceRow, target: string | null) {
+  if (!target) {
+    if (!service.database) throw new Error("Not a database.");
+    return { extensions: IMPORT_EXTENSIONS[service.database.engine], stem: service.slug };
+  }
+  const parsed = parseBackupKey(target);
+  if (!parsed || !service.composeBackups?.[target]) throw new Error("Set up this backup of the stack first.");
+  if (parsed.kind !== "db") return { extensions: ARCHIVE_EXTENSIONS, stem: `${service.slug}-${parsed.name}` };
+  // A database container: the file types of its engine, read from its image.
+  const { docker } = await serverOf(service);
+  const [row] = await docker.listContainers({ filters: { label: [`${LABEL.service}=${service.id}`, `com.docker.compose.service=${parsed.name}`] } });
+  const engine = row ? engineOfImage(row.Image) : null;
+  if (!engine) throw new Error(`The ${parsed.name} container is not there or is not a database Serve can restore.`);
+  return { extensions: IMPORT_EXTENSIONS[engine], stem: `${service.slug}-${parsed.name}` };
+}
+
 export function importFilename(engine: DatabaseConfig["engine"], slug: string, original: string) {
+  return importFilenameFor(IMPORT_EXTENSIONS[engine], slug, original);
+}
+
+/** A safe, unique file name for an imported file of one of `extensions`. Throws when it is not one. */
+export function importFilenameFor(extensions: string[], slug: string, original: string) {
   const base = path
     .basename(original)
     .toLowerCase()
     .replace(/[^a-z0-9._-]/g, "-")
     .slice(-80);
   // An encrypted backup (.enc after the usual extension) is imported as it is, decrypted when restored.
-  const ext = IMPORT_EXTENSIONS[engine].find((e) => base.endsWith(e) || base.endsWith(`${e}${ENCRYPTED_SUFFIX}`));
-  if (!ext) throw new Error(`Upload a ${IMPORT_EXTENSIONS[engine].join(", ")} file.`);
+  const ext = extensions.find((e) => base.endsWith(e) || base.endsWith(`${e}${ENCRYPTED_SUFFIX}`));
+  if (!ext) throw new Error(`Upload a ${extensions.join(", ")} file.`);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   return `${slug}-import-${stamp}-${base}`;
 }

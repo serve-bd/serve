@@ -10,7 +10,7 @@ import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { serviceInOrg } from "@/server/services/access";
-import { backupFile, importFilename } from "@/server/backups";
+import { backupFile, importFilenameFor, importTarget } from "@/server/backups";
 import { crossSiteRequest } from "@/lib/same-origin";
 import { env } from "@/server/env";
 
@@ -41,12 +41,15 @@ export async function POST(request: Request, ctx: RouteContext<"/api/services/[s
   } catch {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (!service.database) return NextResponse.json({ error: "Not a database." }, { status: 400 });
-  if (service.status !== "running") return NextResponse.json({ error: "Start the database before importing." }, { status: 409 });
+  if (service.status !== "running")
+    return NextResponse.json({ error: service.database ? "Start the database before importing." : "Start the stack before importing." }, { status: 409 });
   const url = new URL(request.url);
+  // A database service, or one backup of a compose stack (?target=db:postgres, volume:data…).
+  const target = url.searchParams.get("target") || null;
   let filename: string;
   try {
-    filename = importFilename(service.database.engine, service.slug, url.searchParams.get("filename") ?? "");
+    const into = await importTarget(service, target);
+    filename = importFilenameFor(into.extensions, into.stem, url.searchParams.get("filename") ?? "");
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
@@ -75,7 +78,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/services/[s
   }
 
   const id = newId();
-  await db.insert(schema.backup).values({ id, serviceId, trigger: "import", status: "running", filename, size, log: `Uploaded ${filename} (${size} bytes)\n` });
+  await db.insert(schema.backup).values({ id, serviceId, target, trigger: "import", status: "running", filename, size, log: `Uploaded ${filename} (${size} bytes)\n` });
   await enqueue(
     "backup.import",
     {

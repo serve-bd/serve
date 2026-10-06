@@ -90,12 +90,12 @@ const sh = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 /** File extension of a dump, per engine. */
 export const DUMP_EXTENSION: Record<Engine, string> = {
   postgres: "dump",
-  mysql: "sql",
-  mariadb: "sql",
+  mysql: "sql.gz",
+  mariadb: "sql.gz",
   mongodb: "archive.gz",
   redis: "rdb",
   valkey: "rdb",
-  clickhouse: "sql",
+  clickhouse: "sql.gz",
 };
 
 /**

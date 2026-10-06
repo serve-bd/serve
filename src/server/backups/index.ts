@@ -217,8 +217,12 @@ async function dumpWith(t: Commands, file: string, opts: { timeoutMinutes?: numb
     stderr.end();
   });
   stream.on("error", (e: Error) => stdout.destroy(e));
+  // MySQL, MariaDB and ClickHouse dump plain SQL: it is compressed here, on its way to the file
+  // (the database images need no gzip). Others compress themselves or write binary formats.
+  const compress = (t.engine === "mysql" || t.engine === "mariadb" || t.engine === "clickhouse") && file.endsWith(".gz");
   try {
-    await pipeline(stdout, fs.createWriteStream(file));
+    if (compress) await pipeline(stdout, zlib.createGzip({ level: 6 }), fs.createWriteStream(file));
+    else await pipeline(stdout, fs.createWriteStream(file));
   } catch (e) {
     if (!timedOut) throw e;
   } finally {

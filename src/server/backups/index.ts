@@ -1,4 +1,6 @@
 import type { BackupChoice } from "@/server/queue";
+import { POOLER_ROLE } from "@/server/databases/addon-scripts";
+import { REPLICATION_USER } from "@/server/databases/replica-engines";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -130,22 +132,25 @@ type Target = {
   restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string }>;
 };
 
-/** The command for chosen databases; a backup with users takes that form for the main database too. */
-function severalOf(cfg: NonNullable<ServiceRow["database"]>, creds: ReturnType<typeof databaseCreds>, databases?: string[] | null) {
+/**
+ * The command for chosen databases; a backup with users (`withUsers`: a scheduled or manual backup,
+ * not a copy between environments) takes that form for the main database too.
+ */
+function severalOf(cfg: NonNullable<ServiceRow["database"]>, creds: ReturnType<typeof databaseCreds>, databases?: string[] | null, withUsers = false) {
   const engine = engines[cfg.engine];
   if (!engine.backupDatabasesCommand) return null;
-  const users = !!cfg.backupUsers && ["postgres", "mysql", "mariadb"].includes(cfg.engine);
+  const users = withUsers && !!cfg.backupUsers && ["postgres", "mysql", "mariadb"].includes(cfg.engine);
   const list = databases?.length ? databases : users ? [cfg.database ?? creds.database] : null;
   return list ? engine.backupDatabasesCommand(creds, list, users) : null;
 }
 
 /** databases: the ones a backup takes when they are more (or other) than the main one. */
-async function databaseCommands(service: ServiceRow, databases?: string[] | null): Promise<Commands> {
+async function databaseCommands(service: ServiceRow, databases?: string[] | null, withUsers = false): Promise<Commands> {
   const cfg = service.database;
   if (!cfg) throw new Error(`${service.name} is not a database`);
   const engine = engines[cfg.engine];
   const creds = databaseCreds(cfg, decrypt(cfg.password));
-  const several = severalOf(cfg, creds, databases);
+  const several = severalOf(cfg, creds, databases, withUsers);
   const { docker } = await serverOf(service);
   const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
   return {
@@ -511,7 +516,7 @@ export async function targetOf(service: ServiceRow, key: string | null, database
     const cfg = service.database;
     if (!cfg) throw new Error(`${service.name} is not a database`);
     const engine = engines[cfg.engine];
-    const several = severalOf(cfg, databaseCreds(cfg, ""), databases);
+    const several = severalOf(cfg, databaseCreds(cfg, ""), databases, true);
     return {
       label: service.name,
       stem: service.slug,
@@ -522,7 +527,7 @@ export async function targetOf(service: ServiceRow, key: string | null, database
       keepLocal: !cfg.s3DestinationId || cfg.backupLocal !== false,
       passphrase: cfg.backupPassphrase ? decrypt(cfg.backupPassphrase) : null,
       copies: (cfg.backupCopyDestinationIds ?? []).filter((id) => id !== cfg.s3DestinationId),
-      dump: async (file) => dumpWith(await databaseCommands(service, databases), file, { timeoutMinutes: cfg.backupTimeoutMinutes, lowPriority: cfg.backupLowPriority }),
+      dump: async (file) => dumpWith(await databaseCommands(service, databases, true), file, { timeoutMinutes: cfg.backupTimeoutMinutes, lowPriority: cfg.backupLowPriority }),
       restore: async (file, log, _onStopped, opts) => restoreWith(await databaseCommands(service), file, log, opts),
     };
   }
@@ -910,7 +915,11 @@ export async function deleteBackupFiles(b: typeof schema.backup.$inferSelect, _s
  * then leaves out users, roles and system databases. Says in the log what it changed.
  */
 /** Accounts a restore never changes: the one Serve connects with, and the engine's superuser. */
-const protectedAccounts = (t: Commands) => [...new Set([t.username, t.engine === "postgres" ? "postgres" : "root"].filter((u): u is string => !!u))];
+/**
+ * Accounts a restore never changes: the one Serve connects with, the server's superuser, and the
+ * logins of Serve's connection pooler and read replicas (their passwords are this server's own).
+ */
+const protectedAccounts = (t: Commands) => [...new Set([t.username, t.engine === "postgres" ? "postgres" : "root", POOLER_ROLE, REPLICATION_USER].filter((u): u is string => !!u))];
 
 async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line: string) => void, opts: RestoreOptions) {
   const keepNames = !!opts.keepNames;
@@ -957,7 +966,24 @@ async function peek(file: string, gz: boolean, bytes = 8): Promise<Buffer> {
 }
 
 /** The command that restores this file: pg_restore for custom dumps, psql for plain SQL. */
+/**
+ * Why a SQL dump cannot go into this engine (a MySQL dump into Postgres, or the other way), from its
+ * first bytes; null when it may. MySQL and MariaDB read each other's dumps.
+ */
+export async function wrongEngine(engine: string, file: string, gz: boolean): Promise<string | null> {
+  if (engine !== "postgres" && engine !== "mysql" && engine !== "mariadb") return null;
+  const head = (await peek(file, gz, 4096).catch(() => Buffer.alloc(0))).toString("latin1");
+  const mysql = /^-- (MySQL|MariaDB) dump|^\/\*!\d{5} SET /m.test(head);
+  const postgres = head.startsWith("PGDMP") || /^-- PostgreSQL database (cluster )?dump/m.test(head);
+  if (engine === "postgres" && mysql) return "This is a MySQL or MariaDB dump, and this database is PostgreSQL. Import it into a MySQL or MariaDB database.";
+  if (engine !== "postgres" && postgres)
+    return `This is a PostgreSQL dump, and this database is ${engine === "mysql" ? "MySQL" : "MariaDB"}. Import it into a PostgreSQL database.`;
+  return null;
+}
+
 async function restoreCommandFor(t: Commands, file: string, gz: boolean) {
+  const wrong = await wrongEngine(t.engine, file, gz);
+  if (wrong) throw new Error(wrong);
   if (t.restoreFolder && /\.dir\.tar\.gz$/i.test(file)) return { command: t.restoreFolder, format: "dumps of several databases" };
   if (t.engine === "postgres" && t.restorePlain) {
     const head = await peek(file, gz, 5);
@@ -1256,6 +1282,14 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
         .where(eq(schema.backup.id, backupId));
     } else await restoreNotRun(backupId, `Restore failed: ${(error as Error).message.slice(0, 2000)}`);
     throw error;
+  }
+
+  // A dump of another engine fails before anything is backed up or replaced.
+  const engine = opts.into ? null : service.database?.engine;
+  const wrong = engine && !backup.target && !backup.filename.endsWith(ENCRYPTED_SUFFIX) ? await wrongEngine(engine, file, /\.gz$/i.test(file) && engine !== "mongodb") : null;
+  if (wrong) {
+    await restoreNotRun(backupId, wrong);
+    throw new Error(wrong);
   }
 
   if (opts.backupFirst) {

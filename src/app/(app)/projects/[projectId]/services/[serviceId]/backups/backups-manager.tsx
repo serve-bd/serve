@@ -380,7 +380,9 @@ export function BackupsManager(props: {
   const schedule = (
     <>
       <ScheduleCard
-        key={props.target ?? "database"}
+        // The saved settings in the key: after a save the card starts again from what was stored
+        // (the server may adjust values), so Unsaved changes and Discard compare with it.
+        key={`${props.target ?? "database"}:${JSON.stringify([props.schedule, props.retention, props.retentionS3, props.s3DestinationId, props.keepLocal, props.copyDestinationIds, props.timeoutMinutes, props.lowPriority, props.encrypted, props.verify, props.users, props.databaseChoices?.selected])}`}
         serviceId={props.serviceId}
         target={props.target}
         noun={props.target && !props.target.startsWith("db:") ? "copies" : "dumps"}

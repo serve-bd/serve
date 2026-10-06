@@ -92,7 +92,8 @@ export function ScheduleCard(props: {
 }) {
   const dumps = props.noun !== "copies";
   const choices = props.databaseChoices ?? null;
-  const [dbs, setDbs] = React.useState<string[]>(() => (choices ? (choices.selected?.length ? choices.selected : defaultDatabases(choices)) : []));
+  const initialDbs = React.useMemo(() => (choices ? (choices.selected?.length ? choices.selected : defaultDatabases(choices)) : []), [choices]);
+  const [dbs, setDbs] = React.useState<string[]>(initialDbs);
   const initial = React.useMemo(
     () => ({
       enabled: !!props.schedule,
@@ -347,6 +348,7 @@ export function ScheduleCard(props: {
                 variant="ghost"
                 onClick={() => {
                   setEnabled(initial.enabled);
+                  setDbs(initialDbs);
                   setPlan(initial.plan);
                   setRetention(initial.retention);
                   setRetentionS3(initial.retentionS3);

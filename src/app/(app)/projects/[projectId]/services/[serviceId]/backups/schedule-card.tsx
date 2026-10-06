@@ -445,7 +445,7 @@ export function ScheduleCard(props: {
               </Field>
               <p className="text-xs text-muted">
                 Keep the passphrase somewhere safe: without it no one can restore these backups. To open one without Serve:{" "}
-                <code className="font-mono text-[11.5px] text-fg-2">openssl enc -d -aes-256-cbc -pbkdf2 -in FILE.enc -out FILE</code>
+                <code className="font-mono text-[11.5px] text-fg-2">openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in FILE.enc -out FILE</code>
               </p>
             </>
           )}

@@ -49,7 +49,8 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
           containers: m.containers,
         }))
       : [];
-    const configs = service.composeBackups ?? {};
+    // The browser gets whether a backup is encrypted, never the (encrypted) passphrase itself.
+    const configs = Object.fromEntries(Object.entries(service.composeBackups ?? {}).map(([k, { passphrase, ...c }]) => [k, { ...c, encrypted: !!passphrase }]));
     const targets = await db
       .selectDistinct({ target: schema.backup.target })
       .from(schema.backup)

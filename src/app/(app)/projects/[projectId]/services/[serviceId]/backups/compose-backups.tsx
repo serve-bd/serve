@@ -43,7 +43,7 @@ export function ComposeBackups(props: {
   stack: boolean;
   isAdmin: boolean;
   running: boolean;
-  configs: Record<string, ComposeBackupConfig>;
+  configs: Record<string, Omit<ComposeBackupConfig, "passphrase"> & { encrypted: boolean }>;
   /** Keys that still have backups after they were removed from the list. */
   orphaned: string[];
   databases: BackupOption[];
@@ -213,7 +213,7 @@ export function ComposeBackups(props: {
         keepLocal={props.configs[current]?.local !== false}
         timeoutMinutes={props.configs[current]?.timeoutMinutes ?? null}
         lowPriority={!!props.configs[current]?.lowPriority}
-        encrypted={!!props.configs[current]?.passphrase}
+        encrypted={!!props.configs[current]?.encrypted}
         s3DestinationId={props.configs[current]?.s3DestinationId ?? null}
         destinations={props.destinations}
         timezone={props.timezone}

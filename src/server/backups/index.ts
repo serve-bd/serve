@@ -882,7 +882,10 @@ export async function backupContents(backupId: string, passphrase?: string | nul
   if (cfg.engine === "mongodb") {
     result = { databases: (backup.databases ?? []).filter((d) => d !== "*" && !d.startsWith("!")).map((d) => ({ name: d, label: d, tables: [] })), tables: false };
   } else if (cfg.engine === "postgres" || cfg.engine === "mysql" || cfg.engine === "mariadb") {
-    const opened = await openBackupFile(backup, await localBackupFile(backup), passphrase);
+    // Read only once it is the file the backup wrote: a changed file is never parsed or decrypted.
+    const stored = await localBackupFile(backup);
+    await checkIntegrity(backup, stored);
+    const opened = await openBackupFile(backup, stored, passphrase);
     const file = opened.file;
     try {
       const gz = /\.gz$/i.test(file);

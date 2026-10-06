@@ -246,13 +246,13 @@ export function RestoreDialog({
                               description: takenBy(defaultName(d), d) ? `${takenBy(defaultName(d), d)} goes there` : "Its own name",
                               disabled: !!takenBy(defaultName(d), d),
                             },
-                            // The server's databases (this service only): merged, tables of the same name replaced.
+                            // The server's databases (this service only): emptied, then filled with this one.
                             ...(target ? [] : (choices.existing ?? []))
                               .filter((x) => x !== defaultName(d))
                               .map((x) => ({
                                 value: x,
                                 label: `Into ${x}`,
-                                description: takenBy(x, d) ? `${takenBy(x, d)} goes there` : x === choices.main ? "The main database, merged" : "Merged",
+                                description: takenBy(x, d) ? `${takenBy(x, d)} goes there` : x === choices.main ? "The main database, replaced" : "Replaced",
                                 disabled: !!takenBy(x, d),
                               })),
                             { value: "__other", label: "Other name…" },
@@ -341,7 +341,9 @@ export function RestoreDialog({
               : someTables
                 ? `Replaces ${tables.size === 1 ? "1 table" : `${tables.size} tables`} in ${targetName}`
                 : choices
-                  ? `Replaces the data in ${targetName}`
+                  ? chosen.length === dbs.length
+                    ? `Everything in ${targetName} is replaced with the backup`
+                    : `Replaces the chosen databases in ${targetName}`
                   : ""}
           </span>
           <DialogClose render={<Button variant="ghost" size="sm" disabled={pending} />}>Cancel</DialogClose>

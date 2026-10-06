@@ -81,8 +81,13 @@ export type RestoreOptions = {
   renames?: Record<string, string>;
   tables?: string[];
   into?: string;
-  /** An import of one database: restored into this database of the server (merged), whatever the file calls it. */
+  /** An import of one database: restored into this database of the server (replacing it), whatever the file calls it. */
   intoDatabase?: string;
+  /**
+   * A whole backup restored: the databases on the server now (not branches), all removed first, so
+   * the server holds exactly what the backup does. The main database stays, empty when the backup has none.
+   */
+  emptyAll?: string[];
   /** The passphrase of an encrypted backup made with another one (or imported). */
   passphrase?: string | null;
 };
@@ -358,6 +363,15 @@ export async function restoreWith(t: Commands, file: string, log: (line: string)
   log(`Format: ${format}${gz ? " (gzip)" : ""}`);
   const sql = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb";
   const filter = sql ? await plainSqlFilter(t, file, gz, log, opts) : undefined;
+  // What the backup writes into starts empty: no table of before is left over.
+  if (t.engine === "postgres" || t.engine === "mysql" || t.engine === "mariadb") {
+    const targets = filter ? filter.targets : [renamed || t.database];
+    const SKIP = new Set(["postgres", "mysql", "sys", "information_schema", "performance_schema", "template0", "template1"]);
+    const empty = [...new Set([...(opts.emptyAll ?? []), ...targets])].filter((d) => d && !SKIP.has(d));
+    if (empty.length) log(`Emptying ${empty.join(", ")}: afterwards they hold only what the backup holds`);
+    for (const d of empty) await runSql(t, t.engine === "postgres" ? `DROP DATABASE IF EXISTS ${pgIdent(d)} WITH (FORCE);` : `DROP DATABASE IF EXISTS ${myIdent(d)};`);
+    for (const d of new Set([t.database, ...targets])) if (d && !SKIP.has(d)) await ensureDatabase(t, d);
+  }
   // The command's output goes to the log while it runs, so a long or failing restore can be followed.
   const out = await runIn(t, command, fs.createReadStream(file), gz, log, filter);
   if (opts.users && (t.engine === "mysql" || t.engine === "mariadb")) {
@@ -445,7 +459,15 @@ async function restoreTables(t: Commands, file: string, log: (line: string) => v
   const tmp = `serve_restore_${crypto.randomBytes(4).toString("hex")}`;
   log(`Restoring ${tables.length === 1 ? "1 table" : `${tables.length} tables`} into ${final}: ${tables.join(", ")}`);
   try {
-    const { format } = await restoreWith(t, file, log, { ...opts, tables: undefined, users: false, keepNames: true, databases: src ? [src] : undefined, renames: { [src]: tmp } });
+    const { format } = await restoreWith(t, file, log, {
+      ...opts,
+      tables: undefined,
+      emptyAll: undefined,
+      users: false,
+      keepNames: true,
+      databases: src ? [src] : undefined,
+      renames: { [src]: tmp },
+    });
     await ensureDatabase(t, final);
     log(`Copying the tables into ${final}`);
     if (t.engine === "postgres") {
@@ -963,7 +985,7 @@ async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line
       ? "The dump's users, roles and rights are restored too, except Serve's own accounts, which stay as they are."
       : "Users, passwords, grants and system databases of the dump are left out, so the account Serve connects with stays as it is.",
   );
-  return sqlFilterStream(filter);
+  return Object.assign(sqlFilterStream(filter), { targets: filter.targets });
 }
 
 /** First bytes of a backup (after gunzip for .gz files), to tell dump formats apart. */
@@ -1155,6 +1177,11 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
     if (backup.trigger !== "import" && !opts.into && !opts.renames?.[""] && service.database?.engine === "postgres") {
       const own = (await backupContents(backupId, opts.passphrase).catch(() => null))?.databases.find((d) => d.name === "");
       if (own?.label && own.label !== service.database.database) opts = { ...opts, renames: { ...opts.renames, "": own.label } };
+    }
+    // The whole backup: the server ends up holding exactly what it holds (branches stay apart).
+    if (!backup.target && !opts.tables?.length && !opts.databases?.length && ["postgres", "mysql", "mariadb"].includes(service.database?.engine ?? "")) {
+      const all = await backupableDatabases(service).catch(() => null);
+      if (all) opts = { ...opts, emptyAll: all };
     }
     // Tables with no database named: the dump's one database, never the whole of it by its own
     // name (a MySQL dump names its database, and that would replace every table in it).

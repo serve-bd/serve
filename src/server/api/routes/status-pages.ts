@@ -91,12 +91,13 @@ export const statusPageRoutes: ApiRoute[] = [
           slug: schema.statusPage.slug,
           domain: schema.statusPage.domain,
           https: schema.statusPage.https,
+          tunnelId: schema.statusPage.tunnelId,
           visibility: schema.statusPage.visibility,
         })
         .from(schema.statusPage)
         .where(eq(schema.statusPage.organizationId, auth.organizationId))
         .orderBy(asc(schema.statusPage.name));
-      return { statusPages: await Promise.all(pages.map(async ({ https, ...p }) => ({ ...p, url: await pageUrl({ ...p, https }) }))) };
+      return { statusPages: await Promise.all(pages.map(async ({ https, tunnelId, ...p }) => ({ ...p, url: await pageUrl({ ...p, https, tunnelId }) }))) };
     },
   }),
   route({

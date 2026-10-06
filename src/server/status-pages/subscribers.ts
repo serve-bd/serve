@@ -240,13 +240,13 @@ export function discordBody(m: Message) {
     ...(m.page.iconUrl ? { avatar_url: m.page.iconUrl } : {}),
     embeds: [
       {
-        author: { name: m.page.name.slice(0, 256), url: m.page.url, ...(m.page.iconUrl ? { icon_url: m.page.iconUrl } : {}) },
         title: m.title.slice(0, 256),
         url: m.url,
         ...(m.message ? { description: m.message.slice(0, 4000) } : {}),
         color: Number.parseInt(COLOR[m.level].slice(1), 16),
         fields,
-        footer: { text: `${w["msg.view"]} · ${new URL(m.page.url).host}`.slice(0, 2048), ...(m.page.iconUrl ? { icon_url: m.page.iconUrl } : {}) },
+        // The page's icon is the sender's picture: once is enough.
+        footer: { text: `${w["msg.view"]} · ${new URL(m.page.url).host}`.slice(0, 2048) },
         timestamp: new Date().toISOString(),
       },
     ],

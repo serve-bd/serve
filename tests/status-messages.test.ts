@@ -35,7 +35,8 @@ describe("status messages", () => {
     expect(b.username).toBe("Acme");
     expect(b.avatar_url).toBe(page.iconUrl);
     const e = b.embeds[0];
-    expect(e.author.name).toBe("Acme");
+    expect("author" in e).toBe(false);
+    expect("icon_url" in e.footer).toBe(false);
     expect(e.title).toBe("Checkout errors");
     expect(e.color).toBe(0xe0601b);
     expect(e.fields.map((f) => f.name)).toEqual(["Status", "Impact", "Affected"]);
@@ -54,7 +55,6 @@ describe("status messages", () => {
   it("Discord: no images from a page that is not public", () => {
     const b = discordBody({ ...incident, page: { ...page, iconUrl: null } });
     expect("avatar_url" in b).toBe(false);
-    expect("icon_url" in b.embeds[0].author).toBe(false);
   });
 
   it("Discord: long text stays inside the limits", () => {

@@ -36,6 +36,7 @@ export async function generateMetadata(props: PageProps<"/projects/[projectId]/s
 function dbProps(
   service: typeof schema.service.$inferSelect,
   isAdmin: boolean,
+  canManage: boolean,
   hideSecrets: boolean,
   replicaServers: { id: string; name: string; home: boolean; linked: boolean }[],
 ) {
@@ -70,6 +71,7 @@ function dbProps(
     password: hideSecrets ? "" : password,
     hideSecrets,
     isAdmin,
+    canManage,
     engine: {
       label: engine.label,
       image: engine.image,
@@ -198,7 +200,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
     ? // Unlinked servers are listed too, unavailable, so it is clear what to do to use them.
       servers.map((s) => ({ id: s.id, name: s.name, home: s.id === service.serverId, linked: privatelyConnected(members, service.serverId, s.id) }))
     : [];
-  const database = dbProps(service, ctx.isAdmin, hideSecrets, replicaServers);
+  const database = dbProps(service, ctx.isAdmin, ctx.can("services.manage"), hideSecrets, replicaServers);
   const nav = settingsNav({
     type: service.type,
     hasSource: !!service.source,

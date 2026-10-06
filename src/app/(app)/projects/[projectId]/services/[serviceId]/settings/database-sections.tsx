@@ -33,6 +33,8 @@ export type DatabaseSettingsProps = {
   serviceId: string;
   running: boolean;
   isAdmin: boolean;
+  /** Choosing the main database needs services.manage, like on Overview. */
+  canManage: boolean;
   config: {
     engine: string;
     version: string;
@@ -174,7 +176,7 @@ function CredentialsSection(props: DatabaseSettingsProps) {
       setDependents(r.dependents);
     },
   });
-  const canPickMain = props.isAdmin && props.running && ["postgres", "mysql", "mariadb"].includes(config.engine);
+  const canPickMain = props.canManage && props.running && ["postgres", "mysql", "mariadb"].includes(config.engine);
   return (
     <Card id="credentials" className="scroll-mt-6">
       <CardHeader

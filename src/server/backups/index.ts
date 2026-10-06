@@ -321,12 +321,17 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
   }
   const clean = mask(output).trim();
   // Output already in the log: the error names its last line only.
-  const summary = onOutput
-    ? (clean
-        .split("\n")
-        .filter((l) => l.trim())
-        .at(-1) ?? "")
-    : clean.slice(-1500);
+  // The database's own ERROR line (and its DETAIL) says why; a HINT after it does not.
+  const lines = clean.split("\n").filter((l) => l.trim());
+  const errorAt = lines.findLastIndex((l) => /^(ERROR|FATAL)\b/.test(l.replace(/^[^A-Z]*/, "")));
+  const reason =
+    errorAt >= 0
+      ? lines
+          .slice(errorAt, errorAt + 2)
+          .filter((l, i) => i === 0 || /DETAIL/.test(l))
+          .join(" ")
+      : null;
+  const summary = onOutput ? (reason ?? lines.at(-1) ?? "") : clean.slice(-1500);
   if (exitCode !== null && exitCode !== 0) throw new Error(summary || `Command exited with ${exitCode}`);
   const stoppedEarly = partial && exitCode === 0 && (readError as NodeJS.ErrnoException | null)?.code === "EPIPE";
   if (readError && !stoppedEarly) throw new Error(`Reading the file failed: ${readError.message}`);

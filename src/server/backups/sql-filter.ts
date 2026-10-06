@@ -30,7 +30,13 @@ export type SqlEngine = "postgres" | "mysql" | "mariadb";
  * What a first read of the dump found: its databases, in order ("" is content before any database
  * switch), and the tables each creates (Postgres names them with their schema, like public.orders).
  */
-export type SqlPlan = { databases: string[]; cluster: boolean; tables?: Record<string, string[]> };
+export type SqlPlan = {
+  databases: string[];
+  cluster: boolean;
+  tables?: Record<string, string[]>;
+  /** Postgres: what each database's section creates (tables, sequences, views), cleared before it is created again. */
+  creates?: Record<string, { kind: string; name: string }[]>;
+};
 
 const MYSQL_SYSTEM = new Set(["mysql", "sys", "performance_schema", "information_schema"]);
 const PG_SYSTEM = new Set(["template0", "template1"]);
@@ -61,6 +67,7 @@ const mysqlContent = (line: string) => /^(CREATE TABLE|INSERT|CREATE .*VIEW|CREA
 export async function planSql(engine: SqlEngine, lines: AsyncIterable<string> | Iterable<string>): Promise<SqlPlan> {
   const used: string[] = [];
   const tables: Record<string, string[]> = {};
+  const creates: Record<string, { kind: string; name: string }[]> = {};
   const mark = (db: string | null) => {
     if (db !== null && !used.includes(db)) used.push(db);
   };
@@ -93,6 +100,8 @@ export async function planSql(engine: SqlEngine, lines: AsyncIterable<string> | 
         mark(current ?? "");
         const t = line.match(/^CREATE (?:UNLOGGED )?TABLE (?:ONLY )?([^\s(]+)/i);
         if (t) table(current ?? "", t[1]);
+        const c = pgCreated(line);
+        if (c) (creates[current ?? ""] ??= []).push(c);
       }
     } else {
       const db = mysqlDatabaseOf(line);
@@ -109,7 +118,7 @@ export async function planSql(engine: SqlEngine, lines: AsyncIterable<string> | 
   const system = engine === "postgres" ? PG_SYSTEM : MYSQL_SYSTEM;
   // "" is content before any database switch: it goes to the service's database.
   const databases = used.filter((d) => !system.has(d));
-  return { databases, cluster, tables: Object.fromEntries(databases.map((d) => [d, tables[d] ?? []])) };
+  return { databases, cluster, tables: Object.fromEntries(databases.map((d) => [d, tables[d] ?? []])), creates };
 }
 
 /** Where MySQL's own database from the dump goes when its accounts are restored. */
@@ -173,6 +182,26 @@ const pgQuote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 const pgLiteral = (name: string) => `'${name.replaceAll("'", "''")}'`;
 const myQuote = (name: string) => `\`${name.replaceAll("`", "``")}\``;
 
+/** A table, sequence or view a Postgres dump creates (CREATE OR REPLACE and IF NOT EXISTS replace or keep by themselves). */
+export function pgCreated(line: string): { kind: string; name: string } | null {
+  const m = line.match(/^CREATE (UNLOGGED |FOREIGN )?(TABLE|SEQUENCE|MATERIALIZED VIEW|VIEW) (?!IF NOT EXISTS\b)("(?:[^"]|"")+"(?:\.(?:"(?:[^"]|"")+"|[^\s(.";]+))?|[^\s(";]+)/i);
+  if (!m) return null;
+  return { kind: m[1]?.toUpperCase().trim() === "FOREIGN" ? "FOREIGN TABLE" : m[2].toUpperCase(), name: m[3] };
+}
+
+/**
+ * The DROPs that clear what a Postgres dump section creates, before it creates it: views first,
+ * then tables, then sequences, each kind in one statement, so the section's own objects may depend
+ * on each other. No CASCADE: an object outside the dump that depends on one stops the restore.
+ */
+export function pgClearing(objects: { kind: string; name: string }[]) {
+  const order = ["MATERIALIZED VIEW", "VIEW", "FOREIGN TABLE", "TABLE", "SEQUENCE"];
+  return order.flatMap((kind) => {
+    const names = [...new Set(objects.filter((o) => o.kind === kind).map((o) => o.name))];
+    return names.length ? [`DROP ${kind} IF EXISTS ${names.join(", ")};`] : [];
+  });
+}
+
 /** What the filter did, for the restore log. */
 export type SqlFilterReport = { skipped: Set<string>; created: string[]; into: string | null };
 
@@ -225,6 +254,9 @@ export function sqlLineFilter(
 
   let copying = false;
   let skipping = false;
+  // Postgres: the dump's database whose section this is, and the sections already cleared.
+  let section = "";
+  const cleared = new Set<string>();
   let accounts = false;
 
   const userLine = (line: string) =>
@@ -254,6 +286,7 @@ export function sqlLineFilter(
       }
       const to = pgConnectTarget(line);
       if (to !== null) {
+        section = to;
         skipping = !kept.includes(to);
         if (skipping) {
           if (!PG_SYSTEM.has(to) && to !== "postgres") report.skipped.add(to);
@@ -274,6 +307,12 @@ export function sqlLineFilter(
       if (/^DROP (ROLE|USER|GROUP)\b/i.test(line)) return [];
       if (opts.users && userLine(line) && !/^(CREATE|ALTER|DROP|COMMENT ON) DATABASE\b/i.test(line) && !/^\\(un)?restrict\b/.test(line)) return [line];
       if (userLine(line)) return [];
+      // A dump made without --clean creates its objects over existing ones: the section's are
+      // cleared before its first one, so they are replaced like a MySQL dump's tables.
+      if (pgCreated(line) && !cleared.has(section)) {
+        cleared.add(section);
+        return [...pgClearing(plan.creates?.[section] ?? []), line];
+      }
       return [line];
     }
 

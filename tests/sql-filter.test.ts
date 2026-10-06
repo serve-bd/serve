@@ -76,7 +76,8 @@ describe("postgres dumps", () => {
       "\n",
     );
     const { out } = await clean("postgres", dump, "app");
-    expect(out).toBe(["SET client_encoding = 'UTF8';", "CREATE TABLE public.t (n int);"].join("\n"));
+    // A dump without --clean: its table is cleared first, so it replaces one of the same name.
+    expect(out).toBe(["SET client_encoding = 'UTF8';", "DROP TABLE IF EXISTS public.t;", "CREATE TABLE public.t (n int);"].join("\n"));
   });
 
   it("restores a backup of one chosen database into that database, not the service's", async () => {
@@ -198,5 +199,23 @@ describe("mysql dumps", () => {
     expect(mysqlDatabaseOf("USE `a``b`;")).toBe("a`b");
     expect(mysqlDatabaseOf("CREATE DATABASE /*!32312 IF NOT EXISTS*/ `x` /*!40100 */;")).toBe("x");
     expect(mysqlDatabaseOf("INSERT INTO `x` VALUES (1);")).toBeNull();
+  });
+});
+
+describe("postgres dumps made without --clean", () => {
+  it("clear what each section creates before its first CREATE, views before tables", async () => {
+    const dump = [
+      "CREATE TABLE public.orders (i int);",
+      "CREATE TABLE IF NOT EXISTS public.kept (i int);",
+      "CREATE SEQUENCE public.s;",
+      "CREATE VIEW public.v AS SELECT 1;",
+      "CREATE INDEX i ON public.orders (i);",
+    ].join("\n");
+    const { out } = await clean("postgres", dump, "app");
+    const lines = out.split("\n");
+    const first = lines.findIndex((l) => l.startsWith("CREATE TABLE public.orders"));
+    expect(lines.slice(0, first)).toEqual(["DROP VIEW IF EXISTS public.v;", "DROP TABLE IF EXISTS public.orders;", "DROP SEQUENCE IF EXISTS public.s;"]);
+    expect(out.match(/^DROP /gm)).toHaveLength(3);
+    expect(out).not.toContain("public.kept;");
   });
 });

@@ -23,7 +23,7 @@ import { db, schema } from "@/server/db";
 import { readChoice } from "@/lib/backup-databases";
 import { decrypt } from "@/server/crypto";
 import { serverOf } from "@/server/servers/context";
-import { engines, pgDbname } from "@/server/databases/engines";
+import { serverDatabases, engines, pgDbname } from "@/server/databases/engines";
 import { databaseCreds } from "@/server/databases/options";
 import type { DatabaseConfig } from "@/server/services/types";
 import { newId } from "@/server/id";
@@ -84,10 +84,12 @@ export type RestoreOptions = {
   /** An import of one database: restored into this database of the server (replacing it), whatever the file calls it. */
   intoDatabase?: string;
   /**
-   * A whole backup restored: the databases on the server now (not branches), all removed first, so
-   * the server holds exactly what the backup does. The main database stays, empty when the backup has none.
+   * A whole backup restored: every database on the server (but `keep`: branches) is removed first,
+   * so the server holds exactly what the backup does. When the backup has no database of the main
+   * one's name, its first database becomes the main one (PostgreSQL, MySQL, MariaDB).
    */
-  emptyAll?: string[];
+  whole?: boolean;
+  keep?: string[];
   /** The passphrase of an encrypted backup made with another one (or imported). */
   passphrase?: string | null;
 };
@@ -137,7 +139,7 @@ type Target = {
   copies: string[];
   dump(file: string): Promise<number>;
   /** `onStopped`: the containers a storage restore stopped (empty once they run again). */
-  restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string }>;
+  restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string; main?: string }>;
 };
 
 /**
@@ -220,7 +222,18 @@ async function composeCommands(service: ServiceRow, name: string): Promise<Comma
   if ((engine === "redis" || engine === "valkey") && !creds.password) creds.password = requirePass([...(info.Config.Entrypoint ?? []), ...(info.Config.Cmd ?? [])]);
   // MongoDB in a stack: its users can be restored too, as for a database service.
   const restoreUsers = engine === "mongodb" && creds.username ? engines.mongodb.restoreUsersCommand?.({ ...creds, tlsRequired: false }) : undefined;
-  return { docker, container, engine, ...dumpCommands(engine, creds), restoreUsers, password: creds.password, database: creds.database ?? "", username: creds.username };
+  return {
+    docker,
+    container,
+    engine,
+    ...dumpCommands(engine, creds),
+    restoreUsers,
+    password: creds.password,
+    database: creds.database ?? "",
+    username: creds.username,
+    // For listing and emptying its databases on a restore.
+    creds: { username: creds.username ?? "", password: creds.password ?? "", database: creds.database ?? "", tlsRequired: false } as ReturnType<typeof databaseCreds>,
+  };
 }
 
 /**
@@ -345,7 +358,12 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
 }
 
 /** Restores a dump into a database container; Redis and Valkey restart to load it. */
-export async function restoreWith(t: Commands, file: string, log: (line: string) => void = () => {}, opts: RestoreOptions = {}): Promise<{ out: string; format: string }> {
+export async function restoreWith(
+  t: Commands,
+  file: string,
+  log: (line: string) => void = () => {},
+  opts: RestoreOptions = {},
+): Promise<{ out: string; format: string; main?: string }> {
   if (opts.tables?.length) return restoreTables(t, file, log, opts);
   // Mongo archives are gzip streams already; everything else ending in .gz is unpacked on the way in.
   const gz = /\.gz$/i.test(file) && t.engine !== "mongodb";
@@ -363,14 +381,25 @@ export async function restoreWith(t: Commands, file: string, log: (line: string)
   log(`Format: ${format}${gz ? " (gzip)" : ""}`);
   const sql = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb";
   const filter = sql ? await plainSqlFilter(t, file, gz, log, opts) : undefined;
-  // What the backup writes into starts empty: no table of before is left over.
-  if (t.engine === "postgres" || t.engine === "mysql" || t.engine === "mariadb") {
-    const targets = filter ? filter.targets : [renamed || t.database];
-    const SKIP = new Set(["postgres", "mysql", "sys", "information_schema", "performance_schema", "template0", "template1"]);
-    const empty = [...new Set([...(opts.emptyAll ?? []), ...targets])].filter((d) => d && !SKIP.has(d));
-    if (empty.length) log(`Emptying ${empty.join(", ")}: afterwards they hold only what the backup holds`);
-    for (const d of empty) await runSql(t, t.engine === "postgres" ? `DROP DATABASE IF EXISTS ${pgIdent(d)} WITH (FORCE);` : `DROP DATABASE IF EXISTS ${myIdent(d)};`);
-    for (const d of new Set([t.database, ...targets])) if (d && !SKIP.has(d)) await ensureDatabase(t, d);
+  // What the backup writes into starts empty, and a whole backup empties the server: no database
+  // or table of before is left over. The same for every engine that has databases.
+  const spec = t.creds ? serverDatabases(t.engine, t.creds) : null;
+  const sqlEngine = t.engine === "postgres" || t.engine === "mysql" || t.engine === "mariadb";
+  let main: string | undefined;
+  if (spec) {
+    const targets = filter ? filter.targets : t.engine === "mongodb" ? (opts.databases ?? []).map((d) => opts.renames?.[d] || d) : sqlEngine ? [renamed || t.database] : [];
+    const listed = opts.whole ? (await runIn(t, spec.list, Readable.from([]), false)).split("\n").map((l) => l.trim()) : [];
+    const empty = [...new Set([...targets, ...listed.filter((d) => !opts.keep?.includes(d))])].filter((d) => d && !spec.system.includes(d));
+    // The backup has no database of the main one's name: its first one becomes the main one.
+    if (opts.whole && sqlEngine && !targets.includes(t.database)) main = targets.find((d) => d && !spec.system.includes(d));
+    if (empty.length) log(`Emptying ${empty.join(", ")}: afterwards the server holds only what the backup holds`);
+    for (const d of empty) await runIn(t, spec.drop(d), Readable.from([]), false);
+    if (sqlEngine) for (const d of new Set([main ?? t.database, ...targets])) if (d && !spec.system.includes(d)) await ensureDatabase(t, d);
+    // The restore connected to the main database, which is gone: it connects to the new one.
+    if (main && format === "plain SQL" && t.engine === "postgres" && !renamed) command = `${clientOf(t, main)} -o /dev/null`;
+    else if (main && t.engine !== "postgres" && !renamed) command = `MYSQL_PWD=${shq(t.password)} ${t.engine} -uroot ${shq(main)}`;
+    // ClickHouse restores into its database by name: it must be there.
+    if (t.engine === "clickhouse" && t.database && !spec.system.includes(t.database) && spec.create) await runIn(t, spec.create(t.database), Readable.from([]), false);
   }
   // The command's output goes to the log while it runs, so a long or failing restore can be followed.
   const out = await runIn(t, command, fs.createReadStream(file), gz, log, filter);
@@ -390,7 +419,7 @@ export async function restoreWith(t: Commands, file: string, log: (line: string)
     log("Restarting to load the dump");
     await t.container.restart();
   }
-  return { out, format: `${format}${gz ? " (gzip)" : ""}` };
+  return { out, format: `${format}${gz ? " (gzip)" : ""}`, main };
 }
 
 const shq = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
@@ -462,7 +491,7 @@ async function restoreTables(t: Commands, file: string, log: (line: string) => v
     const { format } = await restoreWith(t, file, log, {
       ...opts,
       tables: undefined,
-      emptyAll: undefined,
+      whole: undefined,
       users: false,
       keepNames: true,
       databases: src ? [src] : undefined,
@@ -612,6 +641,16 @@ export async function targetOf(service: ServiceRow, key: string | null, database
  * server (PostgreSQL's "postgres" included), without the copies made for branches (those go with
  * the branch's own backups).
  */
+/** The databases of a service's branches (on the same server): a restore leaves them be. */
+async function branchDatabases(serviceId: string) {
+  const rows = await db
+    .select({ database: schema.databaseBranch.database, extra: schema.databaseBranch.extraDatabases, name: schema.databaseBranch.name })
+    .from(schema.databaseBranch)
+    .where(eq(schema.databaseBranch.serviceId, serviceId));
+  const { copyDatabaseName } = await import("@/server/databases/branches");
+  return rows.flatMap((b) => [b.database, ...b.extra.map((d) => copyDatabaseName(d, b.name))]);
+}
+
 export async function backupableDatabases(service: ServiceRow): Promise<string[] | null> {
   const cfg = service.database;
   if (!cfg) return null;
@@ -1179,10 +1218,7 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
       if (own?.label && own.label !== service.database.database) opts = { ...opts, renames: { ...opts.renames, "": own.label } };
     }
     // The whole backup: the server ends up holding exactly what it holds (branches stay apart).
-    if (!backup.target && !opts.tables?.length && !opts.databases?.length && ["postgres", "mysql", "mariadb"].includes(service.database?.engine ?? "")) {
-      const all = await backupableDatabases(service).catch(() => null);
-      if (all) opts = { ...opts, emptyAll: all };
-    }
+    if (!opts.tables?.length && !opts.databases?.length) opts = { ...opts, whole: true, keep: backup.target ? [] : await branchDatabases(service.id) };
     // Tables with no database named: the dump's one database, never the whole of it by its own
     // name (a MySQL dump names its database, and that would replace every table in it).
     if (opts.tables?.length && !opts.databases?.length) {
@@ -1193,7 +1229,11 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
     const stored = await localBackupFile(backup);
     await checkIntegrity(backup, stored);
     const opened = await openBackupFile(backup, stored, opts.passphrase);
-    const { out: clean, format } = await t
+    const {
+      out: clean,
+      format,
+      main,
+    } = await t
       .restore(
         opened.file,
         (line) => void logLine(backupId, line),
@@ -1209,6 +1249,14 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
       .finally(opened.done);
     // Database restores logged their format and output as they ran.
     if (format === "tar.gz" && clean) await logLine(backupId, clean.slice(-2000));
+    // The backup had no database of the main one's name: its first one is the main one now.
+    if (main && !backup.target && service.database && main !== service.database.database) {
+      await db
+        .update(schema.service)
+        .set({ database: { ...service.database, database: main } })
+        .where(eq(schema.service.id, service.id));
+      await logLine(backupId, `${main} is the main database now: the connection URL names it. Redeploy the apps that use it.`);
+    }
     await db.update(schema.backup).set({ restoreStatus: "success", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));
     await logLine(backupId, "Restore finished");
     void notify(await orgOfService(service.id), "restore.success", {

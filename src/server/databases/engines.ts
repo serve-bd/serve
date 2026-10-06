@@ -127,6 +127,57 @@ function clickhouseRestore(c: EngineCreds) {
   return `SERVE_CH=${sh(`${chClient(c)} --multiquery`)} awk ${sh(awk)}`;
 }
 
+/**
+ * Listing and removing the databases of a server, for a restore that leaves it holding exactly the
+ * backup. `system`: the engine's own databases, never touched. `clear` empties a database in place
+ * where it cannot be removed (ClickHouse's default). Null: the engine has no databases to list.
+ */
+export function serverDatabases(engine: string, c: EngineCreds) {
+  const pg = (sql: string) => `PGPASSWORD=${sh(c.password)} psql -X -At -v ON_ERROR_STOP=1 -U ${sh(c.username)} -d postgres -c ${sh(sql)}`;
+  const my = (client: string, sql: string) => `MYSQL_PWD=${sh(c.password)} ${client} -uroot -N -B -e ${sh(sql)}`;
+  const mongo = (js: string) => `mongosh --quiet${mongoTls(c)} -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin --eval ${sh(js)}`;
+  const ch = (sql: string) => `${chClient({ ...c, database: "default" })} --multiquery -q ${sh(sql)}`;
+  const pgIdent = (n: string) => `"${n.replaceAll('"', '""')}"`;
+  const myIdent = (n: string) => `\`${n.replaceAll("`", "``")}\``;
+  switch (engine) {
+    case "postgres":
+      return {
+        system: ["postgres", "template0", "template1"],
+        list: pg("SELECT datname FROM pg_database WHERE NOT datistemplate"),
+        // Its connections closed first, then removed: works on every version (WITH (FORCE) needs 13).
+        drop: (n: string) =>
+          `PGPASSWORD=${sh(c.password)} psql -X -At -v ON_ERROR_STOP=1 -U ${sh(c.username)} -d postgres -c ${sh(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${n.replaceAll("'", "''")}' AND pid <> pg_backend_pid()`)} -c ${sh(`DROP DATABASE IF EXISTS ${pgIdent(n)}`)}`,
+      };
+    case "mysql":
+    case "mariadb":
+      return {
+        system: ["mysql", "sys", "information_schema", "performance_schema"],
+        list: my(engine, "SHOW DATABASES"),
+        drop: (n: string) => my(engine, `DROP DATABASE IF EXISTS ${myIdent(n)}`),
+      };
+    case "mongodb":
+      return {
+        system: ["admin", "local", "config"],
+        list: mongo("db.adminCommand({ listDatabases: 1, nameOnly: true }).databases.forEach((d) => print(d.name))"),
+        drop: (n: string) => mongo(`db.getSiblingDB(${JSON.stringify(n)}).dropDatabase()`),
+      };
+    case "clickhouse":
+      return {
+        system: ["system", "INFORMATION_SCHEMA", "information_schema"],
+        list: ch("SHOW DATABASES"),
+        // default cannot be removed: its tables are.
+        create: (n: string) => ch(`CREATE DATABASE IF NOT EXISTS ${chIdent(n)}`),
+        drop: (n: string) =>
+          n === "default"
+            ? // Nothing to drop is no query at all (clickhouse-client refuses an empty one).
+              `Q="$(${ch(`SELECT concat('DROP TABLE IF EXISTS \`default\`.', ${chQuoted}, ';') FROM system.tables WHERE database = 'default' FORMAT TSVRaw`)})" && { [ -z "$Q" ] || ${chClient({ ...c, database: "default" })} --multiquery -q "$Q"; }`
+            : ch(`DROP DATABASE IF EXISTS ${chIdent(n)}`),
+      };
+    default:
+      return null;
+  }
+}
+
 /** redis-cli / valkey-cli with auth, over TLS when the server only speaks TLS. */
 /** The client with its password in the environment, not on its command line (visible in ps). */
 export const rcli = (bin: string, c: EngineCreds) =>

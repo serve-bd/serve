@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   const serviceId = q.get("s") ?? "";
   if (gateKeyValid(serviceId, request.headers.get(GATE_KEY_HEADER))) return new Response(null, { status: 204 });
   const pass = verifyGate<Pass>(request.cookies.get(GATE_COOKIE)?.value, "c");
-  if (pass?.s === serviceId && (await gateAllows(pass.u, serviceId))) return new Response(null, { status: 204 });
+  if (pass?.s === serviceId && (await gateAllows(pass.u, pass.i, serviceId))) return new Response(null, { status: 204 });
 
   // Traefik names the host in the query (a dashboard behind another proxy rewrites X-Forwarded-Host).
   const host = q.get("h") ?? request.headers.get("x-serve-host") ?? request.headers.get("x-forwarded-host") ?? "";

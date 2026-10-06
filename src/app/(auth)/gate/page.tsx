@@ -17,7 +17,7 @@ export default async function GatePage(props: { searchParams: Promise<Record<str
   if (!session) redirect(`/login?next=${encodeURIComponent(`/gate?${new URLSearchParams({ s, h, p })}`)}`);
   const target = s && h ? await gateTarget(s, h) : null;
   if (!target) return <AuthCard title="Link not valid" description="This app does not ask for a sign-in here. Open the app again." />;
-  if (!(await gateAllows(session.user.id, s)))
+  if (!(await gateAllows(session.user.id, session.session.id, s)))
     return (
       <AuthCard
         title="No access"
@@ -30,6 +30,6 @@ export default async function GatePage(props: { searchParams: Promise<Record<str
         <SwitchAccount />
       </AuthCard>
     );
-  const ticket = signGate({ k: "t", u: session.user.id, s, h, p: safeNextPath(p), x: target.https });
+  const ticket = signGate({ k: "t", u: session.user.id, i: session.session.id, s, h, p: safeNextPath(p), x: target.https });
   redirect(`${target.https ? "https" : "http"}://${h}${GATE_PATH}?t=${ticket}`);
 }

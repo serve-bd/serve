@@ -241,6 +241,8 @@ export function BackupsManager(props: {
   description?: string;
   /** Shown in the restore question: what gets replaced. */
   restoreWhat?: string;
+  /** Only one part: the backups, importing one, or the schedule. Left out: all three. */
+  view?: "list" | "import" | "auto";
   /** Extra controls in the schedule column (like "Stop backing up"). */
   aside?: React.ReactNode;
   isAdmin: boolean;
@@ -291,104 +293,126 @@ export function BackupsManager(props: {
   // Database services get the full restore window; compose targets the plain confirmation.
   const [restoring, setRestoring] = React.useState<Backup | null>(null);
 
+  const list = (
+    <>
+      <Card className="overflow-hidden">
+        <CardHeader
+          title={props.title ?? "Backups"}
+          description={props.description ?? "Consistent dumps taken with the database's own tools. Download, restore or import one."}
+          actions={
+            <Button size="sm" variant="primary" onClick={() => (choices ? setPicking(true) : run.run())} loading={run.pending && !picking} disabled={!props.running}>
+              <Play /> Back up now
+            </Button>
+          }
+        />
+        {backups.length === 0 ? (
+          <EmptyState
+            icon={<HardDrive />}
+            title="No backups yet"
+            description={props.running ? "Take a backup now or set a schedule." : props.target ? "Start the stack to take a backup." : "Start the database to take a backup."}
+          />
+        ) : (
+          <div className="divide-y divide-line">
+            {backups.map((b) => (
+              <BackupRow
+                key={b.id}
+                b={b}
+                isAdmin={props.isAdmin}
+                onRestore={async (x) => {
+                  if (!props.target) return setRestoring(x);
+                  safety.current = true;
+                  users.current = false;
+                  const ok = await confirm({
+                    title: "Restore this backup?",
+                    description: `${props.restoreWhat ?? `The current data in ${props.engineLabel}`} is replaced with ${x.filename}.`,
+                    confirmLabel: "Restore",
+                    danger: true,
+                    children: <SafetyToggle valueRef={safety} usersRef={props.restoresUsers ? users : undefined} />,
+                  });
+                  if (ok) await restore.run(x.id, safety.current, users.current);
+                }}
+                onTest={props.target ? undefined : (x) => void test.run(x.id)}
+                onDelete={async (x) => {
+                  if (
+                    await confirm({
+                      title: "Delete this backup?",
+                      description: `${x.filename ?? "The backup"} is removed from this server${x.destination !== "local" ? " and its bucket" : ""}.`,
+                      confirmLabel: "Delete",
+                      danger: true,
+                    })
+                  )
+                    remove.run(x.id);
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </Card>
+      <RestoreDialog backup={restoring} onClose={() => setRestoring(null)} onStarted={() => void mutate()} restoresUsers={props.restoresUsers} />
+    </>
+  );
+  const importCard = (
+    <>
+      {props.isAdmin && (
+        <ImportCard
+          target={props.target ?? null}
+          serviceId={props.serviceId}
+          running={props.running}
+          engineLabel={props.engineLabel}
+          restoresUsers={props.restoresUsers}
+          extensions={props.extensions}
+          maxUpload={props.maxUpload}
+          destinations={props.destinations}
+          onStarted={() => void mutate()}
+        />
+      )}
+    </>
+  );
+  const schedule = (
+    <>
+      <ScheduleCard
+        key={props.target ?? "database"}
+        serviceId={props.serviceId}
+        target={props.target}
+        noun={props.target && !props.target.startsWith("db:") ? "copies" : "dumps"}
+        schedule={props.schedule}
+        retention={props.retention}
+        retentionS3={props.retentionS3}
+        keepLocal={props.keepLocal}
+        timeoutMinutes={props.timeoutMinutes}
+        lowPriority={props.lowPriority}
+        encrypted={props.encrypted}
+        verify={props.verify}
+        users={props.users}
+        copyDestinationIds={props.copyDestinationIds}
+        s3DestinationId={props.s3DestinationId}
+        destinations={props.destinations}
+        timezone={props.timezone}
+        canEdit={props.isAdmin}
+        // The schedule offers the choice with one database too: Every database also takes the ones made later.
+        databaseChoices={props.databaseChoices ?? null}
+      />
+      {props.aside}
+    </>
+  );
+  const dialogs = <>{picking && choices && <BackupNowDialog choices={choices} pending={run.pending} onClose={() => setPicking(false)} onRun={(dbs) => void run.run(dbs)} />}</>;
+
+  // One part per page (the database's Backups, Import backup and Auto backup pages), or all of them.
+  if (props.view)
+    return (
+      <div className="flex min-w-0 flex-col gap-6">
+        {props.view === "list" ? list : props.view === "import" ? importCard : schedule}
+        {dialogs}
+      </div>
+    );
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="flex min-w-0 flex-col gap-6">
-        <Card className="overflow-hidden">
-          <CardHeader
-            title={props.title ?? "Backups"}
-            description={props.description ?? "Consistent dumps taken with the database's own tools. Download, restore or import one."}
-            actions={
-              <Button size="sm" variant="primary" onClick={() => (choices ? setPicking(true) : run.run())} loading={run.pending && !picking} disabled={!props.running}>
-                <Play /> Back up now
-              </Button>
-            }
-          />
-          {backups.length === 0 ? (
-            <EmptyState
-              icon={<HardDrive />}
-              title="No backups yet"
-              description={props.running ? "Take a backup now or set a schedule." : props.target ? "Start the stack to take a backup." : "Start the database to take a backup."}
-            />
-          ) : (
-            <div className="divide-y divide-line">
-              {backups.map((b) => (
-                <BackupRow
-                  key={b.id}
-                  b={b}
-                  isAdmin={props.isAdmin}
-                  onRestore={async (x) => {
-                    if (!props.target) return setRestoring(x);
-                    safety.current = true;
-                    users.current = false;
-                    const ok = await confirm({
-                      title: "Restore this backup?",
-                      description: `${props.restoreWhat ?? `The current data in ${props.engineLabel}`} is replaced with ${x.filename}.`,
-                      confirmLabel: "Restore",
-                      danger: true,
-                      children: <SafetyToggle valueRef={safety} usersRef={props.restoresUsers ? users : undefined} />,
-                    });
-                    if (ok) await restore.run(x.id, safety.current, users.current);
-                  }}
-                  onTest={props.target ? undefined : (x) => void test.run(x.id)}
-                  onDelete={async (x) => {
-                    if (
-                      await confirm({
-                        title: "Delete this backup?",
-                        description: `${x.filename ?? "The backup"} is removed from this server${x.destination !== "local" ? " and its bucket" : ""}.`,
-                        confirmLabel: "Delete",
-                        danger: true,
-                      })
-                    )
-                      remove.run(x.id);
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </Card>
-        <RestoreDialog backup={restoring} onClose={() => setRestoring(null)} onStarted={() => void mutate()} restoresUsers={props.restoresUsers} />
-        {props.isAdmin && (
-          <ImportCard
-            target={props.target ?? null}
-            serviceId={props.serviceId}
-            running={props.running}
-            engineLabel={props.engineLabel}
-            restoresUsers={props.restoresUsers}
-            extensions={props.extensions}
-            maxUpload={props.maxUpload}
-            destinations={props.destinations}
-            onStarted={() => void mutate()}
-          />
-        )}
+        {list}
+        {importCard}
       </div>
-
-      <div className="flex flex-col gap-4">
-        <ScheduleCard
-          key={props.target ?? "database"}
-          serviceId={props.serviceId}
-          target={props.target}
-          noun={props.target && !props.target.startsWith("db:") ? "copies" : "dumps"}
-          schedule={props.schedule}
-          retention={props.retention}
-          retentionS3={props.retentionS3}
-          keepLocal={props.keepLocal}
-          timeoutMinutes={props.timeoutMinutes}
-          lowPriority={props.lowPriority}
-          encrypted={props.encrypted}
-          verify={props.verify}
-          users={props.users}
-          copyDestinationIds={props.copyDestinationIds}
-          s3DestinationId={props.s3DestinationId}
-          destinations={props.destinations}
-          timezone={props.timezone}
-          canEdit={props.isAdmin}
-          // The schedule offers the choice with one database too: Every database also takes the ones made later.
-          databaseChoices={props.databaseChoices ?? null}
-        />
-        {props.aside}
-      </div>
-      {picking && choices && <BackupNowDialog choices={choices} pending={run.pending} onClose={() => setPicking(false)} onRun={(dbs) => void run.run(dbs)} />}
+      <div className="flex flex-col gap-4">{schedule}</div>
+      {dialogs}
     </div>
   );
 }

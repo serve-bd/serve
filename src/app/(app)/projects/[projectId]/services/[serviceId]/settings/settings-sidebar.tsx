@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils";
 import type { SettingsNavItem } from "./settings-nav";
 
 /** The settings sections. It lives in the layout, so it stays on screen while a section loads. */
-export function SettingsSidebar({ base, nav }: { base: string; nav: SettingsNavItem[] }) {
+export function SettingsSidebar({ base, nav, label = "Settings sections" }: { base: string; nav: SettingsNavItem[]; label?: string }) {
+  // An item with id "" is the base page itself.
+  const href = (id: string) => (id ? `${base}/${id}` : base);
   const section = usePathname()
     .slice(base.length + 1)
     .split("/")[0];
@@ -15,15 +17,15 @@ export function SettingsSidebar({ base, nav }: { base: string; nav: SettingsNavI
     <>
       <SectionPicker
         className="xl:hidden"
-        groups={[{ items: nav.map((item) => ({ href: `${base}/${item.id}`, label: item.label, active: item.id === section, danger: item.id === "danger" })) }]}
+        groups={[{ items: nav.map((item) => ({ href: href(item.id), label: item.label, active: item.id === section, danger: item.id === "danger" })) }]}
       />
-      <nav aria-label="Settings sections" className="sticky top-6 hidden w-44 flex-none flex-col gap-0.5 self-start xl:flex">
+      <nav aria-label={label} className="sticky top-6 hidden w-44 flex-none flex-col gap-0.5 self-start xl:flex">
         {nav.map((item) => {
           const active = item.id === section;
           return (
             <Link
               key={item.id}
-              href={`${base}/${item.id}`}
+              href={href(item.id)}
               // Sections are cheap to render: loaded ahead, switching between them is instant.
               prefetch
               aria-current={active ? "page" : undefined}

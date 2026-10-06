@@ -355,7 +355,7 @@ export async function restoreWith(t: Commands, file: string, log: (line: string)
   if (opts.users && (t.engine === "mysql" || t.engine === "mariadb")) {
     log("Restoring the dump's users and their rights; Serve's own accounts keep theirs");
     const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
-    await runIn(t, `export MYSQL_PWD=${q(t.password)}; ${t.engine} -uroot`, Readable.from([accountsMergeSql(protectedAccounts(t))]), false, log);
+    await runIn(t, `export MYSQL_PWD=${q(t.password)}; ${t.engine} -uroot`, Readable.from([accountsMergeSql(protectedAccounts(t), opts.renames)]), false, log);
   }
   await recountRows(t, log);
   // A backup of chosen databases (a packed folder) has its users in admin's dump inside it.

@@ -135,16 +135,37 @@ const ACCOUNT_TABLES: [string, string[]][] = [
 export const ACCOUNT_TABLE_NAMES = ACCOUNT_TABLES.map(([t]) => t);
 const accountTable = new Set(ACCOUNT_TABLE_NAMES);
 
-/** Moves the dump's accounts (in ACCOUNTS_DATABASE) into mysql, leaving out `protect` and MySQL's own, then drops it. */
-export function accountsMergeSql(protect: string[]) {
+/** The account tables whose rights name a database (renamed with it). */
+const DATABASE_RIGHTS = ["db", "tables_priv", "columns_priv", "procs_priv"];
+
+/**
+ * Moves the dump's accounts (in ACCOUNTS_DATABASE) into mysql, leaving out `protect` and MySQL's own,
+ * then drops it. `renames`: databases restored under another name; their rights follow them.
+ */
+export function accountsMergeSql(protect: string[], renames: Record<string, string> = {}) {
   const skip = [...MYSQL_OWN_ACCOUNTS, ...protect].map((u) => `'${u.replaceAll("'", "''")}'`).join(",");
-  const lines = ACCOUNT_TABLES.flatMap(([t, cols]) => [
-    `SET @c = (SELECT GROUP_CONCAT(CONCAT('\`', s.COLUMN_NAME, '\`') ORDER BY s.ORDINAL_POSITION) FROM information_schema.COLUMNS s JOIN information_schema.COLUMNS d ON d.TABLE_SCHEMA = 'mysql' AND d.TABLE_NAME = s.TABLE_NAME AND d.COLUMN_NAME = s.COLUMN_NAME JOIN information_schema.TABLES dt ON dt.TABLE_SCHEMA = 'mysql' AND dt.TABLE_NAME = s.TABLE_NAME AND dt.TABLE_TYPE = 'BASE TABLE' WHERE s.TABLE_SCHEMA = '${ACCOUNTS_DATABASE}' AND s.TABLE_NAME = '${t}');`,
-    `SET @s = IF(@c IS NULL, 'DO 0', CONCAT('REPLACE INTO mysql.\`${t}\` (', @c, ') SELECT ', @c, ' FROM \`${ACCOUNTS_DATABASE}\`.\`${t}\` WHERE ${cols.map((c) => `\`${c}\` NOT IN (${skip.replaceAll("'", "''")})`).join(" AND ")}'));`,
-    "PREPARE st FROM @s;",
-    "EXECUTE st;",
-    "DEALLOCATE PREPARE st;",
-  ]);
+  const lit = (v: string) => `'${v.replaceAll("\\", "\\\\").replaceAll("'", "''")}'`;
+  const renamed = Object.entries(renames)
+    .filter(([from, to]) => from && to && from !== to)
+    .flatMap(([from, to]) =>
+      DATABASE_RIGHTS.flatMap((t) => [
+        // Only tables the dump had: UPDATE on a missing one would stop the merge.
+        `SET @s = IF((SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '${ACCOUNTS_DATABASE}' AND TABLE_NAME = '${t}') = 0, 'DO 0', ${lit(`UPDATE \`${ACCOUNTS_DATABASE}\`.\`${t}\` SET Db = ${lit(to)} WHERE Db = ${lit(from)}`)});`,
+        "PREPARE st FROM @s;",
+        "EXECUTE st;",
+        "DEALLOCATE PREPARE st;",
+      ]),
+    );
+  const lines = [
+    ...renamed,
+    ...ACCOUNT_TABLES.flatMap(([t, cols]) => [
+      `SET @c = (SELECT GROUP_CONCAT(CONCAT('\`', s.COLUMN_NAME, '\`') ORDER BY s.ORDINAL_POSITION) FROM information_schema.COLUMNS s JOIN information_schema.COLUMNS d ON d.TABLE_SCHEMA = 'mysql' AND d.TABLE_NAME = s.TABLE_NAME AND d.COLUMN_NAME = s.COLUMN_NAME JOIN information_schema.TABLES dt ON dt.TABLE_SCHEMA = 'mysql' AND dt.TABLE_NAME = s.TABLE_NAME AND dt.TABLE_TYPE = 'BASE TABLE' WHERE s.TABLE_SCHEMA = '${ACCOUNTS_DATABASE}' AND s.TABLE_NAME = '${t}');`,
+      `SET @s = IF(@c IS NULL, 'DO 0', CONCAT('REPLACE INTO mysql.\`${t}\` (', @c, ') SELECT ', @c, ' FROM \`${ACCOUNTS_DATABASE}\`.\`${t}\` WHERE ${cols.map((c) => `\`${c}\` NOT IN (${skip.replaceAll("'", "''")})`).join(" AND ")}'));`,
+      "PREPARE st FROM @s;",
+      "EXECUTE st;",
+      "DEALLOCATE PREPARE st;",
+    ]),
+  ];
   return [...lines, "FLUSH PRIVILEGES;", `DROP DATABASE IF EXISTS \`${ACCOUNTS_DATABASE}\`;`, ""].join("\n");
 }
 

@@ -189,6 +189,9 @@ describe("mysql dumps", () => {
     expect(out).not.toContain("GRANT SELECT ON `shop`.* TO 'app'");
     expect(out).not.toContain("ALTER USER 'root'");
     expect(accountsMergeSql(["app"])).toContain("NOT IN (''root'',''mysql.sys'',''mysql.session'',''mysql.infoschema'',''mariadb.sys'',''app'')");
+    // A database restored under another name: its rights follow it.
+    expect(accountsMergeSql(["app"], { ecommerce: "app" })).toContain("SET Db = ''app'' WHERE Db = ''ecommerce''");
+    expect(accountsMergeSql(["app"])).not.toContain("SET Db =");
   });
 
   it("reads database names", () => {

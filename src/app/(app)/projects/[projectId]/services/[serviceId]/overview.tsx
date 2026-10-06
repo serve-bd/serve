@@ -457,10 +457,8 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
         {/* Details */}
         <Card>
           <CardHeader title="Details" />
+          {/* Only what differs from the defaults: the header shows the status. */}
           <div className="flex flex-col divide-y divide-line">
-            <Row label="Status">
-              <StatusLabel status={live?.status ?? service.status} className="text-xs" />
-            </Row>
             <Row label="Server">
               <Link href={`/servers/${data.server.id}`} className="inline-flex items-center gap-1.5 hover:text-accent">
                 <Server className="size-3.5" />
@@ -498,8 +496,8 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                               : "—"}
                   {service.rootDir && service.rootDir !== "." && service.rootDir !== "/" ? ` · ${service.rootDir}` : ""}
                 </Row>
-                <Row label="Deploy on push">{service.autoDeploy ? "On" : "Off"}</Row>
-                {!service.isPreview && <Row label="PR previews">{service.previewsEnabled ? "On" : "Off"}</Row>}
+                {!service.autoDeploy && <Row label="Deploy on push">Off</Row>}
+                {!service.isPreview && service.previewsEnabled && <Row label="PR previews">On</Row>}
               </>
             )}
             {service.source?.kind === "image" && (
@@ -521,19 +519,25 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
             )}
             {service.type === "app" && (
               <>
-                <Row label="Port" mono>
-                  {service.port ?? "Auto"}
-                </Row>
-                <Row label="Replicas">{service.serverCount > 1 ? `${service.replicas || 1} on each of ${service.serverCount} servers` : service.replicas}</Row>
-                <Row label="Health check" mono>
-                  {service.healthcheckPath ?? "Container running"}
-                </Row>
-                <Row label="Restart">{service.restartPolicy}</Row>
-                <Row label="Limits">
-                  {service.cpuLimit || service.memoryLimit
-                    ? `${service.cpuLimit ? `${service.cpuLimit} CPU` : ""}${service.cpuLimit && service.memoryLimit ? " · " : ""}${service.memoryLimit ? `${service.memoryLimit} MB` : ""}`
-                    : "None"}
-                </Row>
+                {service.port && (
+                  <Row label="Port" mono>
+                    {service.port}
+                  </Row>
+                )}
+                {(service.replicas > 1 || service.serverCount > 1) && (
+                  <Row label="Replicas">{service.serverCount > 1 ? `${service.replicas || 1} on each of ${service.serverCount} servers` : service.replicas}</Row>
+                )}
+                {service.healthcheckPath && (
+                  <Row label="Health check" mono>
+                    {service.healthcheckPath}
+                  </Row>
+                )}
+                {service.restartPolicy !== "unless-stopped" && <Row label="Restart">{service.restartPolicy}</Row>}
+                {(service.cpuLimit || service.memoryLimit) && (
+                  <Row label="Limits">
+                    {`${service.cpuLimit ? `${service.cpuLimit} CPU` : ""}${service.cpuLimit && service.memoryLimit ? " · " : ""}${service.memoryLimit ? `${service.memoryLimit} MB` : ""}`}
+                  </Row>
+                )}
               </>
             )}
             <Row label="Created">

@@ -963,7 +963,6 @@ export const serviceRoutes: ApiRoute[] = [
         databases: c.backupDatabases ?? null,
         retention: c.backupRetention,
         retentionS3: c.backupRetentionS3 ?? null,
-        keep: c.backupKeep ?? null,
         s3DestinationId: c.s3DestinationId ?? null,
         copyDestinationIds: c.backupCopyDestinationIds ?? [],
         local: c.backupLocal !== false,
@@ -981,14 +980,13 @@ export const serviceRoutes: ApiRoute[] = [
     tag: "Backups",
     summary: "Change backup settings of a database",
     description:
-      "Fields left out keep their value. passphrase: a new one encrypts backups from now on (at least 8 characters), null stops encrypting. users: backups also take the server's users, passwords and rights (Postgres, MySQL, MariaDB). keep: {days, daily, weekly, monthly, yearly}, kept on top of the newest retention.",
+      "Fields left out keep their value. passphrase: a new one encrypts backups from now on (at least 8 characters), null stops encrypting. users: backups also take the server's users, passwords and rights (Postgres, MySQL, MariaDB).",
     needs: ["databases.backups", "services.manage"],
     body: z.object({
       schedule: z.string().nullable().optional(),
       databases: z.array(z.string()).nullable().optional(),
       retention: z.number().int().optional(),
       retentionS3: z.number().int().nullable().optional(),
-      keep: z.record(z.string(), z.number().int().nullable()).nullable().optional(),
       s3DestinationId: z.string().nullable().optional(),
       copyDestinationIds: z.array(z.string()).optional(),
       local: z.boolean().optional(),
@@ -1006,7 +1004,6 @@ export const serviceRoutes: ApiRoute[] = [
         ["databases", "backupDatabases"],
         ["retention", "backupRetention"],
         ["retentionS3", "backupRetentionS3"],
-        ["keep", "backupKeep"],
         ["s3DestinationId", "s3DestinationId"],
         ["copyDestinationIds", "backupCopyDestinationIds"],
         ["local", "backupLocal"],
@@ -1017,8 +1014,6 @@ export const serviceRoutes: ApiRoute[] = [
         ["passphrase", "backupPassphrase"],
       ];
       const database = Object.fromEntries(map.filter(([k]) => body[k] !== undefined).map(([k, to]) => [to, body[k]]));
-      // Keep rules left out keep their value too: --keep-monthly does not clear --keep-daily.
-      if (body.keep) database.backupKeep = { ...service.database.backupKeep, ...body.keep };
       await unwrap(actions.updateService(params.serviceId, { database }));
       return { ok: true };
     },
@@ -1043,7 +1038,7 @@ export const serviceRoutes: ApiRoute[] = [
     tag: "Backups",
     summary: "Set up or change a backup of a compose stack",
     description:
-      "key: db:<service>, volume:<name> or dir:<path> (URL-encoded). Adds it when missing. Body: schedule (cron or null), retention, retentionS3, s3DestinationId, copyDestinationIds, local, timeoutMinutes, lowPriority, keep, passphrase (null stops encrypting; left out keeps it).",
+      "key: db:<service>, volume:<name> or dir:<path> (URL-encoded). Adds it when missing. Body: schedule (cron or null), retention, retentionS3, s3DestinationId, copyDestinationIds, local, timeoutMinutes, lowPriority, passphrase (null stops encrypting; left out keeps it).",
     needs: ["databases.backups"],
     body: z.looseObject({}),
     handler: async ({ auth, params, body }) => {

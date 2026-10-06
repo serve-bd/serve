@@ -1,6 +1,5 @@
 "use client";
 
-import type { KeepRules } from "@/lib/retention";
 import { TimeInput } from "@/components/ui/time-input";
 import * as React from "react";
 import Link from "next/link";
@@ -62,15 +61,6 @@ function nextRuns(cron: string, tz: string, count = 3, from?: number): Date[] | 
   }
 }
 
-type KeepKey = "days" | "daily" | "weekly" | "monthly" | "yearly";
-const KEEP_FIELDS: { key: KeepKey; prefix: string; suffix: string }[] = [
-  { key: "days", prefix: "Every backup of the last", suffix: "days" },
-  { key: "daily", prefix: "One a day for", suffix: "days" },
-  { key: "weekly", prefix: "One a week for", suffix: "weeks" },
-  { key: "monthly", prefix: "One a month for", suffix: "months" },
-  { key: "yearly", prefix: "One a year for", suffix: "years" },
-];
-
 export function ScheduleCard(props: {
   serviceId: string;
   /** A compose stack's backup key; saved on the stack instead of the database service. */
@@ -99,8 +89,6 @@ export function ScheduleCard(props: {
   copyDestinationIds?: string[];
   /** Postgres, MySQL, MariaDB: backups also take the server's users and passwords (left out: not offered). */
   users?: boolean;
-  /** Kept on top of the newest ones: by age, and one per day, week, month and year. */
-  keep?: KeepRules | null;
 }) {
   const dumps = props.noun !== "copies";
   const choices = props.databaseChoices ?? null;
@@ -121,7 +109,6 @@ export function ScheduleCard(props: {
       verify: !!props.verify,
       users: !!props.users,
       copies: props.copyDestinationIds ?? [],
-      keep: Object.fromEntries(KEEP_FIELDS.map((k) => [k.key, props.keep?.[k.key] ? String(props.keep[k.key]) : ""])) as Record<KeepKey, string>,
     }),
     [
       props.schedule,
@@ -135,7 +122,6 @@ export function ScheduleCard(props: {
       props.verify,
       props.users,
       props.copyDestinationIds,
-      props.keep,
     ],
   );
   const [enabled, setEnabled] = React.useState(initial.enabled);
@@ -151,27 +137,20 @@ export function ScheduleCard(props: {
   const [verify, setVerify] = React.useState(initial.verify);
   const [users, setUsers] = React.useState(initial.users);
   const [copies, setCopies] = React.useState<string[]>(initial.copies);
-  const [keepRules, setKeepRules] = React.useState(initial.keep);
   // The plan only counts while the schedule is on: turned off, the saved schedule has none.
   // The form as it would be saved; Unsaved changes compares it with the last one saved.
-  const snap = (v: Omit<typeof initial, "keep"> & { keepRules: typeof initial.keep; dbs: string[] }) =>
-    JSON.stringify({ ...v, plan: v.enabled ? v.plan : null, dbs: choices ? savedChoice(choices, v.dbs) : null });
-  const [saved, setSaved] = React.useState(() => {
-    const { keep, ...rest } = initial;
-    return snap({ ...rest, keepRules: keep, dbs });
-  });
+  const snap = (v: typeof initial & { dbs: string[] }) => JSON.stringify({ ...v, plan: v.enabled ? v.plan : null, dbs: choices ? savedChoice(choices, v.dbs) : null });
+  const [saved, setSaved] = React.useState(() => snap({ ...initial, dbs }));
 
   const cron = toCron(plan);
   // The run times wait for the browser clock, so the server render matches the first client one.
   const now = useNow();
   const runs = enabled && now ? nextRuns(cron, props.timezone, 3, now) : null;
   const invalid = enabled && (!cron || !nextRuns(cron, props.timezone, 1));
-  const snapshot = snap({ enabled, plan, retention, retentionS3, bucket, local, timeout, lowPriority, encrypt, passphrase, verify, users, copies, keepRules, dbs });
+  const snapshot = snap({ enabled, plan, retention, retentionS3, bucket, local, timeout, lowPriority, encrypt, passphrase, verify, users, copies, dbs });
   // Turning encryption on needs a passphrase; a new one replaces the saved one, empty keeps it.
   const needsPassphrase = encrypt && !props.encrypted && passphrase.length < 8;
   const backupPassphrase = encrypt ? passphrase || undefined : null;
-  const keepOut = Object.fromEntries(KEEP_FIELDS.map((k) => [k.key, Number(keepRules[k.key]) || null])) as KeepRules;
-  const keepSaved = KEEP_FIELDS.some((k) => keepOut[k.key]) ? keepOut : null;
   const copyIds = bucket ? copies.filter((c) => c !== bucket) : [];
   const dirty = snapshot !== saved;
   const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
@@ -193,7 +172,6 @@ export function ScheduleCard(props: {
           lowPriority,
           passphrase: backupPassphrase,
           copyDestinationIds: copyIds,
-          keep: keepSaved,
         });
       return updateService(props.serviceId, {
         database: {
@@ -208,7 +186,6 @@ export function ScheduleCard(props: {
           backupVerify: verify,
           ...(props.users !== undefined ? { backupUsers: users } : {}),
           backupCopyDestinationIds: copyIds,
-          backupKeep: keepSaved,
           ...(choices ? { backupDatabases: savedChoice(choices, dbs) } : {}),
         },
       });
@@ -358,32 +335,6 @@ export function ScheduleCard(props: {
                   </InputGroup>
                 </Field>
               )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <span className="text-[13px] font-medium text-fg-2">
-                Keep longer <span className="font-normal text-muted">Optional</span>
-              </span>
-              <div className="flex flex-col gap-2">
-                {KEEP_FIELDS.map((k) => (
-                  <div key={k.key} className="flex items-center justify-between gap-3">
-                    <span className="text-[13px] text-fg-2">{k.prefix}</span>
-                    <InputGroup suffix={k.suffix} className="w-36 flex-none">
-                      <Input
-                        value={keepRules[k.key]}
-                        onChange={(e) => setKeepRules({ ...keepRules, [k.key]: e.target.value.replace(/\D/g, "").slice(0, 5) })}
-                        inputMode="numeric"
-                        placeholder="0"
-                        aria-label={`${k.prefix} ${k.suffix}`}
-                        className="min-w-0 flex-1 font-mono"
-                        disabled={!props.canEdit}
-                      />
-                    </InputGroup>
-                  </div>
-                ))}
-              </div>
-              <span className="text-xs text-muted">
-                On top of the latest ones{bucket ? ", for the bucket copies" : ""}: everything from the last days, and the newest backup of each day, week, month and year.
-              </span>
             </div>
           </>
         )}
@@ -554,7 +505,6 @@ export function ScheduleCard(props: {
                   setVerify(initial.verify);
                   setUsers(initial.users);
                   setCopies(initial.copies);
-                  setKeepRules(initial.keep);
                   setPassphrase("");
                 }}
               >

@@ -1,6 +1,5 @@
 "use client";
 
-import type { KeepRules } from "@/lib/retention";
 import { ALL_DATABASES, readChoice } from "@/lib/backup-databases";
 import * as React from "react";
 import useSWR from "swr";
@@ -262,7 +261,6 @@ export function BackupsManager(props: {
   verify?: boolean;
   users?: boolean;
   copyDestinationIds?: string[];
-  keep?: KeepRules | null;
   s3DestinationId: string | null;
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
@@ -381,7 +379,6 @@ export function BackupsManager(props: {
           verify={props.verify}
           users={props.users}
           copyDestinationIds={props.copyDestinationIds}
-          keep={props.keep}
           s3DestinationId={props.s3DestinationId}
           destinations={props.destinations}
           timezone={props.timezone}

@@ -79,16 +79,6 @@ const configSchema = z.object({
   /** A new passphrase encrypts the backups from now on; null stops encrypting; left out keeps it. */
   passphrase: z.string().min(8, "Use at least 8 characters for the passphrase").max(200).nullable().optional(),
   copyDestinationIds: z.array(z.string().max(64)).optional(),
-  keep: z
-    .object({
-      days: z.number().int().min(0).max(36500).nullable().optional(),
-      daily: z.number().int().min(0).max(36500).nullable().optional(),
-      weekly: z.number().int().min(0).max(5200).nullable().optional(),
-      monthly: z.number().int().min(0).max(1200).nullable().optional(),
-      yearly: z.number().int().min(0).max(100).nullable().optional(),
-    })
-    .nullable()
-    .optional(),
 });
 
 /** Schedule, retention and S3 storage of one backup of a stack. */

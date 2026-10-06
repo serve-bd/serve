@@ -532,15 +532,6 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
 /*                                  Settings                                  */
 /* -------------------------------------------------------------------------- */
 
-/** Backups kept on top of the newest ones (see keptBackups). */
-const keepRulesSchema = z.object({
-  days: z.number().int().min(0).max(36500).nullable().optional(),
-  daily: z.number().int().min(0).max(36500).nullable().optional(),
-  weekly: z.number().int().min(0).max(5200).nullable().optional(),
-  monthly: z.number().int().min(0).max(1200).nullable().optional(),
-  yearly: z.number().int().min(0).max(100).nullable().optional(),
-});
-
 const updateSchema = z.object({
   name: serviceName.optional(),
   /** Extra private hostname; "" or null removes it. */
@@ -707,7 +698,6 @@ const updateSchema = z.object({
       backupVerify: z.boolean(),
       backupUsers: z.boolean(),
       backupCopyDestinationIds: z.array(z.string().max(64)),
-      backupKeep: keepRulesSchema.nullable(),
       s3DestinationId: z.string().nullable(),
     })
     .partial()

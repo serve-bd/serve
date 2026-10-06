@@ -6,7 +6,6 @@ import { PassThrough, Readable } from "node:stream";
 import readline from "node:readline";
 import zlib from "node:zlib";
 import { decryptFile, ENCRYPTED_SUFFIX, encryptFile, keyHint } from "./encrypt";
-import { keptBackups, type KeepRules } from "@/lib/retention";
 import { accountsMergeSql, planSql, type SqlEngine, sqlFilterStream, sqlLineFilter } from "./sql-filter";
 import { pipeline } from "node:stream/promises";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -125,8 +124,6 @@ type Target = {
   passphrase: string | null;
   /** More buckets each backup is copied to. */
   copies: string[];
-  /** Kept on top of the newest `retention`/`retentionS3`. */
-  keep: KeepRules | null;
   dump(file: string): Promise<number>;
   /** `onStopped`: the containers a storage restore stopped (empty once they run again). */
   restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string }>;
@@ -524,7 +521,6 @@ export async function targetOf(service: ServiceRow, key: string | null, database
       keepLocal: !cfg.s3DestinationId || cfg.backupLocal !== false,
       passphrase: cfg.backupPassphrase ? decrypt(cfg.backupPassphrase) : null,
       copies: (cfg.backupCopyDestinationIds ?? []).filter((id) => id !== cfg.s3DestinationId),
-      keep: cfg.backupKeep ?? null,
       dump: async (file) => dumpWith(await databaseCommands(service, databases), file, { timeoutMinutes: cfg.backupTimeoutMinutes, lowPriority: cfg.backupLowPriority }),
       restore: async (file, log, _onStopped, opts) => restoreWith(await databaseCommands(service), file, log, opts),
     };
@@ -540,7 +536,6 @@ export async function targetOf(service: ServiceRow, key: string | null, database
     keepLocal: !cfg?.s3DestinationId || cfg.local !== false,
     passphrase: cfg?.passphrase ? decrypt(cfg.passphrase) : null,
     copies: (cfg?.copyDestinationIds ?? []).filter((id) => id !== cfg?.s3DestinationId),
-    keep: cfg?.keep ?? null,
   };
   if (parsed.kind === "db") {
     const commands = await composeCommands(service, parsed.name);
@@ -737,7 +732,7 @@ export async function runBackup(backupId: string, protect?: string) {
       })
       .where(eq(schema.backup.id, backup.id));
     // The backup is done: a failing cleanup of older ones must not undo it.
-    await applyRetention(service.id, backup.target, t.keepLocal ? t.retention : 0, t.retentionS3, protect, t.keep).catch((e) =>
+    await applyRetention(service.id, backup.target, t.keepLocal ? t.retention : 0, t.retentionS3, protect).catch((e) =>
       logLine(backup.id, `Removing old backups failed: ${(e as Error).message}`).catch(() => {}),
     );
     // The backup is there, but not everywhere it should be: a bucket-only setup may have no copy off the server.
@@ -809,10 +804,9 @@ async function deleteS3Copies(b: typeof schema.backup.$inferSelect, slug: string
 
 /**
  * Removes old backups: the newest `keepLocal` stay on the server and the newest `keepS3` in the
- * buckets, plus what `keep` asks for (by age, and one per day, week, month and year). With a bucket
- * the rules are for the bucket copies; without one, for the server's.
+ * buckets.
  */
-async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number, protect?: string, keep?: KeepRules | null) {
+async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number, protect?: string) {
   const rows = await db
     .select()
     .from(schema.backup)
@@ -828,7 +822,6 @@ async function applyRetention(serviceId: string, target: string | null, keepLoca
     svc?.slug,
     keepLocal,
     keepS3,
-    null,
   );
   await cleanGroup(
     cleanable.filter((b) => b.trigger !== "pre-deploy"),
@@ -836,22 +829,16 @@ async function applyRetention(serviceId: string, target: string | null, keepLoca
     svc?.slug,
     keepLocal,
     keepS3,
-    keep,
   );
 }
 
-async function cleanGroup(
-  own: (typeof schema.backup.$inferSelect)[],
-  serviceId: string,
-  slug: string | undefined,
-  keepLocal: number,
-  keepS3: number,
-  keep: KeepRules | null | undefined,
-) {
+async function cleanGroup(own: (typeof schema.backup.$inferSelect)[], serviceId: string, slug: string | undefined, keepLocal: number, keepS3: number) {
   const svc = slug ? { slug } : null;
   const inBucket = own.filter((b) => s3Copies(b).length > 0);
-  const keepRemote = keptBackups(inBucket, keepS3, keep);
-  const keepHere = keptBackups(own, keepLocal === 0 ? 0 : keepLocal, inBucket.length ? null : keep);
+  // The newest of each list (never fewer than one).
+  const newest = (list: { id: string }[], n: number) => new Set(list.slice(0, Math.max(1, n)).map((b) => b.id));
+  const keepRemote = newest(inBucket, keepS3);
+  const keepHere = newest(own, keepLocal);
   for (const b of own) {
     if (!b.filename) continue;
     const inS3 = s3Copies(b).length > 0;

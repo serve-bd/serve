@@ -139,19 +139,18 @@ stdout). The database is the linked one, or --service.`,
 // dbBackupSettingsCmd shows the database's backup settings, and changes the ones given.
 func (a *App) dbBackupSettingsCmd() *cobra.Command {
 	var schedule, bucket, passphrase string
-	var retention, retentionS3, keepDays, keepDaily, keepWeekly, keepMonthly, keepYearly int
+	var retention, retentionS3 int
 	var copyTo []string
 	var verify, noVerify, users, noUsers, encrypt, noEncrypt, noSchedule bool
 	cmd := &cobra.Command{
 		Use:   "settings [database]",
 		Short: "Show or change a database's backup settings",
 		Long: `Without flags, show the backup settings. With flags, change those: --schedule (cron),
---retention and --retention-s3 (backups kept), --keep-days, --keep-daily, --keep-weekly,
---keep-monthly and --keep-yearly (kept on top of those), --bucket and --copy-to (S3 storages by
+--retention and --retention-s3 (backups kept), --bucket and --copy-to (S3 storages by
 name or id), --verify (test the newest backup each day), --users (also save the server's users
 and passwords; Postgres, MySQL, MariaDB), --encrypt with --passphrase or
 SERVE_BACKUP_PASSPHRASE (8 characters or more), --no-encryption.`,
-		Example: "  serve db backups settings\n  serve db backups settings --schedule '0 3 * * *' --retention 7 --keep-monthly 12\n  SERVE_BACKUP_PASSPHRASE=... serve db backups settings --encrypt --verify",
+		Example: "  serve db backups settings\n  serve db backups settings --schedule '0 3 * * *' --retention 7\n  SERVE_BACKUP_PASSPHRASE=... serve db backups settings --encrypt --verify",
 		Args:    maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -173,16 +172,6 @@ SERVE_BACKUP_PASSPHRASE (8 characters or more), --no-encryption.`,
 			}
 			if f.Changed("retention-s3") {
 				body["retentionS3"] = retentionS3
-			}
-			keep := map[string]any{}
-			for flag, key := range map[string]string{"keep-days": "days", "keep-daily": "daily", "keep-weekly": "weekly", "keep-monthly": "monthly", "keep-yearly": "yearly"} {
-				if f.Changed(flag) {
-					v, _ := f.GetInt(flag)
-					keep[key] = v
-				}
-			}
-			if len(keep) > 0 {
-				body["keep"] = keep
 			}
 			c, err := a.Client()
 			if err != nil {
@@ -240,11 +229,6 @@ SERVE_BACKUP_PASSPHRASE (8 characters or more), --no-encryption.`,
 	f.BoolVar(&noSchedule, "no-schedule", false, "stop automatic backups")
 	f.IntVar(&retention, "retention", 0, "backups kept on the server")
 	f.IntVar(&retentionS3, "retention-s3", 0, "backups kept in the bucket")
-	f.IntVar(&keepDays, "keep-days", 0, "also keep every backup of the last N days")
-	f.IntVar(&keepDaily, "keep-daily", 0, "also keep one backup a day for N days")
-	f.IntVar(&keepWeekly, "keep-weekly", 0, "also keep one backup a week for N weeks")
-	f.IntVar(&keepMonthly, "keep-monthly", 0, "also keep one backup a month for N months")
-	f.IntVar(&keepYearly, "keep-yearly", 0, "also keep one backup a year for N years")
 	f.StringVar(&bucket, "bucket", "", "S3 storage for backups (name or id; none to stop)")
 	f.StringArrayVar(&copyTo, "copy-to", nil, "also copy each backup to this S3 storage (repeat)")
 	f.BoolVar(&verify, "verify", false, "test-restore the newest backup each day")

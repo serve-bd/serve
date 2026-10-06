@@ -75,6 +75,8 @@ export const pgDbname = (database: string) => `dbname='${database.replace(/[\\']
 export const pgConnectLine = (database: string) => `\\connect -reuse-previous=on "${pgDbname(database).replace(/"/g, '""')}"`;
 
 const chClient = (c: EngineCreds) => `clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)}`;
+/** A name as a ClickHouse identifier in a statement: backslashes escaped first, then backticks. */
+const chIdent = (name: string) => `\`${name.replaceAll("\\", "\\\\").replaceAll("`", "\\`")}\``;
 /** A table name as a ClickHouse identifier: `name`, with ` and \ escaped. */
 const chQuoted = "concat('`', replaceAll(replaceAll(name, '\\\\', '\\\\\\\\'), '`', '\\\\`'), '`')";
 /**
@@ -464,7 +466,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
       command: [
         "set -e",
         ...databases.flatMap((d) => [
-          `printf '%s\\n' ${sh(`CREATE DATABASE IF NOT EXISTS \`${d.replaceAll("`", "\\`")}\`;`)} ${sh(`USE \`${d.replaceAll("`", "\\`")}\`;`)}`,
+          `printf '%s\\n' ${sh(`CREATE DATABASE IF NOT EXISTS ${chIdent(d)};`)} ${sh(`USE ${chIdent(d)};`)}`,
           `( ${clickhouseBackup({ ...c, database: d })} )`,
         ]),
       ].join("\n"),

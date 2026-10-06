@@ -215,7 +215,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
       PGDATA: "/var/lib/postgresql/data/pgdata",
     }),
     healthcheck: (c) => ["CMD-SHELL", `pg_isready -U ${sh(c.username)} -d ${sh(c.database)}`],
-    url: (c) => `postgresql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
+    url: (c) => `postgresql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${encodeURIComponent(c.database)}`,
     backupCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_dump -U ${sh(c.username)} -d ${sh(pgDbname(c.database))} -Fc`,
     // Plain SQL, a \connect before each database: the restore keeps them apart and creates the missing ones.
     // users: the server's roles and their passwords first (restored only when asked for).
@@ -272,7 +272,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
       ...(c.username !== "root" ? { MYSQL_USER: c.username, MYSQL_PASSWORD: c.password } : {}),
     }),
     healthcheck: (c) => ["CMD-SHELL", `MYSQL_PWD=${sh(c.password)} mysqladmin ping -h 127.0.0.1 -uroot --silent`],
-    url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
+    url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${encodeURIComponent(c.database)}`,
     backupCommand: (c) => `MYSQL_PWD=${sh(c.password)} mysqldump -uroot --single-transaction --routines --triggers --databases ${sh(c.database)}`,
     backupDatabasesCommand: (c, databases, users) => ({
       command: `export MYSQL_PWD=${sh(c.password)}; mysqldump -uroot --single-transaction --routines --triggers --databases ${databases.map(sh).join(" ")}${users ? ` && ${myAccountsDump("mysql", "mysqldump")}` : ""}`,
@@ -311,7 +311,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
       ...(c.username !== "root" ? { MARIADB_USER: c.username, MARIADB_PASSWORD: c.password } : {}),
     }),
     healthcheck: () => ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"],
-    url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
+    url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${encodeURIComponent(c.database)}`,
     backupCommand: (c) => `MYSQL_PWD=${sh(c.password)} mariadb-dump -uroot --single-transaction --routines --triggers --databases ${sh(c.database)}`,
     backupDatabasesCommand: (c, databases, users) => ({
       command: `export MYSQL_PWD=${sh(c.password)}; mariadb-dump -uroot --single-transaction --routines --triggers --databases ${databases.map(sh).join(" ")}${users ? ` && ${myAccountsDump("mariadb", "mariadb-dump")}` : ""}`,
@@ -345,7 +345,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
       MONGO_INITDB_DATABASE: c.database,
     }),
     healthcheck: (c) => ["CMD-SHELL", `mongosh --quiet${mongoTls(c)} --eval "db.adminCommand('ping').ok" | grep -q 1`],
-    url: (c) => `mongodb://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}?authSource=admin`,
+    url: (c) => `mongodb://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${encodeURIComponent(c.database)}?authSource=admin`,
     backupCommand: (c) => `mongodump --quiet${mongoToolsTls(c)} --archive --gzip -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
     // mongodump takes one --db at a time (and no filter): each goes into a folder, packed into one file.
     backupDatabasesCommand: (c, databases) => ({
@@ -472,7 +472,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1",
     }),
     healthcheck: () => ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"],
-    url: (c) => `clickhouse://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
+    url: (c) => `clickhouse://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${encodeURIComponent(c.database)}`,
     backupCommand: clickhouseBackup,
     // Several databases: each is created and switched to with USE, then dumped like the main one.
     backupDatabasesCommand: (c, databases) => ({

@@ -180,7 +180,7 @@ export async function mainDatabaseChoices(serviceId: string) {
     const cfg = service.database;
     if (!cfg || !MAIN_ENGINES.has(cfg.engine) || service.status !== "running") return { databases: [] as string[], main: cfg?.database ?? null };
     const { listDatabases } = await import("@/server/databases/list");
-    return { databases: await listDatabases(service), main: cfg.database };
+    return { databases: (await listDatabases(service)).filter((d) => /^[A-Za-z0-9_][A-Za-z0-9_$-]{0,63}$/.test(d)), main: cfg.database };
   });
 }
 
@@ -198,6 +198,8 @@ export async function setMainDatabase(serviceId: string, name: string) {
     const cfg = service.database;
     if (!cfg || !MAIN_ENGINES.has(cfg.engine)) throw new UserError("Only PostgreSQL, MySQL and MariaDB have a main database to choose.");
     if (name === cfg.database) throw new UserError(`${name} is the main database already.`);
+    // The name goes into connection URLs and commands: a plain one only, whatever else the server holds.
+    if (!/^[A-Za-z0-9_][A-Za-z0-9_$-]{0,63}$/.test(name)) throw new UserError("Choose a database whose name has only letters, numbers, _, $ and -.");
     if (service.status !== "running") throw new UserError("Start the database first: the choice comes from the databases on it.");
     const { listDatabases } = await import("@/server/databases/list");
     if (!(await listDatabases(service)).includes(name)) throw new UserError(`There is no database named ${name}.`);

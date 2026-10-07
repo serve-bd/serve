@@ -301,10 +301,8 @@ async function run(service: Service, script: string, secrets: string[]) {
 /** Engines whose branches can copy every database of the server, not only the main one. */
 export const allDatabaseEngines = new Set(["postgres", "mysql", "mariadb", "mongodb", "clickhouse"]);
 
-/** The databases of the server, without the engine's own (the listing of the Users page; ClickHouse here). */
+/** The databases of the server, without the engine's own (the listing of the Users page). */
 function listDatabasesScript(engine: string, main: Main) {
-  if (engine === "clickhouse")
-    return `clickhouse-client -u ${q(main.username)} --password ${q(main.password)} -q "SELECT concat('SERVE_DB', char(9), name) FROM system.databases WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema') FORMAT TSVRaw"`;
   return userScripts(engine, { username: main.username, password: main.password, database: main.database, tlsRequired: !!main.tlsRequired }).list();
 }
 

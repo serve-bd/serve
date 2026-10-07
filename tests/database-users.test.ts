@@ -6,8 +6,8 @@ const decoded = (script: string) => [...script.matchAll(/printf '%s' '([A-Za-z0-
 
 describe("database users", () => {
   it("supports the engines with real logins", () => {
-    for (const engine of ["postgres", "mysql", "mariadb", "mongodb"]) expect(usersSupported({ engine } as never)).toBe(true);
-    for (const engine of ["redis", "valkey", "clickhouse"]) expect(usersSupported({ engine } as never)).toBe(false);
+    for (const engine of ["postgres", "mysql", "mariadb", "mongodb", "clickhouse"]) expect(usersSupported({ engine } as never)).toBe(true);
+    for (const engine of ["redis", "valkey"]) expect(usersSupported({ engine } as never)).toBe(false);
   });
 
   it("accepts only plain user names", () => {
@@ -60,5 +60,27 @@ describe("database users", () => {
     expect(sql).toContain('REASSIGN OWNED BY "u" TO "app"');
     expect(sql).toContain('DROP OWNED BY "u"');
     expect(sql).toContain('DROP ROLE IF EXISTS "u"');
+  });
+
+  it("manages ClickHouse logins with quoted names and the password off the command line", () => {
+    const ch = userScripts("clickhouse", main);
+    const create = ch.create("reader", "secret_pass_123", "read", ["we`ird\\db", "app"]);
+    // The main password goes in the environment of clickhouse-client, never as an argument.
+    expect(create).toContain(`CLICKHOUSE_PASSWORD='pa'\\''ss$word' clickhouse-client -u 'app' -d 'default' --multiquery`);
+    expect(create).not.toContain("--password");
+    expect(create).not.toContain("secret_pass_123");
+    const sql = decoded(create);
+    expect(sql).toContain("CREATE USER reader IDENTIFIED WITH sha256_password BY 'secret_pass_123';");
+    expect(sql).toContain("GRANT SELECT, SHOW, dictGet ON `we\\`ird\\\\db`.* TO reader;");
+    expect(sql).toContain("GRANT SELECT, SHOW, dictGet ON `app`.* TO reader;");
+    expect(decoded(ch.create("u", "secret_pass_123", "owner", ["app"]))).toContain("GRANT ALL ON `app`.* TO u;");
+    expect(decoded(ch.create("u", "secret_pass_123", "readwrite", ["app"]))).toContain("GRANT SELECT, INSERT, ALTER UPDATE, ALTER DELETE, SHOW, dictGet ON `app`.* TO u;");
+    expect(decoded(ch.setPassword("u", "a'b\\c"))).toBe("ALTER USER u IDENTIFIED WITH sha256_password BY 'a\\'b\\\\c';");
+    expect(decoded(ch.setAccess("u", "read", ["app"]))).toBe("REVOKE ALL ON *.* FROM u;\nGRANT SELECT, SHOW, dictGet ON `app`.* TO u;");
+    expect(decoded(ch.remove("u"))).toBe("DROP USER IF EXISTS u;");
+    for (const bad of ["u; DROP USER app", "a`b", "Default"]) expect(() => ch.remove(bad)).toThrow();
+    expect(isSystemUser("clickhouse", "default")).toBe(true);
+    expect(isSystemUser("clickhouse", "defaults")).toBe(false);
+    expect(parseListing("clickhouse", "SERVE_DB\tsystem\nSERVE_DB\tINFORMATION_SCHEMA\nSERVE_DB\tapp\nSERVE_USER\tapp\n")).toEqual({ users: ["app"], databases: ["app"] });
   });
 });

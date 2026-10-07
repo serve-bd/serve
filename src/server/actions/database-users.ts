@@ -60,7 +60,7 @@ export type DatabaseUserRow = {
 async function databaseService(serviceId: string, orgId: string) {
   const { service } = await serviceInOrg(serviceId, orgId);
   if (service.type !== "database" || !service.database) throw new UserError("Not a database.");
-  if (!usersSupported(service.database)) throw new UserError("Users are available for PostgreSQL, MySQL, MariaDB and MongoDB.");
+  if (!usersSupported(service.database)) throw new UserError("Users are available for PostgreSQL, MySQL, MariaDB, MongoDB and ClickHouse.");
   return service as Service & { database: NonNullable<Service["database"]> };
 }
 

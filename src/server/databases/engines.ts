@@ -83,9 +83,10 @@ export const pgConnectLine = (database: string) => `\\connect -reuse-previous=on
 const myAccountsDump = (client: string, dump: string) =>
   `T=$(${client} -uroot -N -B -e ${sh(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'mysql' AND table_type = 'BASE TABLE' AND table_name IN (${ACCOUNT_TABLE_NAMES.map((t) => `'${t}'`).join(", ")})`)}) && [ -n "$T" ] && printf '%s\\n' '' '-- Current Database: \`mysql\`' '' 'USE \`mysql\`;' && ${dump} -uroot --single-transaction --skip-triggers mysql $T`;
 
-const chClient = (c: EngineCreds) => `CLICKHOUSE_PASSWORD=${sh(c.password)} clickhouse-client -u ${sh(c.username)} -d ${sh(c.database)}`;
+/** clickhouse-client as the given login, its password in the environment (not an argument, visible in ps). */
+export const chClient = (c: EngineCreds) => `CLICKHOUSE_PASSWORD=${sh(c.password)} clickhouse-client -u ${sh(c.username)} -d ${sh(c.database)}`;
 /** A name as a ClickHouse identifier in a statement: backslashes escaped first, then backticks. */
-const chIdent = (name: string) => `\`${name.replaceAll("\\", "\\\\").replaceAll("`", "\\`")}\``;
+export const chIdent = (name: string) => `\`${name.replaceAll("\\", "\\\\").replaceAll("`", "\\`")}\``;
 /** A table name as a ClickHouse identifier: `name`, with ` and \ escaped. */
 const chQuoted = "concat('`', replaceAll(replaceAll(name, '\\\\', '\\\\\\\\'), '`', '\\\\`'), '`')";
 /**

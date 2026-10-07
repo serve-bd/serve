@@ -605,8 +605,25 @@ export async function promoteReplica(service: Service, id: string, log: (l: stri
   // The old database stops first, if its server answers: two writable copies must never run.
   const home = await serverOf(service).catch(() => null);
   if (home) {
-    await removeContainer(service.slug, 30, home.docker).catch(() => {});
-    await removeContainer(poolerName(service), 10, home.docker).catch(() => {});
+    await removeContainer(service.slug, 30, home.docker);
+    await removeContainer(poolerName(service), 10, home.docker);
+    // removeContainer keeps its errors to itself: the old database must be gone, not only asked to
+    // go, before the replica takes writes. A container left (even stopped: Docker may start it
+    // again) or a server that stops answering now stops the promotion with nothing changed.
+    const gone = await home.docker
+      .getContainer(service.slug)
+      .inspect()
+      .then(
+        () => false,
+        (e: { statusCode?: number; message?: string }) => {
+          if (e.statusCode === 404) return true;
+          throw new Error(`Could not check that ${service.name} stopped on ${home.row.name} (${e.message ?? e}). Nothing was changed; try again.`);
+        },
+      );
+    if (!gone)
+      throw new Error(
+        `${service.name} could not be removed on ${home.row.name}, so the replica was not promoted: two writable copies must never run. Nothing was changed; stop it there and try again.`,
+      );
     log(`Stopped ${service.name} on ${home.row.name}`);
   } else log("The database's server does not answer: promoting without stopping it. Do not start it again.");
   const server = await getServer(r.serverId);
@@ -635,7 +652,9 @@ export async function promoteReplica(service: Service, id: string, log: (l: stri
   });
   try {
     await helper.start();
-    await helper.wait();
+    // A standby.signal left would start it read-only, as a replica of nothing.
+    const { StatusCode } = (await helper.wait()) as { StatusCode: number };
+    if (StatusCode !== 0) throw new Error(`Could not take replica ${r.id} out of standby (exit ${StatusCode}). Its data is untouched in ${data}.`);
   } finally {
     await helper.remove({ force: true }).catch(() => {});
   }

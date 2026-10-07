@@ -560,9 +560,6 @@ export async function promoteDatabaseReplica(serviceId: string, replicaId: strin
     const { replicaInstances } = await import("@/server/services/types");
     const replica = replicaInstances(service).find((r) => r.id === replicaId);
     if (!replica) throw new UserError("That replica is gone.");
-    const { syncAddonDomain } = await import("@/server/databases/addon-domains");
-    if (cfg.pooler?.public) await syncAddonDomain(service, cfg.pooler.public, null, [service.serverId], ctx.org.id).catch(() => []);
-    if (cfg.replica?.public) await syncAddonDomain(service, cfg.replica.public, null, [...new Set(replicaInstances(service).map((r) => r.serverId))], ctx.org.id).catch(() => []);
     const { promoteReplica } = await import("@/server/databases/addons");
     await promoteReplica(
       {
@@ -571,6 +568,10 @@ export async function promoteDatabaseReplica(serviceId: string, replicaId: strin
       },
       replicaId,
     );
+    // Only once promoted: a promotion that stops early leaves everything as it was.
+    const { syncAddonDomain } = await import("@/server/databases/addon-domains");
+    if (cfg.pooler?.public) await syncAddonDomain(service, cfg.pooler.public, null, [service.serverId], ctx.org.id).catch(() => []);
+    if (cfg.replica?.public) await syncAddonDomain(service, cfg.replica.public, null, [...new Set(replicaInstances(service).map((r) => r.serverId))], ctx.org.id).catch(() => []);
     await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
     await logActivity({
       userId: ctx.user.id,

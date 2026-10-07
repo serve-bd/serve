@@ -135,7 +135,7 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
   const [route, setRoute] = React.useState(data.page.tunnelId ?? PUBLIC);
   const [https, setHttps] = React.useState(data.page.https);
   const [certificateId, setCertificateId] = React.useState(data.page.certificateId ?? AUTO);
-  const [dns, setDns] = React.useState<{ status: string; records: string[]; expected: string | null; canCreate?: boolean } | null>(null);
+  const [dns, setDns] = React.useState<{ status: string; records: string[]; expected: string | null; canCreate?: boolean; needsProxy?: boolean } | null>(null);
   React.useEffect(() => {
     setDomain(data.page.domain ?? "");
     setRoute(data.page.tunnelId ?? PUBLIC);
@@ -165,6 +165,8 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
   const ip = data.domain.serverIp;
   // Automatic serves the best certificate that already covers the name (as the proxy picks it), else gets one.
   const covering = host ? bestCertificate(host, data.domain.certificates) : undefined;
+  // The one the page is served with: the picked certificate, else the one Automatic uses.
+  const serving = (cert && data.domain.certificates.find((c) => c.id === cert)) || covering;
   const auto = covering
     ? `Automatic · ${covering.name}`
     : data.domain.proxy === "nginx"
@@ -223,7 +225,11 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
                   <Field
                     label="Certificate"
                     description={
-                      !data.domain.acme && data.domain.proxy === "nginx" && !cert ? "Set a Let's Encrypt email in Server settings for automatic certificates." : undefined
+                      serving?.provider === "cloudflare-origin"
+                        ? "A Cloudflare Origin certificate: browsers trust it only through Cloudflare's proxy. Serve turns the proxy on for the record it makes."
+                        : !data.domain.acme && data.domain.proxy === "nginx" && !cert
+                          ? "Set a Let's Encrypt email in Server settings for automatic certificates."
+                          : undefined
                     }
                   >
                     <Select
@@ -244,11 +250,23 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
         {data.page.domain && (
           <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface-2 px-4 py-3 text-[13px]">
             <div className="flex flex-wrap items-center gap-2">
-              {dns ? <DnsResult domain={data.page.domain} dns={dns} /> : <span className="text-muted">Check that the record is in place.</span>}
+              {dns?.needsProxy ? (
+                <span className="flex items-start gap-1.5 text-bad">
+                  <CircleX className="mt-0.5 size-4 flex-none" />
+                  <span>
+                    {data.page.domain} points here directly, but its certificate is a Cloudflare Origin certificate. Browsers trust it only through Cloudflare&apos;s proxy (orange
+                    cloud): turn the proxy on for this record, or pick another certificate.
+                  </span>
+                </span>
+              ) : dns ? (
+                <DnsResult domain={data.page.domain} dns={dns} />
+              ) : (
+                <span className="text-muted">Check that the record is in place.</span>
+              )}
               <div className="ml-auto flex gap-2">
                 {canManage && dns?.canCreate && (
                   <Button size="xs" variant="primary" loading={createRecord.pending} onClick={() => createRecord.run()}>
-                    Create A record
+                    {dns.needsProxy ? "Turn on Cloudflare proxy" : "Create A record"}
                   </Button>
                 )}
                 <Button size="xs" loading={check.pending} onClick={() => check.run()}>

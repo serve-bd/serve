@@ -17,7 +17,7 @@ import { getSettings } from "@/server/settings";
 import { domainDnsStatus } from "@/server/dns";
 import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 import { cloudflareAccountFor, retireCertificateFor } from "@/server/ssl/certificates";
-import { certificateCovers } from "@/server/ssl/match";
+import { bestCertificate, certificateCovers } from "@/server/ssl/match";
 import { checkBrandImage } from "@/lib/branding";
 import { BAR_DAYS, cleanCss, cleanUrl, DEFAULT_LABELS, designOf, INCIDENT_STATES, type LabelKey, RESERVED_SLUGS, type StatusDesign, slugify, slugPattern } from "@/lib/status-page";
 
@@ -331,7 +331,7 @@ export async function setStatusDomain(pageId: string, input: { domain: string; h
     // Public IP route: the record a connected Cloudflare account can hold is made or set right on
     // every save (also when coming off a tunnel: Serve's CNAME to it is replaced). The old name's goes.
     if (domain && !tunnel && ctx.isAdmin) {
-      const w = await pointStatusDomain(ctx.org.id, domain);
+      const w = await pointStatusDomain(ctx.org.id, domain, { https, certificateId });
       if (w) warnings.push(w);
     }
     if (page.domain && !page.tunnelId && (page.domain !== domain || tunnel) && ctx.isAdmin) {
@@ -390,20 +390,40 @@ async function dropTunnelRecord(tunnelId: string, hostname: string) {
  * manages: Serve makes it (DNS only, so this server's certificate answers), as for app domains.
  * Records someone else made are never changed. Returns why it could not, or null.
  */
-async function pointStatusDomain(organizationId: string, hostname: string): Promise<string | null> {
+async function pointStatusDomain(organizationId: string, hostname: string, tls: { https: boolean; certificateId: string | null }): Promise<string | null> {
   const accountId = await cloudflareAccountFor([hostname], organizationId).catch(() => null);
   if (!accountId) return null;
   // The address the DNS check expects, the one the page tells to use.
   const ip = (await getSettings()).serverIp;
   if (!ip) return `Serve did not create the A record for ${hostname}: set this server's public IP in Server settings.`;
+  const proxied = await needsCloudflareProxy(organizationId, hostname, tls);
   try {
     const cf = await Cloudflare.forAccount(accountId);
     const zone = await cf.zoneFor(hostname);
-    if (zone) await cf.upsertARecord(zone.id, hostname, ip, false);
+    const made = zone ? await cf.upsertARecord(zone.id, hostname, ip, proxied) : undefined;
+    // Someone else's record pointing here is left as it is, its proxy setting too.
+    if (made === null && proxied)
+      return `${hostname} has an A record you made. Its certificate is a Cloudflare Origin certificate: turn on the proxy (orange cloud) for it in Cloudflare.`;
     return null;
   } catch (e) {
     return `Serve could not create the A record for ${hostname}: ${(e as Error).message}`;
   }
+}
+
+/**
+ * Whether the page's certificate is a Cloudflare Origin one: Cloudflare's proxy trusts it, browsers
+ * never do, so the page must go through the proxy. Others are served DNS only.
+ */
+async function needsCloudflareProxy(organizationId: string, hostname: string, tls: { https: boolean; certificateId: string | null }) {
+  if (!tls.https) return false;
+  const certs = (
+    await db
+      .select()
+      .from(schema.certificate)
+      .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, LOCAL_SERVER_ID)))
+  ).filter((c) => c.status === "active" && c.certPath && c.keyPath);
+  const serving = (tls.certificateId && certs.find((c) => c.id === tls.certificateId)) || bestCertificate(hostname, certs);
+  return serving?.provider === "cloudflare-origin";
 }
 
 /** Remove the A record Serve made for a status page's name (marked by its comment). Returns why it could not, or null. */
@@ -471,9 +491,18 @@ export async function checkStatusDomain(pageId: string) {
       records: [] as string[],
     }));
     // Serve can set the record itself: a public IP route, a name a connected Cloudflare account manages.
+    // Reaching the server straight (not through Cloudflare's proxy) with a Cloudflare Origin
+    // certificate: browsers refuse it.
+    // "ok" with an origin is through the proxy (Serve read where Cloudflare forwards); without one, straight.
+    const direct = dns.status === "ok" && !(dns as { origin?: string[] }).origin;
+    const needsProxy = !page.tunnelId && direct && (await needsCloudflareProxy(ctx.org.id, page.domain, { https: page.https, certificateId: page.certificateId }));
     const canCreate =
-      ctx.isAdmin && !page.tunnelId && !!expected && dns.status !== "ok" && dns.status !== "proxied" && !!(await cloudflareAccountFor([page.domain], ctx.org.id).catch(() => null));
-    return { status: dns.status, records: dns.records, expected, canCreate };
+      ctx.isAdmin &&
+      !page.tunnelId &&
+      !!expected &&
+      ((dns.status !== "ok" && dns.status !== "proxied") || needsProxy) &&
+      !!(await cloudflareAccountFor([page.domain], ctx.org.id).catch(() => null));
+    return { status: dns.status, records: dns.records, expected, canCreate, needsProxy };
   });
 }
 
@@ -486,7 +515,7 @@ export async function createStatusRecord(pageId: string) {
     if (!page.domain || page.tunnelId) throw new UserError("Only a domain on the public IP route has an A record.");
     if (!(await cloudflareAccountFor([page.domain], ctx.org.id).catch(() => null)))
       throw new UserError(`No connected Cloudflare account manages ${page.domain}. Add the A record where its DNS is.`);
-    const problem = await pointStatusDomain(ctx.org.id, page.domain);
+    const problem = await pointStatusDomain(ctx.org.id, page.domain, { https: page.https, certificateId: page.certificateId });
     if (problem) throw new UserError(problem);
     await logActivity({
       userId: ctx.user.id,

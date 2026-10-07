@@ -15,6 +15,15 @@ describe("bestCertificate", () => {
     expect(bestCertificate("STATUS.example.com", certs.slice(0, 2))?.name).toBe("new wildcard");
   });
 
+  it("takes one browsers trust before a Cloudflare Origin certificate, which only Cloudflare's proxy trusts", () => {
+    const certs = [
+      { ...cert("origin, own name", ["status.example.com"], "active", "2040-01-01"), provider: "cloudflare-origin" },
+      { ...cert("letsencrypt wildcard", ["*.example.com"], "active", "2026-12-01"), provider: "letsencrypt-cloudflare" },
+    ];
+    expect(bestCertificate("status.example.com", certs)?.name).toBe("letsencrypt wildcard");
+    expect(bestCertificate("status.example.com", certs.slice(0, 1))?.name).toBe("origin, own name");
+  });
+
   it("finds none for names nothing active covers", () => {
     expect(bestCertificate("a.b.example.com", [cert("wildcard", ["*.example.com"], "active", null)])).toBeUndefined();
     expect(bestCertificate("x.example.com", [cert("pending", ["*.example.com"], "pending", null)])).toBeUndefined();

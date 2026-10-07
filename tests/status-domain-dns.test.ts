@@ -11,15 +11,19 @@ const state = vi.hoisted(() => ({
   upserts: [] as unknown[][],
   upsertError: null as Error | null,
   admin: true,
+  certs: [] as Record<string, unknown>[],
 }));
 vi.mock("server-only", () => ({}));
-vi.mock("@/server/db", () => ({
-  db: {
-    select: () => ({ from: () => ({ where: async () => [state.page] }) }),
-    delete: () => ({ where: async () => {} }),
-  },
-  schema: new Proxy({}, { get: () => new Proxy({}, { get: () => ({}) }) }),
-}));
+vi.mock("@/server/db", () => {
+  const certificate = { t: "certificate" };
+  return {
+    db: {
+      select: () => ({ from: (table: unknown) => ({ where: async () => (table === certificate ? state.certs : [state.page]) }) }),
+      delete: () => ({ where: async () => {} }),
+    },
+    schema: new Proxy({ certificate } as Record<string, unknown>, { get: (t, k: string) => t[k] ?? new Proxy({}, { get: () => ({}) }) }),
+  };
+});
 vi.mock("@/server/db/schema", () => ({ LOCAL_SERVER_ID: "local" }));
 vi.mock("@/server/auth", () => ({ requirePermission: async () => ({ org: { id: "org" }, user: { id: "u" }, projectIds: null, isAdmin: state.admin }) }));
 vi.mock("@/server/activity", () => ({ logActivity: async () => {} }));
@@ -57,6 +61,13 @@ describe("a status page's A record", () => {
     state.upserts = [];
     state.upsertError = null;
     state.admin = true;
+    state.certs = [];
+  });
+
+  it("goes through Cloudflare's proxy when the page's certificate is a Cloudflare Origin one, which browsers do not trust", async () => {
+    state.certs = [{ id: "c1", provider: "cloudflare-origin", status: "active", certPath: "/c", keyPath: "/k", domains: ["*.example.com"], expiresAt: null }];
+    await createStatusRecord("pg");
+    expect(state.upserts).toEqual([["z1", "status.example.com", "203.0.113.7", true]]);
   });
 
   it("is made by organization admins only, as for app domains", async () => {

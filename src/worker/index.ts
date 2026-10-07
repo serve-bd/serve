@@ -422,7 +422,8 @@ async function loop() {
 /*                                 Schedulers                                 */
 /* -------------------------------------------------------------------------- */
 
-function every(ms: number, name: string, fn: () => Promise<unknown>, runNow = false) {
+/** `runNow`: true runs the first tick at once, a number of milliseconds runs it that much later. */
+function every(ms: number, name: string, fn: () => Promise<unknown>, runNow: boolean | number = false) {
   let busy = false;
   const tick = async () => {
     if (stopping) return;
@@ -452,7 +453,8 @@ function every(ms: number, name: string, fn: () => Promise<unknown>, runNow = fa
       void recordSchedulerRun(name, ms, startedAt, failure);
     }
   };
-  if (runNow) void tick();
+  if (runNow === true) void tick();
+  else if (runNow) setTimeout(() => void tick(), runNow).unref();
   return setInterval(tick, ms);
 }
 
@@ -959,6 +961,8 @@ async function main() {
   every(60_000, "server-resources", checkServerResources);
   every(3600_000, "monitoring-prune", pruneMonitoring);
   every(30 * 60_000, "org-disk", measureOrgDisk, true);
+  // Sizes shown on the canvas: not urgent, so not in the busy first minutes after a start.
+  every(6 * 3600_000, "volume-sizes", async () => (await import("@/server/docker/volume-sizes")).measureVolumeSizes(), 2 * 60_000);
   every(5 * 60_000, "org-limits", checkLimitNotices);
   // Quiet-hours summaries, lost retries and old delivery history.
   every(60_000, "notifications", async () => {

@@ -28,6 +28,7 @@ export const SCHEDULER_LABELS: Record<string, string> = {
   mesh: "Private networks",
   notifications: "Notification deliveries",
   "org-disk": "Organization disk usage",
+  "volume-sizes": "Volume sizes",
   "server-resources": "Server resource alerts",
   uptime: "Uptime checks",
   "os-updates": "Operating system update checks",

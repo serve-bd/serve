@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -70,8 +71,168 @@ func (a *App) serverRef(ctx context.Context, ref string) (*api.ServerDetails, js
 func (a *App) serverSubcommands() []*cobra.Command {
 	return []*cobra.Command{
 		a.serverShowCmd(), a.serverAddCmd(), a.serverValidateCmd(), a.serverRmCmd(), a.serverCleanupCmd(),
-		a.serverAlertsCmd(), a.serverProxyCmd(), a.serverProxyLogsCmd(), a.serverResetHostKeyCmd(),
+		a.serverAlertsCmd(), a.serverProxyCmd(), a.serverProxyLogsCmd(), a.serverProxyTestCmd(),
+		a.serverProxyActionCmd("reload", "Reload the proxy's configuration", "Load the proxy's configuration again without stopping it: open connections stay.", "", "Reloaded the proxy of %s."),
+		a.serverProxyActionCmd("restart", "Restart a server's proxy", "Restart the proxy container. Its sites do not answer for a moment.", "Restart the proxy of %s? Its sites do not answer for a moment.", "Restarted the proxy of %s."),
+		a.serverProxyActionCmd("rebuild", "Recreate a server's proxy container", "Remove the proxy container and make it again from Serve's settings, for a proxy that is broken. Its sites do not answer for a moment.", "Recreate the proxy of %s? Its sites do not answer for a moment.", "Recreated the proxy of %s."),
+		a.serverProxyActionCmd("stop", "Stop a server's proxy", "Stop the proxy: no site on the server answers until it is started again with serve servers proxy-start.", "Stop the proxy of %s? No site on it answers until it is started again.", "Stopped the proxy of %s. Start it again with `serve servers proxy-start`."),
+		a.serverProxyActionCmd("start", "Start a server's stopped proxy", "Start the proxy again after serve servers proxy-stop.", "", "Started the proxy of %s."),
+		a.serverTrustedProxiesCmd(), a.serverResetHostKeyCmd(),
 	}
+}
+
+// serverProxyActionCmd is `serve servers proxy-<action> <server>`: POST /servers/{id}/proxy/<action>.
+// A question asks first (unless --yes); done is the message, with the server's name.
+func (a *App) serverProxyActionCmd(action, short, long, question, done string) *cobra.Command {
+	var yes bool
+	cmd := &cobra.Command{
+		Use:     "proxy-" + action + " <server>",
+		Short:   short,
+		Long:    long,
+		Example: "  serve servers proxy-" + action + " eu-1",
+		Args:    exactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			s, err := a.findServer(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if question != "" {
+				if err := confirmAction(fmt.Sprintf(question, s.Name), yes); err != nil {
+					return err
+				}
+			}
+			if err := a.client.Post(ctx, "/servers/"+api.P(s.ID)+"/proxy/"+action, nil, nil); err != nil {
+				return needs(err, needServerAdmin)
+			}
+			ui.Success(done, ui.Bold(s.Name))
+			return nil
+		},
+	}
+	if question != "" {
+		cmd.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask first")
+	}
+	return cmd
+}
+
+func (a *App) serverProxyTestCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:         "proxy-test <server>",
+		Annotations: printsJSON,
+		Short:       "Check a server's proxy configuration",
+		Long:        "Ask the proxy to check its configuration (nginx -t, caddy validate, or the routers Traefik loaded) and print what it says. Exits with 1 when the check fails.",
+		Example:     "  serve servers proxy-test eu-1",
+		Args:        exactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			s, err := a.findServer(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			var r struct {
+				OK     bool   `json:"ok"`
+				Output string `json:"output"`
+				State  string `json:"state"` // ok, failed, unavailable
+			}
+			if err := a.client.Post(ctx, "/servers/"+api.P(s.ID)+"/proxy/test", nil, &r); err != nil {
+				return needs(err, needServerAdmin)
+			}
+			if jsonFlag(cmd) {
+				if err := printJSON(r); err != nil {
+					return err
+				}
+			} else if out := strings.TrimSpace(r.Output); out != "" {
+				for _, l := range strings.Split(out, "\n") {
+					fmt.Fprintln(ui.Out, ui.SanitizeLine(l, false))
+				}
+			}
+			if !r.OK {
+				if jsonFlag(cmd) {
+					return silentExit(ExitError)
+				}
+				return exit(ExitError, "the proxy of %s did not pass the check", s.Name)
+			}
+			if !jsonFlag(cmd) {
+				ui.Success("The proxy configuration of %s is fine.", ui.Bold(s.Name))
+			}
+			return nil
+		},
+	}
+}
+
+var clientIPHeaders = []string{"x-forwarded-for", "x-real-ip", "cf-connecting-ip", "true-client-ip", "proxy-protocol"}
+
+func (a *App) serverTrustedProxiesCmd() *cobra.Command {
+	var ranges []string
+	var header string
+	var cloudflare, machine, off bool
+	cmd := &cobra.Command{
+		Use:   "trusted-proxies <server>",
+		Short: "Set which proxies in front of a server are trusted for the visitor's IP",
+		Long: `Say which proxies in front of the server (a CDN, a load balancer) the server's proxy
+believes about the visitor's address. --range adds their addresses or ranges (repeat it, or
+separate with commas), --cloudflare trusts Cloudflare's proxy, --machine a proxy on the same
+machine. --header is where the address comes from: ` + strings.Join(clientIPHeaders, ", ") + `
+(default x-forwarded-for; cf-connecting-ip with --cloudflare alone). The new list replaces the old
+one. --off trusts none of them again (Cloudflare Tunnel traffic stays trusted).`,
+		Example: "  serve servers trusted-proxies eu-1 --cloudflare\n  serve servers trusted-proxies eu-1 --range 10.0.0.0/8 --header x-real-ip\n  serve servers trusted-proxies eu-1 --off",
+		Args:    exactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			list := splitAllow(ranges)
+			fl := cmd.Flags()
+			var body any = json.RawMessage("null") // null turns trusted proxies off
+			if off {
+				if len(list) > 0 || cloudflare || machine || fl.Changed("header") {
+					return usagef("--off goes alone")
+				}
+			} else {
+				if len(list) == 0 && !cloudflare && !machine {
+					return usagef("say which proxies to trust: --range, --cloudflare or --machine (or --off)")
+				}
+				if !fl.Changed("header") {
+					header = "x-forwarded-for"
+					if cloudflare && len(list) == 0 && !machine {
+						header = "cf-connecting-ip"
+					}
+				}
+				if !slices.Contains(clientIPHeaders, header) {
+					return usagef("--header is one of %s", strings.Join(clientIPHeaders, ", "))
+				}
+				body = map[string]any{"ranges": list, "header": header, "cloudflare": cloudflare, "machine": machine}
+			}
+			s, err := a.findServer(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if err := a.client.PutJSON(ctx, "/servers/"+api.P(s.ID)+"/proxy/trusted-proxies", body, nil); err != nil {
+				return needs(err, needServerAdmin)
+			}
+			if off {
+				ui.Success("%s trusts no proxy in front of it now.", ui.Bold(s.Name))
+				return nil
+			}
+			var what []string
+			if len(list) > 0 {
+				what = append(what, strings.Join(list, ", "))
+			}
+			if cloudflare {
+				what = append(what, "Cloudflare")
+			}
+			if machine {
+				what = append(what, "a proxy on this machine")
+			}
+			ui.Success("%s trusts %s for the visitor's IP (%s).", ui.Bold(s.Name), strings.Join(what, " and "), header)
+			return nil
+		},
+	}
+	f := cmd.Flags()
+	f.StringArrayVar(&ranges, "range", nil, "an address or range of the proxy in front (repeat)")
+	f.StringVar(&header, "header", "", "where the visitor's address comes from")
+	f.BoolVar(&cloudflare, "cloudflare", false, "trust Cloudflare's proxy")
+	f.BoolVar(&machine, "machine", false, "trust a proxy on the same machine")
+	f.BoolVar(&off, "off", false, "trust no proxy in front")
+	return cmd
 }
 
 func (a *App) serverShowCmd() *cobra.Command {

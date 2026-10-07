@@ -108,6 +108,7 @@ Commands that work on a service use the one this folder is linked to (serve link
 	add("deploy", a.deployCmd(), a.deploymentsCmd(), a.redeployCmd(), a.rollbackCmd(), a.cancelCmd(), a.forceStartCmd())
 	add("manage", a.statusCmd(), a.openCmd(), a.logsCmd(), a.controlCmd("start"), a.controlCmd("stop"), a.controlCmd("restart"), a.builderCmd(), a.envCmd(), a.domainsCmd(), a.dbCmd(), a.maintenanceCmd(), a.composeCmd(), a.containersCmd())
 	add("manage", a.varsCmd(), a.tasksCmd(), a.previewsCmd(), a.tagsCmd(), a.uptimeCmd(), a.webhookCmd())
+	add("manage", a.requestsCmd(), a.composeBackupsCmd(), a.incidentsCmd())
 	add("browse", a.projectsCmd(), a.servicesCmd(), a.serversCmd(), a.environmentsCmd(), a.templatesCmd())
 	add("admin", a.sshKeysCmd(), a.certificatesCmd(), a.instanceCmd())
 	add("admin", a.orgCmd(), a.membersCmd(), a.inviteCmd(), a.invitationsCmd(), a.rolesCmd(), a.tokensCmd(), a.activityCmd(), a.registriesCmd(), a.s3Cmd(), a.notificationsCmd(), a.secretManagersCmd(), a.gitCmd(), a.cloudflareCmd())

@@ -178,7 +178,7 @@ the one that works from outside, when the database has a public port or a domain
 			}
 			if public {
 				if deref(r.User.PublicURL) == "" {
-					return fmt.Errorf("%s cannot be reached from outside: give it a public port or a domain in the dashboard first", s.Name)
+					return publicHint(s)
 				}
 				fmt.Fprintln(ui.Out, *r.User.PublicURL)
 				return nil

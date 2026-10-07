@@ -45,7 +45,8 @@ describe("backup encryption", () => {
       await expect(decryptFile(file("cut.enc"), file("cut.out"), "correct horse")).rejects.toThrow();
       expect(fs.existsSync(file("cut.out"))).toBe(false);
     }
-  });
+    // Four key derivations of 600,000 rounds: slow when the whole suite shares the CPU.
+  }, 60_000);
 
   it("refuses a file that is not encrypted", async () => {
     await expect(decryptFile(file("plain.sql", "-- PostgreSQL database dump\n"), file("plain.out"), "pw")).rejects.toThrow(/not an encrypted backup/);

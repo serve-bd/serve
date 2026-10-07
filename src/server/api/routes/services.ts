@@ -6,10 +6,43 @@ import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import * as actions from "@/server/actions/services";
 import * as tagActions from "@/server/actions/tags";
+import * as dbActions from "@/server/actions/databases";
+import { setServiceApproval } from "@/server/actions/deploy-rules";
+import * as serviceProxy from "@/server/actions/service-proxy";
+import { saveComposeMounts } from "@/server/actions/compose-storage";
+import { savePreviewDatabase } from "@/server/actions/environments";
+import * as monitoring from "@/server/actions/monitoring";
+import { setMainServer } from "@/server/actions/main-server";
+import * as integrations from "@/server/actions/integrations";
+import { balancingOf, type ProxyInput, proxyFormInitial, proxyInputSchema, type ServiceProxyConfig } from "@/server/services/proxy-config";
+import { readComposeMounts } from "@/lib/compose-mounts";
 import { deploymentView, domainView, loadDomain, loadService, page, projectFilter, serviceView } from "../data";
 import { ApiError, type ApiRoute, assertCan, route, unwrap } from "../router";
 
 const id = z.string().min(1);
+
+/**
+ * Saved HTTP options as the options form sends them, so a change can leave fields out: basic auth
+ * and guests without passwords keep theirs, and raw directives left out stay as saved.
+ */
+function proxyInputOf(c: ServiceProxyConfig | null | undefined): ProxyInput {
+  if (!c) return {};
+  const { basicAuth, guests, sticky: _sticky, customDirectives: _n, caddyDirectives: _c, traefikMiddlewares: _t, ...rest } = c;
+  return {
+    ...rest,
+    balancing: balancingOf(c),
+    basicAuth: basicAuth ? { enabled: true, username: basicAuth.username } : { enabled: false },
+    guests: (guests ?? []).map((g) => ({ id: g.id, email: g.email })),
+  };
+}
+
+const mountPath = z.string().min(1).max(4096);
+const composeMount = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("volume"), source: z.string().min(1).max(255), target: mountPath, readOnly: z.boolean().optional() }),
+  z.object({ kind: z.literal("bind"), source: mountPath, target: mountPath, readOnly: z.boolean().optional(), hostType: z.enum(["file", "directory"]).optional() }),
+  z.object({ kind: z.literal("file"), name: z.string().min(1).max(255), target: mountPath, content: z.string().max(512_000) }),
+  z.object({ kind: z.literal("other"), from: z.enum(["volumes", "configs"]), index: z.number().int().min(0).max(1000), target: z.string().max(4096), label: z.string().max(4096) }),
+]);
 const listQuery = z.object({
   projectId: z.string().optional(),
   environmentId: z.string().optional(),
@@ -330,6 +363,176 @@ export const serviceRoutes: ApiRoute[] = [
     },
   }),
   route({
+    method: "GET",
+    path: "/services/{serviceId}/proxy",
+    tag: "Domains",
+    summary: "HTTP options of a service",
+    description: "Body size, timeouts, balancing, basic auth and login wall, IP rules, headers, CORS and more, as saved. Never a password or its hash.",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      return { options: proxyFormInitial(service.proxy) };
+    },
+  }),
+  route({
+    method: "PATCH",
+    path: "/services/{serviceId}/proxy",
+    tag: "Domains",
+    summary: "Change HTTP options of a service",
+    description:
+      "Fields left out keep their value; the proxy tests the new site and nothing changes when it refuses it. basicAuth {enabled, username, password}: the password may be left out to keep it for the same user. guests: the whole list; a guest with its id may leave out its password. customDirectives, caddyDirectives and traefikMiddlewares need a Root admin.",
+    needs: ["admin", "domains.manage"],
+    body: proxyInputSchema,
+    handler: async ({ auth, params, body }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      const saved = proxyInputOf(service.proxy);
+      // Only the old sticky flag sent: it decides the strategy, as it did before balancing existed.
+      if (body.sticky !== undefined && body.balancing === undefined) delete saved.balancing;
+      await unwrap(serviceProxy.updateServiceProxy(params.serviceId, { ...saved, ...body }));
+      const { service: after } = await loadService(auth, params.serviceId);
+      return { options: proxyFormInitial(after.proxy) };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/proxy/custom",
+    tag: "Domains",
+    summary: "Replace the generated proxy site of a service",
+    description:
+      "content: the site for the proxy the server runs now (nginx, Caddy or Traefik), or null to go back to the generated one. The proxy checks it; a refused file changes nothing.",
+    needs: ["instance"],
+    body: z.object({ content: z.string().max(100_000).nullable() }),
+    handler: async ({ auth, params, body }) => {
+      await loadService(auth, params.serviceId);
+      return (await unwrap(serviceProxy.saveServiceProxyCustom(params.serviceId, body.content))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/preview-database",
+    tag: "Services",
+    summary: "Give each pull request preview its own database",
+    description:
+      'sourceServiceId: a database of the same environment, copied for each preview; variable: the variable that gets the copy\'s URL (like DATABASE_URL). mode "service" (a copy as its own service) or "branch" (a branch of the database). scrubSql runs on the copy (PostgreSQL, MySQL, MariaDB, ClickHouse).',
+    needs: ["services.manage"],
+    body: z.object({
+      sourceServiceId: id,
+      variable: z.string().max(200),
+      scrubSql: z.string().max(100_000).nullable().optional(),
+      mode: z.enum(["service", "branch"]).optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      await loadService(auth, params.serviceId);
+      await loadService(auth, body.sourceServiceId);
+      return (await unwrap(savePreviewDatabase(params.serviceId, body))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/services/{serviceId}/preview-database",
+    tag: "Services",
+    summary: "Stop giving previews their own database",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      return (await unwrap(savePreviewDatabase(params.serviceId, null))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/repo-webhook",
+    tag: "Services",
+    summary: "Register the push webhook on the repository",
+    description:
+      "Through the provider API with the service's Git connection, so pushes deploy at once. An earlier hook Serve made is replaced. Answers the hook (provider, its id there, url).",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      return { webhook: await unwrap(integrations.registerServiceWebhook(params.serviceId)) };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/services/{serviceId}/repo-webhook",
+    tag: "Services",
+    summary: "Remove the push webhook from the repository",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      await unwrap(integrations.removeServiceWebhook(params.serviceId));
+      return { deleted: true };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/main-server",
+    tag: "Services",
+    summary: "Make one of an app's extra servers its main one",
+    description:
+      "Visitors enter through it from now on; nothing is redeployed and the old main server becomes an extra one. Serve moves the DNS records and tunnel routes it manages: manual lists the names to point at the new IP yourself.",
+    needs: ["services.manage"],
+    body: z.object({ serverId: id }),
+    handler: async ({ auth, params, body }) => {
+      await loadService(auth, params.serviceId);
+      return unwrap(setMainServer(params.serviceId, body.serverId));
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/approval",
+    tag: "Deployments",
+    summary: "Whether a service's deploys wait for approval",
+    description: "mode always (they always wait), never (they never do) or null (the project's deploy rules decide).",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      return { mode: service.deployApproval ?? null };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/approval",
+    tag: "Deployments",
+    summary: "Make a service's deploys wait for approval, or not",
+    description: "mode always, never, or null to follow the project's deploy rules. Database deploys never wait.",
+    needs: ["deploys.approve"],
+    body: z.object({ mode: z.enum(["always", "never"]).nullable() }),
+    handler: async ({ auth, params, body }) => {
+      await loadService(auth, params.serviceId);
+      await unwrap(setServiceApproval(params.serviceId, body.mode));
+      return { mode: body.mode };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/redeploy",
+    tag: "Deployments",
+    summary: "Redeploy several services",
+    description:
+      "Like after a database password change: each running service of serviceIds (up to 50) is deployed again; stopped ones are left alone. Answers how many were queued.",
+    needs: ["services.deploy"],
+    body: z.object({ serviceIds: z.array(id).min(1).max(50) }),
+    handler: async ({ auth, body }) => {
+      const ids = [...new Set(body.serviceIds)];
+      for (const serviceId of ids) await loadService(auth, serviceId);
+      return unwrap(dbActions.redeployServices(ids));
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/services/{serviceId}/volumes/{volume}",
+    tag: "Services",
+    summary: "Delete the data of a volume no longer mounted",
+    description:
+      "Permanently removes a Docker volume of the service from its server: one its settings (or its compose file) no longer mount. A database's own data volume goes only with the database.",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      await unwrap(dbActions.deleteVolumeData(params.serviceId, params.volume));
+      return { deleted: true };
+    },
+  }),
+  route({
     method: "POST",
     path: "/services/{serviceId}/move",
     tag: "Services",
@@ -373,6 +576,35 @@ export const serviceRoutes: ApiRoute[] = [
     handler: async ({ auth, params }) => {
       await loadService(auth, params.serviceId);
       return { compose: await unwrap(actions.deployedCompose(params.serviceId)) };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/compose/mounts",
+    tag: "Services",
+    summary: "Storage of each service of a stack",
+    description:
+      "As the saved compose file has it: named volumes, paths on the server (bind), inline files, and other entries (kind other) that are kept as written when sent back.",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      if (service.type !== "compose" || !service.compose) throw new ApiError(400, "Not a compose service.");
+      return { services: readComposeMounts(service.compose.content) };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/compose/mounts/{name}",
+    tag: "Services",
+    summary: "Replace the storage of one service of a stack",
+    description:
+      "mounts becomes the storage of the compose service name, written into the compose file and saved like the compose editor does (paths on the server need a Root admin). Send back kind other entries from GET to keep them. Redeploy to apply. Not for stacks read from Git.",
+    needs: ["services.manage"],
+    body: z.object({ mounts: z.array(composeMount).max(100) }),
+    handler: async ({ auth, params, body }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      if (service.type !== "compose" || !service.compose) throw new ApiError(400, "Not a compose service.");
+      return (await unwrap(saveComposeMounts(params.serviceId, params.name, body.mounts))) ?? { ok: true };
     },
   }),
   route({
@@ -774,6 +1006,19 @@ export const serviceRoutes: ApiRoute[] = [
   }),
   route({
     method: "POST",
+    path: "/domains/{domainId}/point-at-main",
+    tag: "Domains",
+    summary: "Point a domain's DNS at the app's main server",
+    description:
+      "When its A record points at another server the app runs on. Only through the connected Cloudflare account that holds its zone, and only records that point at one of the app's servers.",
+    needs: ["domains.manage"],
+    handler: async ({ auth, params }) => {
+      await loadDomain(auth, params.domainId);
+      return (await unwrap(actions.pointDomainAtMain(params.domainId))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "POST",
     path: "/domains/{domainId}/reconnect-tunnel",
     tag: "Domains",
     summary: "Route a domain through its tunnel again",
@@ -1117,6 +1362,53 @@ export const serviceRoutes: ApiRoute[] = [
           .map(([k, v]) => [k, String(v)]),
       );
       return requestLogPage(service.id, filterFromQuery(q));
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/request-log/settings",
+    tag: "Logs",
+    summary: "Request log settings",
+    description: "Whether the service keeps a request log, for how many days, which responses (2 to 5 for 2xx to 5xx) and whether visitor IPs are kept.",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      const { requestLogConfig } = await import("@/server/request-log");
+      return { settings: requestLogConfig(service.requestLog) };
+    },
+  }),
+  route({
+    method: "PATCH",
+    path: "/services/{serviceId}/request-log/settings",
+    tag: "Logs",
+    summary: "Change the request log settings",
+    description: "Fields left out keep their value. Turning ips off also clears the IPs already kept.",
+    needs: ["services.manage"],
+    body: z.object({
+      enabled: z.boolean().optional(),
+      days: z.number().int().min(1).optional(),
+      statuses: z.array(z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5)])).optional(),
+      ips: z.boolean().optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      const { requestLogConfig } = await import("@/server/request-log");
+      await unwrap(monitoring.saveRequestLog(params.serviceId, { ...requestLogConfig(service.requestLog), ...body }));
+      const { service: after } = await loadService(auth, params.serviceId);
+      return { settings: requestLogConfig(after.requestLog) };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/services/{serviceId}/request-log",
+    tag: "Logs",
+    summary: "Delete the requests kept",
+    description: "Every request kept for the service and its previews. The log keeps recording when it is on.",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      await unwrap(monitoring.deleteRequestLog(params.serviceId));
+      return { deleted: true };
     },
   }),
   // Logs

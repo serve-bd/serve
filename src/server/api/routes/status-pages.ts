@@ -1,8 +1,10 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import * as actions from "@/server/actions/status-pages";
+import type { ApiAuth } from "@/server/api-auth";
 import { db, schema } from "@/server/db";
 import { pageUrl } from "@/server/status-pages/urls";
+import { defaultDesign, designOf, SUBSCRIBER_KINDS } from "@/lib/status-page";
 import { ApiError, type ApiRoute, route, unwrap } from "../router";
 
 /*
@@ -71,6 +73,60 @@ async function noticesOf(pageId: string, filter: { open?: boolean; limit?: numbe
     updates: updates.filter((u) => u.noticeId === n.id).map((u) => ({ state: u.state, body: u.body, createdAt: u.createdAt.toISOString() })),
   }));
 }
+
+/** Status pages span every project, so a token limited to some projects cannot manage them (as in the dashboard). */
+function allProjects(auth: ApiAuth) {
+  if (auth.projectIds) throw new ApiError(403, "Status pages span every project: only tokens with access to all projects manage them.");
+}
+
+/** A page with its settings: never its password hash or the uploaded images themselves. */
+async function pageView(pageId: string, organizationId: string) {
+  const [p] = await db
+    .select()
+    .from(schema.statusPage)
+    .where(and(eq(schema.statusPage.id, pageId), eq(schema.statusPage.organizationId, organizationId)));
+  if (!p) throw new ApiError(404, "Status page not found");
+  const { logo: _logo, logoDark: _logoDark, ...design } = designOf(p.design);
+  return {
+    id: p.id,
+    name: p.name,
+    slug: p.slug,
+    url: await pageUrl(p),
+    domain: p.domain,
+    https: p.https,
+    tunnelId: p.tunnelId,
+    certificateId: p.certificateId,
+    visibility: p.visibility,
+    hasPassword: !!p.passwordHash,
+    design,
+    images: Object.fromEntries(Object.entries(p.images ?? {}).map(([k, v]) => [k, v ? { hash: v.hash, mime: v.mime } : null])),
+    subscribe: p.subscribe,
+    teamChannelIds: p.teamChannelIds,
+    createdAt: p.createdAt.toISOString(),
+    updatedAt: p.updatedAt.toISOString(),
+  };
+}
+
+/** Look fields a PATCH may change: everything but the logos, which the dashboard uploads. */
+const DESIGN_KEYS = Object.keys(defaultDesign).filter((k) => k !== "logo" && k !== "logoDark");
+
+async function componentOf(pageId: string, componentId: string) {
+  const [c] = await db
+    .select()
+    .from(schema.statusComponent)
+    .where(and(eq(schema.statusComponent.id, componentId), eq(schema.statusComponent.pageId, pageId)));
+  if (!c) throw new ApiError(404, "Component not found");
+  return c;
+}
+
+const componentView = (c: typeof schema.statusComponent.$inferSelect) => ({
+  id: c.id,
+  name: c.name,
+  description: c.description,
+  group: c.group,
+  serviceId: c.serviceId,
+  position: c.position,
+});
 
 const STATES = ["investigating", "identified", "monitoring", "resolved"] as const;
 const impact = z.enum(["minor", "major", "critical"]);
@@ -250,6 +306,258 @@ export const statusPageRoutes: ApiRoute[] = [
     handler: async ({ auth, params }) => {
       await noticeOf(params.pageId, params.incidentId, auth.organizationId);
       await unwrap(actions.deleteStatusNotice(params.incidentId));
+      return { deleted: true };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/status-pages",
+    tag: "Status pages",
+    summary: "Create a status page",
+    description:
+      "It starts as a draft (unpublished) at /status/<slug> on the dashboard's domain, with a component for each uptime check of the organization. Without slug, a free one is made from the name.",
+    needs: ["status-pages.manage"],
+    status: 201,
+    body: z.object({ name: z.string(), slug: z.string().optional() }),
+    handler: async ({ auth, body }) => {
+      allProjects(auth);
+      const { id } = await unwrap(actions.createStatusPage({ name: body.name, slug: body.slug }));
+      return { statusPage: await pageView(id, auth.organizationId) };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/status-pages/{pageId}",
+    tag: "Status pages",
+    summary: "Get a status page and its settings",
+    description: "The look (design), the ways to subscribe, the team channels and the domain. Never the password: hasPassword says whether one is set.",
+    needs: ["status-pages.manage"],
+    handler: async ({ auth, params }) => {
+      allProjects(auth);
+      return { statusPage: await pageView(params.pageId, auth.organizationId) };
+    },
+  }),
+  route({
+    method: "PATCH",
+    path: "/status-pages/{pageId}",
+    tag: "Status pages",
+    summary: "Change a status page's name, address or look",
+    description: `Fields left out keep their value, and so do the fields of design left out. design takes: ${DESIGN_KEYS.join(", ")}. Logos are uploaded in the dashboard.`,
+    needs: ["status-pages.manage"],
+    body: z.object({
+      name: z.string().optional(),
+      slug: z.string().optional(),
+      design: z
+        .record(z.string(), z.unknown())
+        .refine((d) => Object.keys(d).every((k) => DESIGN_KEYS.includes(k)), { message: `Unknown field. design takes: ${DESIGN_KEYS.join(", ")}` })
+        .optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      allProjects(auth);
+      const current = await pageView(params.pageId, auth.organizationId);
+      await unwrap(
+        actions.saveStatusPage(params.pageId, {
+          name: body.name ?? current.name,
+          slug: body.slug ?? current.slug,
+          design: { ...current.design, ...(body.design as Partial<typeof current.design>) },
+        }),
+      );
+      return { statusPage: await pageView(params.pageId, auth.organizationId) };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/status-pages/{pageId}",
+    tag: "Status pages",
+    summary: "Delete a status page",
+    description: "With its components, incidents and subscribers. Its domain stops serving it.",
+    needs: ["status-pages.manage"],
+    handler: async ({ auth, params }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      await unwrap(actions.deleteStatusPage(params.pageId));
+      return { deleted: true };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/status-pages/{pageId}/domain",
+    tag: "Status pages",
+    summary: "Set a status page's own domain",
+    description:
+      "domain null (or empty) takes the page off its domain. The domain must be verified for the organization. https: true gets a Let's Encrypt certificate unless certificateId names one of the organization's on the dashboard's server. tunnelId serves it through a Cloudflare Tunnel on the dashboard's server instead.",
+    needs: ["status-pages.manage"],
+    body: z.object({
+      domain: z.string().nullable(),
+      https: z.boolean().default(true),
+      tunnelId: z.string().nullable().optional(),
+      certificateId: z.string().nullable().optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      await unwrap(
+        actions.setStatusDomain(params.pageId, { domain: body.domain ?? "", https: body.https, tunnelId: body.tunnelId ?? null, certificateId: body.certificateId ?? null }),
+      );
+      return { statusPage: await pageView(params.pageId, auth.organizationId) };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/status-pages/{pageId}/visibility",
+    tag: "Status pages",
+    summary: "Publish, unpublish or password-protect a status page",
+    description: "visibility password needs a password (6 characters or more), unless one is set already. A new password replaces the old one.",
+    needs: ["status-pages.manage"],
+    body: z.object({ visibility: z.enum(["public", "password", "draft"]), password: z.string().optional() }),
+    handler: async ({ auth, params, body }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      await unwrap(actions.setStatusVisibility(params.pageId, { visibility: body.visibility, password: body.password }));
+      return { statusPage: await pageView(params.pageId, auth.organizationId) };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/status-pages/{pageId}/subscriptions",
+    tag: "Status pages",
+    summary: "Choose how visitors subscribe, and the team channels",
+    description:
+      "subscribe: which ways the page offers (email, slack, discord, webhook, rss), whether subscribers pick components, and whether outages found by uptime checks are sent. teamChannelIds: the organization's notification channels that get every post.",
+    needs: ["status-pages.manage"],
+    body: z.object({
+      subscribe: z.object({
+        email: z.boolean(),
+        slack: z.boolean(),
+        discord: z.boolean(),
+        webhook: z.boolean(),
+        rss: z.boolean(),
+        components: z.boolean(),
+        outages: z.boolean(),
+      }),
+      teamChannelIds: z.array(z.string()).max(100).default([]),
+    }),
+    handler: async ({ auth, params, body }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      await unwrap(actions.saveStatusSubscriptions(params.pageId, body));
+      return { statusPage: await pageView(params.pageId, auth.organizationId) };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/status-pages/{pageId}/components",
+    tag: "Status pages",
+    summary: "Add a component",
+    description: "serviceId shows the service's uptime check; without one, only incidents and maintenance change the component. It goes last.",
+    needs: ["status-pages.manage"],
+    status: 201,
+    body: z.object({
+      name: z.string(),
+      serviceId: z.string().nullable().default(null),
+      description: z.string().nullable().default(null),
+      group: z.string().nullable().default(null).describe("Section heading it shows under; null for none"),
+    }),
+    handler: async ({ auth, params, body }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      const { id } = await unwrap(actions.addStatusComponent(params.pageId, body));
+      return { component: componentView(await componentOf(params.pageId, id)) };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/status-pages/{pageId}/components/order",
+    tag: "Status pages",
+    summary: "Reorder a page's components",
+    description: "ids: every component id of the page, top first.",
+    needs: ["status-pages.manage"],
+    body: z.object({ ids: z.array(z.string()).max(1000) }),
+    handler: async ({ auth, params, body }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      await unwrap(actions.reorderStatusComponents(params.pageId, body.ids));
+      return { ok: true };
+    },
+  }),
+  route({
+    method: "PATCH",
+    path: "/status-pages/{pageId}/components/{componentId}",
+    tag: "Status pages",
+    summary: "Change a component",
+    description: "Fields left out keep their value.",
+    needs: ["status-pages.manage"],
+    body: z.object({
+      name: z.string().optional(),
+      serviceId: z.string().nullable().optional(),
+      description: z.string().nullable().optional(),
+      group: z.string().nullable().optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      const c = await componentOf(params.pageId, params.componentId);
+      await unwrap(
+        actions.updateStatusComponent(c.id, {
+          name: body.name ?? c.name,
+          serviceId: body.serviceId !== undefined ? body.serviceId : c.serviceId,
+          description: body.description !== undefined ? body.description : c.description,
+          group: body.group !== undefined ? body.group : c.group,
+        }),
+      );
+      return { component: componentView(await componentOf(params.pageId, c.id)) };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/status-pages/{pageId}/components/{componentId}",
+    tag: "Status pages",
+    summary: "Remove a component",
+    needs: ["status-pages.manage"],
+    handler: async ({ auth, params }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      await componentOf(params.pageId, params.componentId);
+      await unwrap(actions.removeStatusComponent(params.componentId));
+      return { deleted: true };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/status-pages/{pageId}/subscribers",
+    tag: "Status pages",
+    summary: "List subscribers",
+    description:
+      "Newest first, 25 at a time: pass offset for more while hasMore is true. q searches email addresses; kind keeps one type. Webhook URLs show only where they point, without their secret part.",
+    needs: ["status-pages.manage"],
+    query: z.object({
+      q: z.string().max(200).optional(),
+      kind: z.enum(SUBSCRIBER_KINDS).optional(),
+      offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    }),
+    handler: async ({ auth, params, query }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      const { rows, ...rest } = await unwrap(actions.listStatusSubscribers(params.pageId, query));
+      return { subscribers: rows, ...rest };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/status-pages/{pageId}/subscribers/{subscriberId}",
+    tag: "Status pages",
+    summary: "Remove a subscriber",
+    description: "They hear nothing more from the page.",
+    needs: ["status-pages.manage"],
+    handler: async ({ auth, params }) => {
+      allProjects(auth);
+      await pageOf(params.pageId, auth.organizationId);
+      const [row] = await db
+        .select({ id: schema.statusSubscriber.id })
+        .from(schema.statusSubscriber)
+        .where(and(eq(schema.statusSubscriber.id, params.subscriberId), eq(schema.statusSubscriber.pageId, params.pageId)));
+      if (!row) throw new ApiError(404, "Subscriber not found");
+      await unwrap(actions.removeStatusSubscriber(params.subscriberId));
       return { deleted: true };
     },
   }),

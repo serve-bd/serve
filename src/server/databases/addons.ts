@@ -666,7 +666,8 @@ async function finishPromotion(service: Service, r: ReplicaInstance, server: Ser
   const cfg = service.database!;
   // The other replicas followed the old database: they copy the new one when it is up.
   const others = instances.filter((x) => x.id !== r.id);
-  for (const o of others) await removeReplicaInstance(service, o).catch(() => {});
+  for (const o of others)
+    await removeReplicaInstance(service, o).catch((e: Error) => log(`Warning: replica ${o.id} on its server was not removed (${e.message}); remove its container by hand`));
   await db
     .update(schema.service)
     .set({

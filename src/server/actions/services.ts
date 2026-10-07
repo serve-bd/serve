@@ -1450,7 +1450,10 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
       const { removeReplicaInstance } = await import("@/server/databases/addons");
       const { syncAddonDomain } = await import("@/server/databases/addon-domains");
       const before = replicaInstances(service);
-      for (const r of before) await removeReplicaInstance(service, r).catch(() => {});
+      const leftovers: string[] = [];
+      const { leftover, recordLeftovers } = await import("@/server/services/leftovers");
+      for (const r of before) await removeReplicaInstance(service, r).catch(leftover(leftovers, `Read replica ${r.id} of ${service.name}`));
+      await recordLeftovers(leftovers, { projectId: service.projectId, userId: ctx.user.id });
       if (cfg.pooler?.public) await syncAddonDomain(service, cfg.pooler.public, null, [service.serverId], ctx.org.id).catch(() => []);
       if (cfg.replica?.public) await syncAddonDomain(service, cfg.replica.public, null, [...new Set(before.map((r) => r.serverId))], ctx.org.id).catch(() => []);
       // A replica on a server the new one shares no private network with could not reach it: it goes.
@@ -1533,18 +1536,10 @@ export async function deleteService(serviceId: string, removeVolumes: boolean, p
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     await requireDeleteProof(ctx, password);
-    const domains = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
-    // Remove DNS records Serve created.
-    for (const d of domains) {
-      if (d.cloudflareAccountId && d.cloudflareZoneId && d.cloudflareRecordId) {
-        await Cloudflare.forAccount(d.cloudflareAccountId)
-          .then((cf) => cf.deleteDnsRecord(d.cloudflareZoneId!, d.cloudflareRecordId!))
-          .catch(() => {});
-      }
-    }
-    await teardownServices([service], removeVolumes);
+    // The DNS records Serve made for its domains go with it (teardownServices).
+    const warning = await teardownServices([service], removeVolumes, { userId: ctx.user.id });
     await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "service.deleted", message: `Deleted ${service.name}` });
-    return null;
+    return warning ? { warning } : null;
   });
 }
 
@@ -2034,20 +2029,24 @@ export async function removeDomain(domainId: string, deleteDns: boolean) {
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
     const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
+    const leftovers: string[] = [];
+    const { leftover, recordLeftovers } = await import("@/server/services/leftovers");
     if (deleteDns && domain.cloudflareAccountId && domain.cloudflareZoneId && domain.cloudflareRecordId) {
-      const cf = await Cloudflare.forAccount(domain.cloudflareAccountId);
-      await cf.deleteDnsRecord(domain.cloudflareZoneId, domain.cloudflareRecordId).catch(() => {});
+      await Cloudflare.forAccount(domain.cloudflareAccountId)
+        .then((cf) => cf.removeDnsRecord(domain.cloudflareZoneId!, domain.cloudflareRecordId!))
+        .catch(leftover(leftovers, `DNS record of ${domain.hostname}`));
     }
     await db.delete(schema.domain).where(eq(schema.domain.id, domainId));
     if (domain.tunnelId) {
       const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
-      await syncTunnelIngress(domain.tunnelId).catch(() => {});
+      await syncTunnelIngress(domain.tunnelId).catch(leftover(leftovers, "Cloudflare Tunnel routes"));
     }
-    await syncServiceProxy(domain.serviceId).catch(() => {});
+    await syncServiceProxy(domain.serviceId).catch(leftover(leftovers, `Proxy site of ${service.name}`));
     // The certificate Serve got for this name alone goes too, once nothing else uses it.
     const { retireCertificateFor } = await import("@/server/ssl/certificates");
-    await retireCertificateFor(domain.hostname, service.serverId, ctx.org.id).catch(() => {});
-    return null;
+    await retireCertificateFor(domain.hostname, service.serverId, ctx.org.id).catch(leftover(leftovers, `Certificate for ${domain.hostname}`));
+    const warning = await recordLeftovers(leftovers, { projectId: service.projectId, userId: ctx.user.id });
+    return warning ? { warning } : null;
   });
 }
 

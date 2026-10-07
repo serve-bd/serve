@@ -194,8 +194,7 @@ export const serviceRoutes: ApiRoute[] = [
     query: z.object({ volumes: z.enum(["true", "false"]).optional() }),
     handler: async ({ auth, params, query }) => {
       await loadService(auth, params.serviceId);
-      await unwrap(actions.deleteService(params.serviceId, query.volumes === "true"));
-      return { ok: true };
+      return { ok: true, ...(await unwrap(actions.deleteService(params.serviceId, query.volumes === "true"))) };
     },
   }),
 
@@ -747,8 +746,8 @@ export const serviceRoutes: ApiRoute[] = [
     query: z.object({ dns: z.enum(["true", "false"]).optional() }),
     handler: async ({ auth, params, query }) => {
       await loadDomain(auth, params.domainId);
-      await unwrap(actions.removeDomain(params.domainId, query.dns === "true"));
-      return { ok: true };
+      // A DNS record or certificate that could not go is said, not hidden.
+      return { ok: true, ...(await unwrap(actions.removeDomain(params.domainId, query.dns === "true"))) };
     },
   }),
   route({

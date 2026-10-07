@@ -100,8 +100,7 @@ export const projectRoutes: ApiRoute[] = [
     needs: ["projects.manage"],
     handler: async ({ auth, params }) => {
       await loadProject(auth, params.projectId);
-      await unwrap(projects.deleteProject(params.projectId));
-      return { ok: true };
+      return { ok: true, ...(await unwrap(projects.deleteProject(params.projectId))) };
     },
   }),
   route({
@@ -178,8 +177,7 @@ export const projectRoutes: ApiRoute[] = [
     needs: ["projects.manage"],
     handler: async ({ auth, params }) => {
       await loadEnvironment(auth, params.environmentId);
-      await unwrap(projects.deleteEnvironment(params.environmentId));
-      return { ok: true };
+      return { ok: true, ...(await unwrap(projects.deleteEnvironment(params.environmentId))) };
     },
   }),
   route({

@@ -175,6 +175,13 @@ export class Cloudflare {
     await this.request("DELETE", `/zones/${zoneId}/dns_records/${recordId}`);
   }
 
+  /** Deletes a record Serve made; one already gone (deleted by hand) is not an error. */
+  async removeDnsRecord(zoneId: string, recordId: string) {
+    await this.deleteDnsRecord(zoneId, recordId).catch((e: unknown) => {
+      if (!(e instanceof CloudflareError && e.status === 404)) throw e;
+    });
+  }
+
   /**
    * Create the A record for a hostname, or update one Serve created earlier.
    * Records created by someone else are never overwritten or adopted: when the user's own A

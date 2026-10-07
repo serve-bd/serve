@@ -19,5 +19,6 @@ export async function logActivity(entry: {
   await db
     .insert(schema.activity)
     .values({ id: newId(), ...entry, organizationId, userId: entry.userId ?? null, projectId: entry.projectId ?? null })
-    .catch(() => {});
+    // The action it records already happened: a failed entry must not undo or fail it, but it is not hidden either.
+    .catch((e: Error) => console.error(`[activity] not recorded (${entry.action}): ${e.message}`));
 }

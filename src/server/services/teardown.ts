@@ -4,6 +4,7 @@ import { and, eq, inArray, sql as dsql } from "drizzle-orm";
 import { db, schema, sql } from "@/server/db";
 import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
 import { runServerIds } from "@/server/deploy/distribution";
+import { leftover, recordLeftovers } from "./leftovers";
 
 /** Cancel work, delete rows and queue container cleanup for services, their previews and preview databases. */
 /**
@@ -11,9 +12,20 @@ import { runServerIds } from "@/server/deploy/distribution";
  * containers, the DNS records and certificates they use stay as they are on the machine.
  * `inline`: their containers are removed now, not by a job (the server row goes right after).
  */
-export async function teardownServices(services: (typeof schema.service.$inferSelect)[], removeVolumes: boolean, opts: { leaveRunning?: boolean; inline?: boolean } = {}) {
+export async function teardownServices(
+  services: (typeof schema.service.$inferSelect)[],
+  removeVolumes: boolean,
+  opts: { leaveRunning?: boolean; inline?: boolean; userId?: string | null } = {},
+): Promise<string | null> {
+  if (!services.length) return null;
+  const leftovers: string[] = [];
+  await teardown(services, removeVolumes, opts, leftovers);
+  // Returns the warning for whoever asked; the activity log keeps it for everyone else.
+  return recordLeftovers(leftovers, { projectId: services[0].projectId, userId: opts.userId });
+}
+
+async function teardown(services: (typeof schema.service.$inferSelect)[], removeVolumes: boolean, opts: { leaveRunning?: boolean; inline?: boolean }, leftovers: string[]) {
   const ids = services.map((s) => s.id);
-  if (!ids.length) return;
   // Previews, and what belongs to them (their database copies), all the way down.
   const all = [...services];
   let parents = ids;
@@ -57,19 +69,19 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
     for (const d of domains) {
       if (!d.cloudflareAccountId || !d.cloudflareZoneId || !d.cloudflareRecordId) continue;
       await Cloudflare.forAccount(d.cloudflareAccountId)
-        .then((cf) => cf.deleteDnsRecord(d.cloudflareZoneId!, d.cloudflareRecordId!))
-        .catch(() => {});
+        .then((cf) => cf.removeDnsRecord(d.cloudflareZoneId!, d.cloudflareRecordId!))
+        .catch(leftover(leftovers, `DNS record of ${d.hostname}`));
     }
   }
   // Read replicas on other servers than the database's: the delete job there only covers its own server.
   for (const s of opts.leaveRunning ? [] : all) {
     for (const r of replicaInstances(s).filter((r) => r.serverId !== s.serverId)) {
       const { removeReplicaInstance } = await import("@/server/databases/addons");
-      await removeReplicaInstance(s, r).catch(() => {});
+      await removeReplicaInstance(s, r).catch(leftover(leftovers, `Read replica ${r.id} of ${s.name}`));
     }
   }
   const retire: Retire[] = [];
-  if (!opts.leaveRunning) await removeDatabaseDomainRecords(all, retire);
+  if (!opts.leaveRunning) await removeDatabaseDomainRecords(all, retire, leftovers);
   // Databases deleted with their data kept: remembered, so a new database can start from it.
   // One never deployed has no data to keep.
   if (!removeVolumes) await keepDatabases(services.filter((s) => s.type === "database" && s.database && !s.parentServiceId && s.currentDeploymentId));
@@ -83,7 +95,7 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
   // when the job runs, so after the rows above are gone).
   if (retire.length) {
     const { retireCertificateFor } = await import("@/server/ssl/certificates");
-    for (const r of retire) await retireCertificateFor(r.hostname, r.serverId, r.organizationId).catch(() => {});
+    for (const r of retire) await retireCertificateFor(r.hostname, r.serverId, r.organizationId).catch(leftover(leftovers, `Certificate for ${r.hostname}`));
   }
   const tunnels = [
     ...new Set(
@@ -94,7 +106,7 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
   ];
   if (tunnels.length) {
     const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
-    for (const id of tunnels) await syncTunnelIngress(id).catch(() => {});
+    for (const id of tunnels) await syncTunnelIngress(id).catch(leftover(leftovers, "Cloudflare Tunnel routes"));
   }
   if (opts.leaveRunning) return;
   // Same concurrency key as deployments, so cleanup runs after an in-flight deploy stops.
@@ -109,7 +121,7 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
         environmentId: s.environmentId,
         serverId: s.serverId,
         volumes: s.database?.dataVolume && s.database.dataVolumeOwned && !s.database.dataVolume.startsWith("/") ? [s.database.dataVolume] : [],
-      }).catch(() => {});
+      }).catch(leftover(leftovers, `Containers of ${s.name}`));
     } else
       await enqueue(
         "service.delete",
@@ -173,7 +185,7 @@ async function keepDatabases(services: (typeof schema.service.$inferSelect)[]) {
 }
 
 /** The DNS records Serve made for databases' own domains (marked by their comment), never anyone else's. */
-async function removeDatabaseDomainRecords(services: (typeof schema.service.$inferSelect)[], retire: Retire[]) {
+async function removeDatabaseDomainRecords(services: (typeof schema.service.$inferSelect)[], retire: Retire[], leftovers: string[]) {
   // Each database's own domain, its pooler's and its replicas' (on every server they run on).
   const names = services
     .filter((s) => !s.parentServiceId && s.database)
@@ -205,8 +217,9 @@ async function removeDatabaseDomainRecords(services: (typeof schema.service.$inf
       const zone = await cf.zoneFor(hostname);
       if (!zone) continue;
       for (const r of await cf.dnsRecords(zone.id, { name: hostname })) if (r.comment === DATABASE_DNS_COMMENT) await cf.deleteDnsRecord(zone.id, r.id);
-    } catch {
-      // Best effort: the account or Cloudflare may be unreachable; the hostname is free in Serve either way.
+    } catch (e) {
+      // The account or Cloudflare may be unreachable: the hostname is free in Serve either way, and the record is reported.
+      leftover(leftovers, `DNS record of ${hostname}`)(e);
     }
   }
 }

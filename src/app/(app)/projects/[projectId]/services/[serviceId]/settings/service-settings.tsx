@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "@/components/ui/toast";
 import { TagsSection } from "./tags-section";
 import { useDeleteGuard } from "@/app/(app)/account/confirm-identity";
 import { ImagePicker, type PickerRegistry } from "@/components/image-picker";
@@ -238,7 +239,10 @@ export function ServiceSettings(props: Props) {
   const deleteGuard = useDeleteGuard();
   const remove = useAction((volumes: boolean, password: string | null) => deleteGuard.guard(() => deleteService(service.id, volumes, password)), {
     refresh: false,
-    onSuccess: () => router.replace(`/projects/${props.projectId}`),
+    onSuccess: (d) => {
+      if (d?.warning) toast.warning(`${service.name} deleted`, d.warning);
+      router.replace(`/projects/${props.projectId}`);
+    },
   });
   const [removeVolumes, setRemoveVolumes] = React.useState(true);
 

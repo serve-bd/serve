@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
 
-import { Cloudflare, type CfDnsRecord } from "@/server/cloudflare/api";
+import { Cloudflare, CloudflareError, type CfDnsRecord } from "@/server/cloudflare/api";
 
 /** A zone held in memory, with Cloudflare's rule that a name with a CNAME has no other record. */
 function fakeZone(records: CfDnsRecord[]) {
@@ -80,5 +80,19 @@ describe("moveARecords", () => {
     const moved = await cf.moveARecords("z", "serve.bd", OLD, NEW);
     expect(moved.result).toBe("created");
     expect(records).toEqual([expect.objectContaining({ type: "A", name: "serve.bd", content: NEW, comment: "Managed by Serve" })]);
+  });
+});
+
+describe("removeDnsRecord", () => {
+  it("is fine with a record already deleted by hand, and reports any other failure", async () => {
+    const cf = new Cloudflare("token");
+    cf.deleteDnsRecord = async () => {
+      throw new CloudflareError("Record does not exist.", 404);
+    };
+    await expect(cf.removeDnsRecord("z", "r")).resolves.toBeUndefined();
+    cf.deleteDnsRecord = async () => {
+      throw new CloudflareError("Authentication error", 403);
+    };
+    await expect(cf.removeDnsRecord("z", "r")).rejects.toThrow("Authentication error");
   });
 });

@@ -956,7 +956,11 @@ export function DomainsManager(props: Props) {
   const [editing, setEditing] = React.useState<DomainRow | null>(null);
   const confirm = useConfirm();
   const generate = useAction(() => generateDomain(props.serviceId));
-  const remove = useAction((id: string, dns: boolean) => removeDomain(id, dns));
+  const remove = useAction((id: string, dns: boolean) => removeDomain(id, dns), {
+    onSuccess: (d) => {
+      if (d?.warning) toast.warning("Domain removed", d.warning);
+    },
+  });
   const toggleHttps = useAction((id: string, https: boolean) => updateDomain(id, { https, forceHttps: https }));
   const retry = useAction(retryCertificate);
   const reconnect = useAction(reconnectDomainTunnel);

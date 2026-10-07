@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "@/components/ui/toast";
 import * as React from "react";
 import { useDeleteGuard } from "@/app/(app)/account/confirm-identity";
 import Link from "next/link";
@@ -65,11 +66,17 @@ export function ProjectSettings({
   });
   const deleteGuard = useDeleteGuard();
   const removeEnv = useAction((id: string, password: string | null) => deleteGuard.guard(() => deleteEnvironment(id, password)), {
-    onSuccess: () => router.replace(`/projects/${project.id}/settings/environments`),
+    onSuccess: (d) => {
+      if (d?.warning) toast.warning("Environment deleted", d.warning);
+      router.replace(`/projects/${project.id}/settings/environments`);
+    },
   });
   const remove = useAction((password: string | null) => deleteGuard.guard(() => deleteProject(project.id, password)), {
     refresh: false,
-    onSuccess: () => router.replace("/projects"),
+    onSuccess: (d) => {
+      if (d?.warning) toast.warning("Project deleted", d.warning);
+      router.replace("/projects");
+    },
   });
   // The typed password, read once the confirmation closes.
   const password = React.useRef<string | null>(null);

@@ -95,8 +95,18 @@ async function removeStaleContainers(ctx: ServerCtx) {
     const deployment = c.Labels[LABEL.deployment];
     if (service?.type !== "app" || !deployment) continue;
     if (service.status === "stopped" || busyIds.has(service.id) || deployment === service.currentDeploymentId) continue;
-    await removeContainer(c.Id, 5, ctx.docker).catch(() => {});
-    removed++;
+    await removeContainer(c.Id, 5, ctx.docker);
+    // removeContainer keeps its errors to itself: only a container really gone is counted.
+    if (
+      await ctx.docker
+        .getContainer(c.Id)
+        .inspect()
+        .then(
+          () => false,
+          (e: { statusCode?: number }) => e.statusCode === 404,
+        )
+    )
+      removed++;
   }
   return removed;
 }

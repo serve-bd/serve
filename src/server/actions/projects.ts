@@ -70,10 +70,10 @@ export async function deleteProject(projectId: string, password?: string | null)
     // An empty project has nothing to lose; one with services needs the same proof as deleting them.
     if (services.length) await requireDeleteProof(ctx, password);
     const { teardownServices } = await import("@/server/services/teardown");
-    await teardownServices(services, true);
+    const warning = await teardownServices(services, true, { userId: ctx.user.id });
     await db.delete(schema.project).where(eq(schema.project.id, projectId));
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, projectId: project.id, action: "project.deleted", message: `Deleted project ${project.name}` });
-    return null;
+    return warning ? { warning } : null;
   });
 }
 
@@ -110,9 +110,9 @@ export async function deleteEnvironment(environmentId: string, password?: string
     // Its services go with it: the same proof as deleting them.
     if (services.length) await requireDeleteProof(ctx, password);
     const { teardownServices } = await import("@/server/services/teardown");
-    await teardownServices(services, true);
+    const warning = await teardownServices(services, true, { userId: ctx.user.id });
     await db.delete(schema.environment).where(eq(schema.environment.id, environmentId));
-    return null;
+    return warning ? { warning } : null;
   });
 }
 

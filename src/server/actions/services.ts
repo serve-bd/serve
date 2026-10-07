@@ -309,7 +309,8 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
           .from(schema.keptDatabase)
           .where(and(eq(schema.keptDatabase.id, data.keptId), eq(schema.keptDatabase.organizationId, ctx.org.id)))
       : [];
-    if (data.keptId && !kept) throw new UserError("That kept data is gone.");
+    // Members limited to some projects only reach data their projects left (as deleting it).
+    if (data.keptId && (!kept || (kept.projectId ? !ctx.canAccessProject(kept.projectId) : ctx.projectIds !== null))) throw new UserError("That kept data is gone.");
     // Kept data lives on its server: the database runs there.
     const server = await resolveServerForOrg(kept ? kept.serverId : data.serverId, ctx.org.id);
     if (kept && !kept.volume.startsWith("/")) {

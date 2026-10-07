@@ -73,6 +73,13 @@ describe("measuring volume sizes", () => {
     expect(state.deletes).toContainEqual([{ eq: "s2" }]);
   });
 
+  it("keeps a server's sizes when its answer has no volume list at all", async () => {
+    state.df = { local: {}, s2: { Volumes: [] } };
+    await measureVolumeSizes();
+    expect(state.deletes).not.toContainEqual(expect.arrayContaining([{ eq: "local" }]));
+    expect(state.deletes).toContainEqual([{ eq: "s2" }]);
+  });
+
   it("goes on past a server that fails, then reports it", async () => {
     state.df = { local: new Error("Cannot connect to the Docker daemon"), s2: { Volumes: [{ Name: "v", UsageData: { Size: 10 } }] } };
     await expect(measureVolumeSizes()).rejects.toThrow("This server: Cannot connect to the Docker daemon");

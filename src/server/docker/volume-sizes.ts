@@ -22,7 +22,12 @@ export async function measureVolumeSizes() {
       .map(async (s) => {
         try {
           await withTimeout(
-            getServer(s.id).then(async (ctx) => saveSizes(s.id, ((await ctx.docker.df()) as { Volumes?: DfVolume[] | null }).Volumes ?? [])),
+            getServer(s.id).then(async (ctx) => {
+              const answer = (await ctx.docker.df()) as { Volumes?: DfVolume[] | null };
+              // Docker writes no volumes as null; an answer without the field at all says nothing,
+              // and the sizes kept so far stay.
+              if ("Volumes" in answer) await saveSizes(s.id, answer.Volumes ?? []);
+            }),
             SERVER_MS,
           );
         } catch (e) {

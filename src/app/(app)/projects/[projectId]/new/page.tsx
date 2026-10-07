@@ -48,13 +48,15 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
         engine: schema.keptDatabase.engine,
         version: schema.keptDatabase.version,
         serverId: schema.keptDatabase.serverId,
+        projectId: schema.keptDatabase.projectId,
         createdAt: schema.keptDatabase.createdAt,
       })
       .from(schema.keptDatabase)
       .where(eq(schema.keptDatabase.organizationId, ctx.org.id))
       .orderBy(desc(schema.keptDatabase.createdAt))
   )
-    .filter((k) => servers.some((s) => s.id === k.serverId))
+    // Members limited to some projects see only what their projects left.
+    .filter((k) => servers.some((s) => s.id === k.serverId) && (k.projectId ? ctx.canAccessProject(k.projectId) : ctx.projectIds === null))
     .map((k) => ({ ...k, serverName: servers.find((s) => s.id === k.serverId)!.name, createdAt: k.createdAt.toISOString() }));
   const catalog: CatalogTemplate[] = [
     ...custom.map((t) => ({

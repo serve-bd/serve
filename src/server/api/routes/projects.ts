@@ -8,7 +8,8 @@ import * as environments from "@/server/actions/environments";
 import * as services from "@/server/actions/services";
 import * as sharedVars from "@/server/actions/shared-vars";
 import * as move from "@/server/actions/move";
-import { approveDeployment, rejectDeployment } from "@/server/actions/deploy-rules";
+import { approveDeployment, rejectDeployment, saveDeployRules } from "@/server/actions/deploy-rules";
+import type { DeployRules } from "@/lib/deploy-rules";
 import { deploymentView, environmentView, loadDeployment, loadEnvironment, loadProject, projectFilter, projectView, serviceView } from "../data";
 import { ApiError, type ApiRoute, assertCan, route, unwrap } from "../router";
 
@@ -17,6 +18,21 @@ const waitConflict = (e: unknown): never => {
   if (e instanceof ApiError && e.status === 400 && /not waiting for approval|frozen/i.test(e.message)) throw new ApiError(409, e.message);
   throw e;
 };
+
+/** A project's deploy rules with every field filled in: what the settings page shows. */
+function rulesView(project: { deployRules: DeployRules | null }) {
+  const r = project.deployRules ?? {};
+  const now = r.freeze?.now ?? null;
+  return {
+    approval: { enabled: r.approval?.enabled ?? false, environmentIds: r.approval?.environmentIds ?? [] },
+    freeze: {
+      now: now ? { since: now.since, until: now.until ?? null, reason: now.reason ?? null } : null,
+      windows: r.freeze?.windows ?? [],
+      timezone: r.freeze?.timezone || "UTC",
+      environmentIds: r.freeze?.environmentIds ?? [],
+    },
+  };
+}
 
 const projectBody = z.object({
   name: z.string().min(1).max(60),
@@ -126,6 +142,56 @@ export const projectRoutes: ApiRoute[] = [
     handler: async ({ auth, params, body }) => {
       await loadProject(auth, params.projectId);
       return (await unwrap(sharedVars.saveProjectSharedVars(params.projectId, body.variables))) ?? { ok: true };
+    },
+  }),
+
+  // Deploy rules
+  route({
+    method: "GET",
+    path: "/projects/{projectId}/deploy-rules",
+    tag: "Deployments",
+    summary: "A project's deploy rules",
+    description: "approval: whether deploys of the environments listed (empty: every environment) wait for approval. freeze: frozen now (now), or in weekly windows in timezone.",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => ({ rules: rulesView(await loadProject(auth, params.projectId)) }),
+  }),
+  route({
+    method: "PATCH",
+    path: "/projects/{projectId}/deploy-rules",
+    tag: "Deployments",
+    summary: "Change a project's deploy rules",
+    description:
+      "Fields left out keep their value. freeze.now {until?, reason?} freezes deploys now (until an ISO 8601 time, or until turned off), null ends the freeze. windows: [{days (0 Sunday to 6 Saturday), start, end (like 22:00)}] in timezone (an IANA zone). environmentIds: the environments a rule holds for, empty for every one.",
+    needs: ["projects.manage"],
+    body: z.object({
+      approval: z.object({ enabled: z.boolean().optional(), environmentIds: z.array(z.string()).optional() }).optional(),
+      freeze: z
+        .object({
+          now: z.object({ until: z.string().nullable().optional(), reason: z.string().nullable().optional() }).nullable().optional(),
+          windows: z.array(z.object({ days: z.array(z.number().int()), start: z.string(), end: z.string() })).optional(),
+          timezone: z.string().optional(),
+          environmentIds: z.array(z.string()).optional(),
+        })
+        .optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      const current = rulesView(await loadProject(auth, params.projectId));
+      const now = body.freeze?.now === undefined ? current.freeze.now : body.freeze.now;
+      await unwrap(
+        saveDeployRules(params.projectId, {
+          approval: {
+            enabled: body.approval?.enabled ?? current.approval.enabled,
+            environmentIds: body.approval?.environmentIds ?? current.approval.environmentIds,
+          },
+          freeze: {
+            now: now ? { until: now.until ?? null, reason: now.reason ?? null } : null,
+            windows: body.freeze?.windows ?? current.freeze.windows,
+            timezone: body.freeze?.timezone ?? current.freeze.timezone,
+            environmentIds: body.freeze?.environmentIds ?? current.freeze.environmentIds,
+          },
+        }),
+      );
+      return { rules: rulesView(await loadProject(auth, params.projectId)) };
     },
   }),
 

@@ -7,7 +7,8 @@ import * as dbUsers from "@/server/actions/database-users";
 import * as explorer from "@/server/actions/database-explorer";
 import { FILTER_OPS, MONGO_READ_OPS, MONGO_WRITE_OPS } from "@/server/databases/explorer";
 import { databasePublicEndpoint } from "@/server/databases/public-url";
-import { saveDatabaseDomain } from "@/server/actions/database-domains";
+import { retryDatabaseCertificate, saveDatabaseDomain } from "@/server/actions/database-domains";
+import * as dbAccess from "@/server/actions/database-access";
 import * as tasks from "@/server/actions/tasks";
 import * as monitoring from "@/server/actions/monitoring";
 import { setMaintenance } from "@/server/actions/maintenance";
@@ -197,6 +198,95 @@ export const databaseRoutes: ApiRoute[] = [
     handler: async ({ auth, params }) => {
       await databaseOf(auth, params.serviceId);
       return unwrap(databases.promoteDatabaseReplica(params.serviceId, params.replicaId));
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/database/pooler",
+    tag: "Databases",
+    summary: "Turn the connection pooler on or off",
+    description:
+      "PostgreSQL only: a PgBouncer in front of the database, at POOLED_DATABASE_URL. mode (transaction or session), poolSize (1-500) and maxClients (10-10000) left out keep their value (transaction, 20 and 1000 at first). The database keeps running.",
+    needs: ["services.manage"],
+    body: z.object({
+      enabled: z.boolean(),
+      mode: z.enum(["transaction", "session"]).optional(),
+      poolSize: z.number().int().min(1).max(500).optional(),
+      maxClients: z.number().int().min(10).max(10000).optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      const { service } = await databaseOf(auth, params.serviceId);
+      const now = service.database!.pooler;
+      return unwrap(
+        databases.setDatabasePooler(params.serviceId, {
+          enabled: body.enabled,
+          mode: body.mode ?? now?.mode ?? "transaction",
+          poolSize: body.poolSize ?? now?.poolSize ?? 20,
+          maxClients: body.maxClients ?? now?.maxClients ?? 1000,
+        }),
+      );
+    },
+  }),
+  ...(["pooler", "replicas"] as const).map((which) =>
+    route({
+      method: "PUT",
+      path: `/services/{serviceId}/database/${which}/access`,
+      tag: "Databases",
+      summary: which === "pooler" ? "Public access to the connection pooler" : "Public access to the read replicas",
+      description: `${
+        which === "pooler" ? "The pooler must be on." : "The database needs a read replica."
+      } open: false makes it private again. open: true opens a public port (TLS only): port (1024-65535) is picked when left out and stays once set; bind 0.0.0.0 or 127.0.0.1; allow: addresses or ranges let through, empty for everyone; domain: a verified domain that leads to it. Answers the port and any warnings.`,
+      needs: ["services.manage", "domains.manage"],
+      body: z.object({
+        open: z.boolean(),
+        port: z.number().int().min(1024).max(65535).nullable().optional(),
+        bind: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
+        allow: z.array(z.string().max(100)).max(200).nullable().optional(),
+        domain: z.string().max(253).nullable().optional(),
+      }),
+      handler: async ({ auth, params, body }) => {
+        await databaseOf(auth, params.serviceId);
+        return unwrap(dbAccess.setAddonAccess(params.serviceId, which, body));
+      },
+    }),
+  ),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/database/retry-certificate",
+    tag: "Databases",
+    summary: "Ask again for the certificate of a database domain",
+    description: "which: the domain of the database itself (default), of its pooler, or of its read replicas (on each of their servers).",
+    needs: ["domains.manage"],
+    body: z.object({ which: z.enum(["database", "pooler", "replicas"]).default("database") }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return (await unwrap(retryDatabaseCertificate(params.serviceId, body.which))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/database/main",
+    tag: "Databases",
+    summary: "The main database and the ones that can become it",
+    description: "PostgreSQL, MySQL and MariaDB: the databases on the running server that DATABASE_URL can point at. Empty for other engines or a stopped database.",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await databaseOf(auth, params.serviceId);
+      return unwrap(databases.mainDatabaseChoices(params.serviceId));
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/database/main",
+    tag: "Databases",
+    summary: "Make another database on the server the main one",
+    description:
+      "The connection URL and ${{name.DATABASE_URL}} point at it (on MySQL and MariaDB the app account gets access to it). The database must be running. Answers the services that use it: they get the new URL on their next deploy (POST /services/redeploy).",
+    needs: ["services.manage"],
+    body: z.object({ name: z.string().min(1).max(64) }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return unwrap(databases.setMainDatabase(params.serviceId, body.name));
     },
   }),
   route({

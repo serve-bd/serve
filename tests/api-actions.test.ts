@@ -119,9 +119,21 @@ vi.mock("@/server/actions/status-pages", () =>
   ),
 );
 
+/** The real module, with these actions replaced by recorders. */
+const partly =
+  (...names: string[]) =>
+  async (actual: () => Promise<Record<string, unknown>>) => ({ ...(await actual()), ...actions(...names) });
+vi.mock("@/server/actions/databases", (actual) => partly("setDatabasePooler", "mainDatabaseChoices", "setMainDatabase", "redeployServices", "deleteVolumeData")(actual));
+vi.mock("@/server/actions/database-access", (actual) => partly("setAddonAccess")(actual));
+vi.mock("@/server/actions/database-domains", (actual) => partly("retryDatabaseCertificate")(actual));
+vi.mock("@/server/actions/deploy-rules", (actual) => partly("saveDeployRules", "setServiceApproval")(actual));
+
 const { createRouter } = await import("@/server/api/router");
 const { statusPageRoutes } = await import("@/server/api/routes/status-pages");
-const handle = createRouter([...statusPageRoutes]);
+const { databaseRoutes } = await import("@/server/api/routes/databases");
+const { serviceRoutes } = await import("@/server/api/routes/services");
+const { projectRoutes } = await import("@/server/api/routes/projects");
+const handle = createRouter([...statusPageRoutes, ...databaseRoutes, ...serviceRoutes, ...projectRoutes]);
 
 const call = (method: string, path: string, body?: unknown) =>
   handle(
@@ -181,6 +193,10 @@ beforeEach(() => {
     statusComponent: [
       { id: "c1", pageId: "sp1", name: "API", description: null, group: "Core", serviceId: "s1", position: 0 },
       { id: "c2", pageId: "sp2", name: "Theirs", description: null, group: null, serviceId: null, position: 0 },
+    ],
+    project: [
+      { id: "p1", organizationId: "o1", name: "shop", deployRules: { approval: { enabled: true, environmentIds: ["e1"] } } },
+      { id: "px", organizationId: "o2", name: "theirs", deployRules: null },
     ],
     statusSubscriber: [
       { id: "sub1", pageId: "sp1" },
@@ -289,5 +305,104 @@ describe("status pages", () => {
     const res = await call("PUT", "/status-pages/sp1/visibility", { visibility: "password" });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("Set a password first.");
+  });
+});
+
+describe("database add-ons", () => {
+  it("need services.manage, and domains.manage for public access", async () => {
+    token(["projects.view", "services.deploy"]);
+    expect((await call("PUT", "/services/db1/database/pooler", { enabled: true })).status).toBe(403);
+    expect((await call("PUT", "/services/db1/database/main", { name: "shop" })).status).toBe(403);
+    expect((await call("GET", "/services/db1/database/main")).status).toBe(403);
+    token(["services.manage"]);
+    const res = await call("PUT", "/services/db1/database/pooler/access", { open: true });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ missing: ["domains.manage"] });
+    expect((await call("POST", "/services/db1/database/retry-certificate", {})).status).toBe(403);
+    expect(state.calls).toHaveLength(0);
+  });
+
+  it("turn the pooler on with the defaults the dashboard uses", async () => {
+    token(["services.manage"]);
+    expect((await call("PUT", "/services/db1/database/pooler", { enabled: true, poolSize: 40 })).status).toBe(200);
+    expect(called("setDatabasePooler")).toEqual([["setDatabasePooler", "db1", { enabled: true, mode: "transaction", poolSize: 40, maxClients: 1000 }]]);
+    expect((await call("PUT", "/services/db1/database/pooler", { enabled: true, poolSize: 900 })).status).toBe(400);
+  });
+
+  it("open the pooler or replicas, retry a certificate and pick the main database", async () => {
+    token(["services.manage", "domains.manage"]);
+    expect((await call("PUT", "/services/db1/database/replicas/access", { open: true, domain: "ro.example.com" })).status).toBe(200);
+    expect(called("setAddonAccess")).toEqual([["setAddonAccess", "db1", "replicas", { open: true, domain: "ro.example.com" }]]);
+    expect((await call("POST", "/services/db1/database/retry-certificate", { which: "pooler" })).status).toBe(200);
+    expect(called("retryDatabaseCertificate")).toEqual([["retryDatabaseCertificate", "db1", "pooler"]]);
+    expect((await call("PUT", "/services/db1/database/main", { name: "shop" })).status).toBe(200);
+    expect(called("setMainDatabase")).toEqual([["setMainDatabase", "db1", "shop"]]);
+  });
+
+  it("do not reach another organization's database, or an app", async () => {
+    token(["services.manage", "domains.manage", "services.deploy"], { admin: true });
+    expect((await call("PUT", "/services/otherdb/database/pooler", { enabled: true })).status).toBe(404);
+    expect((await call("PUT", "/services/otherdb/database/pooler/access", { open: false })).status).toBe(404);
+    expect((await call("POST", "/services/otherdb/database/retry-certificate", {})).status).toBe(404);
+    expect((await call("GET", "/services/otherdb/database/main")).status).toBe(404);
+    expect((await call("PUT", "/services/s1/database/main", { name: "shop" })).status).toBe(400);
+    expect((await call("DELETE", "/services/other/volumes/data")).status).toBe(404);
+    expect((await call("POST", "/services/redeploy", { serviceIds: ["s1", "other"] })).status).toBe(404);
+    expect(state.calls).toHaveLength(0);
+  });
+
+  it("redeploy services and delete an unmounted volume", async () => {
+    token(["services.deploy"]);
+    state.results.redeployServices = { ok: true, data: { queued: 1 } };
+    const res = await call("POST", "/services/redeploy", { serviceIds: ["s1", "s1"] });
+    expect(await res.json()).toEqual({ queued: 1 });
+    expect(called("redeployServices")).toEqual([["redeployServices", ["s1"]]]);
+    expect((await call("DELETE", "/services/s1/volumes/cache")).status).toBe(403);
+    token(["services.manage"]);
+    expect((await call("DELETE", "/services/s1/volumes/cache")).status).toBe(200);
+    expect(called("deleteVolumeData")).toEqual([["deleteVolumeData", "s1", "cache"]]);
+  });
+});
+
+describe("deploy rules", () => {
+  it("show a project's rules with every field, and change only what is sent", async () => {
+    token(["projects.view"]);
+    expect((await (await call("GET", "/projects/p1/deploy-rules")).json()).rules).toEqual({
+      approval: { enabled: true, environmentIds: ["e1"] },
+      freeze: { now: null, windows: [], timezone: "UTC", environmentIds: [] },
+    });
+    expect((await call("PATCH", "/projects/p1/deploy-rules", { freeze: { now: { reason: "launch" } } })).status).toBe(403);
+    token(["projects.manage"]);
+    expect((await call("PATCH", "/projects/p1/deploy-rules", { freeze: { now: { reason: "launch" } } })).status).toBe(200);
+    expect(called("saveDeployRules")).toEqual([
+      [
+        "saveDeployRules",
+        "p1",
+        { approval: { enabled: true, environmentIds: ["e1"] }, freeze: { now: { until: null, reason: "launch" }, windows: [], timezone: "UTC", environmentIds: [] } },
+      ],
+    ]);
+  });
+
+  it("do not reach another organization's project or service", async () => {
+    token(["projects.view", "projects.manage", "deploys.approve"], { admin: true });
+    expect((await call("GET", "/projects/px/deploy-rules")).status).toBe(404);
+    expect((await call("PATCH", "/projects/px/deploy-rules", {})).status).toBe(404);
+    expect((await call("PUT", "/services/other/approval", { mode: "never" })).status).toBe(404);
+    token(["projects.manage"], { projects: ["p2"] });
+    expect((await call("PATCH", "/projects/p1/deploy-rules", {})).status).toBe(404);
+    expect(state.calls).toHaveLength(0);
+  });
+
+  it("let only those who approve deploys change a service's approval", async () => {
+    token(["projects.view", "services.manage"]);
+    expect((await call("PUT", "/services/s1/approval", { mode: "never" })).status).toBe(403);
+    token(["deploys.approve"]);
+    expect((await call("PUT", "/services/s1/approval", { mode: "never" })).status).toBe(200);
+    expect((await call("PUT", "/services/s1/approval", { mode: null })).status).toBe(200);
+    expect((await call("PUT", "/services/s1/approval", { mode: "sometimes" })).status).toBe(400);
+    expect(called("setServiceApproval")).toEqual([
+      ["setServiceApproval", "s1", "never"],
+      ["setServiceApproval", "s1", null],
+    ]);
   });
 });

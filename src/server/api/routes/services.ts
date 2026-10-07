@@ -6,6 +6,8 @@ import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import * as actions from "@/server/actions/services";
 import * as tagActions from "@/server/actions/tags";
+import * as dbActions from "@/server/actions/databases";
+import { setServiceApproval } from "@/server/actions/deploy-rules";
 import { deploymentView, domainView, loadDomain, loadService, page, projectFilter, serviceView } from "../data";
 import { ApiError, type ApiRoute, assertCan, route, unwrap } from "../router";
 
@@ -328,6 +330,61 @@ export const serviceRoutes: ApiRoute[] = [
       await loadService(auth, params.serviceId);
       await unwrap(actions.restartContainer(params.serviceId, params.containerId));
       return { ok: true };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/approval",
+    tag: "Deployments",
+    summary: "Whether a service's deploys wait for approval",
+    description: "mode always (they always wait), never (they never do) or null (the project's deploy rules decide).",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      return { mode: service.deployApproval ?? null };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/approval",
+    tag: "Deployments",
+    summary: "Make a service's deploys wait for approval, or not",
+    description: "mode always, never, or null to follow the project's deploy rules. Database deploys never wait.",
+    needs: ["deploys.approve"],
+    body: z.object({ mode: z.enum(["always", "never"]).nullable() }),
+    handler: async ({ auth, params, body }) => {
+      await loadService(auth, params.serviceId);
+      await unwrap(setServiceApproval(params.serviceId, body.mode));
+      return { mode: body.mode };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/redeploy",
+    tag: "Deployments",
+    summary: "Redeploy several services",
+    description:
+      "Like after a database password change: each running service of serviceIds (up to 50) is deployed again; stopped ones are left alone. Answers how many were queued.",
+    needs: ["services.deploy"],
+    body: z.object({ serviceIds: z.array(id).min(1).max(50) }),
+    handler: async ({ auth, body }) => {
+      const ids = [...new Set(body.serviceIds)];
+      for (const serviceId of ids) await loadService(auth, serviceId);
+      return unwrap(dbActions.redeployServices(ids));
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/services/{serviceId}/volumes/{volume}",
+    tag: "Services",
+    summary: "Delete the data of a volume no longer mounted",
+    description:
+      "Permanently removes a Docker volume of the service from its server: one its settings (or its compose file) no longer mount. A database's own data volume goes only with the database.",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      await unwrap(dbActions.deleteVolumeData(params.serviceId, params.volume));
+      return { deleted: true };
     },
   }),
   route({

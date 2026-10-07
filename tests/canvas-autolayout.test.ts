@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoLayout, CARD_H, CARD_W, FRAME_PAD, FRAME_TOP, type LayoutService } from "@/lib/canvas-layout";
+import { autoLayout, CARD_H, CARD_W, cardHeight, FRAME_PAD, FRAME_TOP, keptLayout, type LayoutService } from "@/lib/canvas-layout";
 
 const svc = (id: string, serverId: string, uses: string[] = []): LayoutService => ({ id, serverId, uses: uses.map((u) => ({ id: u })) });
 
@@ -55,5 +55,38 @@ describe("project canvas auto layout", () => {
     const pos = autoLayout([svc("web", "local", ["api"]), svc("api", "local", ["db"]), svc("db", "local")]);
     expect(pos.web.x).toBeLessThan(pos.api.x);
     expect(pos.api.x).toBeLessThan(pos.db.x);
+  });
+
+  it("makes room for the volume strip of taller cards", () => {
+    expect(cardHeight(0)).toBe(CARD_H);
+    expect(cardHeight(2)).toBeGreaterThan(cardHeight(1));
+    // Three lines and a "+N more" line at most.
+    expect(cardHeight(9)).toBe(cardHeight(4));
+    const tall = cardHeight(4);
+    const services = [...Array.from({ length: 5 }, (_, i) => ({ ...svc(`s${i}`, "local"), h: i === 1 ? tall : CARD_H })), { ...svc("web", "two", ["s0"]), h: tall }];
+    const pos = autoLayout(services);
+    const h = (id: string) => services.find((s) => s.id === id)!.h;
+    for (const a of services)
+      for (const b of services)
+        if (a !== b) {
+          const pa = pos[a.id];
+          const pb = pos[b.id];
+          expect(pa.x < pb.x + CARD_W && pb.x < pa.x + CARD_W && pa.y < pb.y + h(b.id) && pb.y < pa.y + h(a.id), `${a.id} and ${b.id} overlap`).toBe(false);
+        }
+  });
+
+  it("puts kept data below every card and its server box, in rows of three", () => {
+    const cards = [
+      { x: 0, y: 0, h: CARD_H },
+      { x: 400, y: 300, h: cardHeight(3) },
+    ];
+    const pos = keptLayout(["a", "b", "c", "d"], cards);
+    const bottom = 300 + cardHeight(3) + FRAME_PAD;
+    for (const p of Object.values(pos)) expect(p.y).toBeGreaterThan(bottom);
+    expect(pos.a.y).toBe(pos.c.y);
+    expect(pos.d.y).toBeGreaterThan(pos.a.y + CARD_H);
+    expect(new Set(Object.values(pos).map((p) => `${p.x},${p.y}`)).size).toBe(4);
+    // Nothing else on the canvas: from the origin.
+    expect(keptLayout(["a"], [])).toEqual({ a: { x: 0, y: 0 } });
   });
 });

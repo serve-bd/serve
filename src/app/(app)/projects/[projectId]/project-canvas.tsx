@@ -14,6 +14,7 @@ import {
   Handle,
   MarkerType,
   type Node,
+  type NodeChange,
   type NodeProps,
   type NodeTypes,
   Position,
@@ -23,7 +24,22 @@ import {
   useReactFlow,
   ViewportPortal,
 } from "@xyflow/react";
-import { AlertTriangle, ArrowUpRight, LayoutGrid, Maximize2, Minimize2, Minus, Plus, Scan, Server as ServerIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Database,
+  Folder,
+  HardDrive,
+  LayoutGrid,
+  Maximize2,
+  Minimize2,
+  Minus,
+  MoreHorizontal,
+  Plus,
+  Scan,
+  Server as ServerIcon,
+  Trash2,
+} from "lucide-react";
 import { useRouter } from "@/hooks/use-router";
 import { engineColors, ServiceIcon } from "@/components/service-icon";
 import { StatusLabel } from "@/components/ui/status";
@@ -32,12 +48,22 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { resetCanvasLayout, saveCanvasPositions } from "@/server/actions/projects";
+import { deleteKeptData } from "@/server/actions/kept-data";
 import type { ServiceCardData } from "@/server/project-data";
-import { cn } from "@/lib/utils";
+import type { KeptData } from "@/server/services/kept-data";
+import { cn, formatBytes } from "@/lib/utils";
 import { useCanvasFullscreen } from "@/hooks/use-canvas-fullscreen";
-import { autoLayout, CARD_H, CARD_W, FRAME_PAD, FRAME_TOP, type Pos } from "@/lib/canvas-layout";
+import { autoLayout, CARD_H, CARD_W, cardHeight, FRAME_PAD, FRAME_TOP, keptLayout, type Pos, VOLUME_LINE_H, VOLUME_LINES } from "@/lib/canvas-layout";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
+import { TimeAgo } from "@/components/ui/misc";
+import { toast } from "@/components/ui/toast";
+import { useDeleteGuard } from "@/app/(app)/account/confirm-identity";
 
 type ServiceNode = Node<{ s: ServiceCardData; projectId: string }, "service">;
+/** Data a deleted service left behind: placed automatically, never dragged or saved. */
+type KeptNode = Node<{ k: KeptData; onStart: ((k: KeptData) => void) | null; onDelete: ((k: KeptData) => void) | null }, "kept">;
+
+const heightOf = (s: ServiceCardData) => cardHeight(s.volumes.length);
 
 const sourceKind = (s: ServiceCardData) => (s.source && s.type === "app" ? (s.source.includes("/") && !s.source.includes(":") ? "git" : "image") : null);
 
@@ -76,7 +102,7 @@ function ServerFrames({
         const minX = Math.min(...list.map((n) => n.position.x)) - FRAME_PAD;
         const minY = Math.min(...list.map((n) => n.position.y)) - FRAME_TOP;
         const maxX = Math.max(...list.map((n) => n.position.x + CARD_W)) + FRAME_PAD;
-        const maxY = Math.max(...list.map((n) => n.position.y + CARD_H)) + FRAME_PAD;
+        const maxY = Math.max(...list.map((n) => n.position.y + heightOf(n.data.s))) + FRAME_PAD;
         return (
           <div
             key={serverId}
@@ -140,9 +166,9 @@ function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
   const issue = s.issues[0];
   return (
     <div
-      style={{ width: CARD_W, height: CARD_H }}
+      style={{ width: CARD_W, height: heightOf(s) }}
       className={cn(
-        "group flex cursor-pointer flex-col justify-between rounded-2xl border bg-surface shadow-sm transition-[border-color,box-shadow] duration-150 hover:shadow-md",
+        "group flex cursor-pointer flex-col rounded-2xl border bg-surface shadow-sm transition-[border-color,box-shadow] duration-150 hover:shadow-md",
         issue?.tone === "bad" ? "border-bad/50" : issue?.tone === "warn" ? "border-warn/50" : selected ? "border-accent" : "border-line hover:border-line-strong",
       )}
     >
@@ -168,7 +194,7 @@ function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
           </a>
         )}
       </div>
-      <div className="flex items-center justify-between gap-2 border-t border-line px-3.5 py-2">
+      <div className="mt-auto flex items-center justify-between gap-2 border-t border-line px-3.5 py-2">
         <StatusLabel status={s.status} className="text-[11px]" />
         {s.lastDeploy?.status === "waiting" ? (
           <WaitingMark className="text-[11px]" />
@@ -181,12 +207,86 @@ function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
           )
         )}
       </div>
+      {s.volumes.length > 0 && <VolumeStrip volumes={s.volumes} />}
       <Handle type="source" position={Position.Right} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
     </div>
   );
 }
 
-const nodeTypes: NodeTypes = { service: ServiceCardNode };
+/** Where a service keeps its data: a line per volume (or host folder), the rest counted. */
+function VolumeStrip({ volumes }: { volumes: ServiceCardData["volumes"] }) {
+  const shown = volumes.length > VOLUME_LINES ? volumes.slice(0, VOLUME_LINES) : volumes;
+  const line = { height: VOLUME_LINE_H };
+  return (
+    <div className="flex flex-col rounded-b-2xl border-t border-line bg-surface-2/50 px-3.5 py-1.5 text-[11px] text-muted">
+      {shown.map((v) => (
+        <span key={v.name} style={line} className="flex min-w-0 items-center gap-1.5" title={`${v.bind ? "Folder" : "Volume"} ${v.name}${v.mountPath ? ` at ${v.mountPath}` : ""}`}>
+          {v.bind ? <Folder className="size-3 flex-none text-faint" /> : <HardDrive className="size-3 flex-none text-faint" />}
+          <span className="min-w-0 truncate font-mono text-[10.5px] text-fg-2">{v.name}</span>
+          {v.mountPath && <span className="min-w-0 flex-1 truncate text-faint">{v.mountPath}</span>}
+          {v.bytes !== null && <span className="ml-auto flex-none tabular-nums">{formatBytes(v.bytes)}</span>}
+        </span>
+      ))}
+      {volumes.length > shown.length && (
+        <span style={line} className="flex items-center text-faint">
+          +{volumes.length - shown.length} more
+        </span>
+      )}
+    </div>
+  );
+}
+
+function KeptCardNode({ data }: NodeProps<KeptNode>) {
+  const { k, onStart, onDelete } = data;
+  const folder = k.volume.startsWith("/");
+  return (
+    <div
+      style={{ width: CARD_W, height: CARD_H }}
+      className="flex cursor-default flex-col rounded-2xl border border-dashed border-line-strong bg-surface/70"
+      title={`On ${k.serverName || "its server"}`}
+    >
+      <div className="flex items-start gap-3 px-3.5 pt-3">
+        <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-surface-2 text-muted">
+          {k.kind === "database" ? <Database className="size-4" /> : folder ? <Folder className="size-4" /> : <HardDrive className="size-4" />}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate font-mono text-[12px] font-medium text-fg">{k.volume}</span>
+          <span className="truncate text-[11px] text-muted">
+            From deleted {k.serviceName}
+            {k.engine ? ` · ${k.engine} ${k.version ?? ""}` : ""}
+          </span>
+        </div>
+        {(onStart || onDelete) && (
+          <Menu>
+            <MenuTrigger className="nodrag nopan flex-none rounded-md p-1 text-faint transition-colors hover:bg-hover hover:text-fg" aria-label={`Actions for ${k.volume}`}>
+              <MoreHorizontal className="size-4" />
+            </MenuTrigger>
+            <MenuContent>
+              {onStart && k.kind === "database" && (
+                <MenuItem onClick={() => onStart(k)}>
+                  <Plus /> Start a database on it
+                </MenuItem>
+              )}
+              {onDelete && (
+                <MenuItem danger onClick={() => onDelete(k)}>
+                  <Trash2 /> Delete data
+                </MenuItem>
+              )}
+            </MenuContent>
+          </Menu>
+        )}
+      </div>
+      <div className="mt-auto flex items-center justify-between gap-2 border-t border-dashed border-line px-3.5 py-2 text-[11px] text-muted">
+        <span className="truncate">{k.bytes !== null ? formatBytes(k.bytes) : folder ? "Host folder" : "Volume"}</span>
+        <span className="flex-none">
+          Kept <TimeAgo date={k.createdAt} />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes: NodeTypes = { service: ServiceCardNode, kept: KeptCardNode };
 
 type UseEdge = Edge<{ variables: string[]; kind: "local" | "private" | "broken"; color: string }, "uses">;
 
@@ -259,18 +359,23 @@ function edgesOf(services: ServiceCardData[]): UseEdge[] {
 type Props = {
   projectId: string;
   environmentId: string;
+  environmentName: string;
   services: ServiceCardData[];
+  /** Data deleted services of this environment left behind. */
+  kept: KeptData[];
+  /** Kept data was deleted: load the canvas again. */
+  onKeptChange: () => void;
   saved: Record<string, Pos>;
   canManage: boolean;
 };
 
-function Canvas({ projectId, environmentId, services, saved, canManage }: Props) {
+function Canvas({ projectId, environmentId, environmentName, services, kept, onKeptChange, saved, canManage }: Props) {
   const router = useRouter();
   const confirm = useConfirm();
   const flow = useReactFlow();
   const fs = useCanvasFullscreen(flow);
   // Laid out again only when services or their uses change, not on every status refresh.
-  const shapeKey = JSON.stringify(services.map((s) => ({ id: s.id, serverId: s.serverId, uses: s.uses.map((u) => ({ id: u.id })) })));
+  const shapeKey = JSON.stringify(services.map((s) => ({ id: s.id, serverId: s.serverId, uses: s.uses.map((u) => ({ id: u.id })), h: heightOf(s) })));
   const auto = React.useMemo(() => autoLayout(JSON.parse(shapeKey)), [shapeKey]);
   // Where each service sits: dragged here, saved before, or placed automatically.
   // A refresh hands over an equal but new object: only a real change of the saved places counts.
@@ -293,6 +398,64 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
   }, [build, setNodes]);
   const edges = React.useMemo(() => edgesOf(services), [services]);
 
+  const deleteGuard = useDeleteGuard();
+  const removeKept = useAction((k: KeptData, password: string | null) => deleteGuard.guard(() => deleteKeptData(k.kind, k.id, password)), {
+    onSuccess: (d) => {
+      // A folder or a volume made outside Serve stays: say where, as nothing on the page shows it.
+      if (d?.note) toast.info("Kept data forgotten", d.note);
+      onKeptChange();
+    },
+  });
+  const keptActions = React.useMemo(
+    () => ({
+      onStart: canManage ? (k: KeptData) => router.push(`/projects/${projectId}/new?env=${encodeURIComponent(environmentName)}&type=database&kept=${k.id}`) : null,
+      onDelete: canManage
+        ? async (k: KeptData) => {
+            let password: string | null = null;
+            const folder = k.volume.startsWith("/");
+            if (
+              await confirm({
+                password: (p) => {
+                  password = p;
+                },
+                title: `Delete the data of ${k.serviceName}?`,
+                description: folder
+                  ? `Serve forgets this data. The folder ${k.volume} stays on ${k.serverName || "the server"}.`
+                  : k.owned
+                    ? `The volume ${k.volume} and all data in it are permanently deleted from ${k.serverName || "the server"}. This cannot be undone.`
+                    : `Serve forgets this data. The volume ${k.volume} was made outside Serve and stays on ${k.serverName || "the server"}.`,
+                confirmLabel: "Delete data",
+                danger: true,
+                typeToConfirm: k.volume,
+              })
+            )
+              void removeKept.run(k, password);
+          }
+        : null,
+    }),
+    [canManage, router, projectId, environmentName, confirm, removeKept.run],
+  );
+  // Under the services wherever they are now, so moving one never puts it under kept data.
+  const cardsKey = JSON.stringify(nodes.map((n) => ({ x: n.position.x, y: n.position.y, h: heightOf(n.data.s) })));
+  const keptNodes = React.useMemo((): KeptNode[] => {
+    const places = keptLayout(
+      kept.map((k) => `kept:${k.kind}:${k.id}`),
+      JSON.parse(cardsKey),
+    );
+    // Sized up front: these are not in the nodes state that takes React Flow's measurements.
+    return kept.map((k) => ({
+      id: `kept:${k.kind}:${k.id}`,
+      type: "kept",
+      position: places[`kept:${k.kind}:${k.id}`],
+      width: CARD_W,
+      height: CARD_H,
+      data: { k, ...keptActions },
+      draggable: false,
+      selectable: false,
+    }));
+  }, [kept, cardsKey, keptActions]);
+  const allNodes = React.useMemo(() => [...nodes, ...keptNodes], [nodes, keptNodes]);
+
   // Refreshed after saving, so the page cache (used by Back) knows the new places.
   const save = useAction((positions: Record<string, Pos>) => saveCanvasPositions(environmentId, positions));
   const reset = useAction(() => resetCanvasLayout(environmentId), {
@@ -304,18 +467,20 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
 
   return (
     <div ref={fs.ref} className={cn("serve-canvas", fs.className)}>
-      <ReactFlow
-        nodes={nodes}
+      <ReactFlow<ServiceNode | KeptNode>
+        nodes={allNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        onNodesChange={onNodesChange}
+        // Kept cards are not in the nodes state: their changes (sizes, selection) are not kept.
+        onNodesChange={(changes) => onNodesChange(changes.filter((c) => !("id" in c) || !c.id.startsWith("kept:")) as NodeChange<ServiceNode>[])}
         onNodeClick={(_e, node) => {
+          if (node.type === "kept") return;
           router.push(`/projects/${projectId}/services/${node.id}`);
         }}
         onNodeDragStop={(_e, _node, dragged) => {
           if (!canManage) return;
-          const moved = Object.fromEntries(dragged.map((n) => [n.id, n.position]));
+          const moved = Object.fromEntries(dragged.filter((n) => n.type === "service").map((n) => [n.id, n.position]));
           if (Object.keys(moved).length) void save.run(moved);
         }}
         nodesConnectable={false}
@@ -362,6 +527,7 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
         )}
       </div>
       <Legend services={services} />
+      {deleteGuard.dialog}
     </div>
   );
 }

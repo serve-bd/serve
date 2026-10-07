@@ -90,6 +90,8 @@ type Props = {
   templates: CatalogTemplate[];
   /** Data of databases deleted with their volume kept: a new database can start on it. */
   kept?: { id: string; name: string; engine: DbEngine; version: string; serverId: string; serverName: string; createdAt: string }[];
+  /** Kept data chosen when the page opens: the database form starts on it. */
+  initialKept?: string | null;
   /** Organization admins can manage templates. */
   canManageTemplates: boolean;
   engines: {
@@ -770,7 +772,9 @@ function DatabaseForm({ props, onBack, initialEngine }: { props: Props; onBack: 
   const info = props.engines.find((e) => e.engine === engine)!;
   const [version, setVersion] = React.useState(info.defaultVersion);
   // The defaults are filled in, not only hinted: what you see is what gets made.
-  const [name, setName] = React.useState(info.label.toLowerCase());
+  // Kept data picked on the canvas ("Start a database on it").
+  const preset = props.kept?.find((k) => k.id === props.initialKept) ?? null;
+  const [name, setName] = React.useState(preset?.name ?? info.label.toLowerCase());
   const [username, setUsername] = React.useState(info.defaultUser);
   const [database, setDatabase] = React.useState(info.defaultDatabase);
   const pickEngine = (e: DbEngine) => {
@@ -783,7 +787,7 @@ function DatabaseForm({ props, onBack, initialEngine }: { props: Props; onBack: 
     setVersion(next.defaultVersion);
   };
   const kept = props.kept ?? [];
-  const [from, setFrom] = React.useState("new");
+  const [from, setFrom] = React.useState(preset?.id ?? "new");
   const keptRow = kept.find((k) => k.id === from) ?? null;
   const keptInfo = keptRow ? props.engines.find((e) => e.engine === keptRow.engine) : null;
   const { run, pending } = useAction(createDatabaseService, {
@@ -1357,6 +1361,7 @@ export function NewServiceWizard({ header, ...props }: Props & { header: { title
 type Step = { kind: Kind; engine?: DbEngine; access?: GitAccess } | { template: string } | null;
 
 function initialStep(props: Props): Step {
+  if (props.initialKept && props.kept?.some((k) => k.id === props.initialKept)) return { kind: "database" };
   return props.initialType && starts.some((k) => k.id === props.initialType)
     ? { kind: props.initialType as Kind }
     : props.initialTemplate && props.templates.some((t) => t.id === props.initialTemplate)

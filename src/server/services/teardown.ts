@@ -85,6 +85,13 @@ async function teardown(services: (typeof schema.service.$inferSelect)[], remove
   // Databases deleted with their data kept: remembered, so a new database can start from it.
   // One never deployed has no data to keep.
   if (!removeVolumes) await keepDatabases(services.filter((s) => s.type === "database" && s.database && !s.parentServiceId && s.currentDeploymentId));
+  // Apps' and stacks' volumes too, shown on the canvas until someone deletes them. A server removed
+  // with its services kept keeps everything as it is: nothing is recorded then.
+  if (!removeVolumes && !opts.leaveRunning)
+    await keepVolumes(
+      services.filter((s) => (s.type === "app" || s.type === "compose") && !s.parentServiceId && s.currentDeploymentId),
+      leftovers,
+    );
   await db.delete(schema.service).where(
     inArray(
       schema.service.id,
@@ -178,10 +185,53 @@ async function keepDatabases(services: (typeof schema.service.$inferSelect)[]) {
         owned: !cfg.dataVolume || !!cfg.dataVolumeOwned,
         dataMountPath: cfg.dataMountPath ?? null,
         pgdata: cfg.pgdata ?? null,
+        projectId: s.projectId,
+        environmentId: s.environmentId,
       },
     ];
   });
   if (rows.length) await db.insert(schema.keptDatabase).values(rows);
+}
+
+/** How long a server gets to list a stack's volumes before the delete goes on without them. */
+const LIST_VOLUMES_MS = 15_000;
+
+/**
+ * The named volumes apps and stacks leave behind. Volumes made outside Serve are not Serve's to
+ * show or delete: left out. A stack's volumes are the ones compose labelled with its project (the slug).
+ */
+async function keepVolumes(services: (typeof schema.service.$inferSelect)[], leftovers: string[]) {
+  if (!services.length) return;
+  const { volumeName } = await import("@/server/deploy/containers");
+  const { newId } = await import("@/server/id");
+  const projects = await db
+    .select({ id: schema.project.id, organizationId: schema.project.organizationId })
+    .from(schema.project)
+    .where(inArray(schema.project.id, [...new Set(services.map((s) => s.projectId))]));
+  const orgOf = new Map(projects.map((p) => [p.id, p.organizationId]));
+  const rows: (typeof schema.keptVolume.$inferInsert)[] = [];
+  for (const s of services) {
+    const organizationId = orgOf.get(s.projectId);
+    if (!organizationId) continue;
+    const base = { organizationId, projectId: s.projectId, environmentId: s.environmentId, serviceName: s.name, owned: true };
+    if (s.type === "app") {
+      // Each server the app ran on has its own copy of its volumes.
+      for (const serverId of runServerIds(s.serverId, s.distribution))
+        for (const v of s.runtime.volumes.filter((v) => v.kind === "volume" && !v.external))
+          rows.push({ ...base, id: newId(), serverId, serviceType: "app", volume: volumeName(s.slug, v.source), mountPath: v.mountPath });
+      continue;
+    }
+    try {
+      const { getServer } = await import("@/server/servers/context");
+      const { withTimeout } = await import("@/server/monitoring/containers");
+      const { docker } = await getServer(s.serverId);
+      const list = await withTimeout(docker.listVolumes({ filters: { label: [`com.docker.compose.project=${s.slug}`] } }), LIST_VOLUMES_MS);
+      for (const v of list.Volumes ?? []) rows.push({ ...base, id: newId(), serverId: s.serverId, serviceType: "compose", volume: v.Name, mountPath: null });
+    } catch (e) {
+      leftover(leftovers, `Volumes of ${s.name} stay on its server but could not be listed in Serve`)(e);
+    }
+  }
+  if (rows.length) await db.insert(schema.keptVolume).values(rows);
 }
 
 /** The DNS records Serve made for databases' own domains (marked by their comment), never anyone else's. */

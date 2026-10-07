@@ -892,9 +892,55 @@ export const keptDatabase = pgTable(
     owned: boolean("owned").notNull().default(true),
     dataMountPath: text("data_mount_path"),
     pgdata: text("pgdata"),
+    /** Where the database was: its card stays on that environment's canvas. Unset for data kept before. */
+    projectId: text("project_id").references(() => project.id, { onDelete: "set null" }),
+    environmentId: text("environment_id").references(() => environment.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },
-  (t) => [index("kept_database_org_idx").on(t.organizationId)],
+  (t) => [index("kept_database_org_idx").on(t.organizationId), index("kept_database_environment_idx").on(t.environmentId)],
+);
+
+/**
+ * A Docker volume an app or a compose stack left behind when it was deleted with its data kept.
+ * Shown on its environment's canvas until someone deletes it.
+ */
+export const keptVolume = pgTable(
+  "kept_volume",
+  {
+    id: id(),
+    organizationId: orgRef(),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => server.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => project.id, { onDelete: "set null" }),
+    environmentId: text("environment_id").references(() => environment.id, { onDelete: "set null" }),
+    /** The deleted service's name. */
+    serviceName: text("service_name").notNull(),
+    serviceType: text("service_type").$type<"app" | "compose">().notNull(),
+    /** Docker volume name. */
+    volume: text("volume").notNull(),
+    mountPath: text("mount_path"),
+    /** Made by Serve: deleting the data deletes the volume. */
+    owned: boolean("owned").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [index("kept_volume_org_idx").on(t.organizationId), index("kept_volume_environment_idx").on(t.environmentId)],
+);
+
+/** Disk use of each Docker volume per server (docker system df), measured every few hours. */
+export const volumeSize = pgTable(
+  "volume_size",
+  {
+    serverId: text("server_id")
+      .notNull()
+      .references(() => server.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Its com.docker.compose.project label: the stack's slug. */
+    composeProject: text("compose_project"),
+    bytes: bigint("bytes", { mode: "number" }).notNull(),
+    checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.serverId, t.name] })],
 );
 
 export type CertificateStatus = "pending" | "issuing" | "active" | "failed" | "expired";

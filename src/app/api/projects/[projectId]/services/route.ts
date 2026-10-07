@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireOrg } from "@/server/auth";
 import { projectInOrg } from "@/server/services/access";
 import { envBelongs, environmentServices } from "@/server/project-data";
+import { environmentKept } from "@/server/services/kept-data";
 
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/projects/[projectId]/services">) {
   const { projectId } = await ctx.params;
@@ -14,5 +15,6 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/projects
   }
   const envId = request.nextUrl.searchParams.get("env") ?? "";
   if (!(await envBelongs(projectId, envId))) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ services: await environmentServices(envId) });
+  const [services, kept] = await Promise.all([environmentServices(envId), environmentKept(envId, org.org.id)]);
+  return NextResponse.json({ services, kept });
 }

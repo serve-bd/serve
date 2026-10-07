@@ -8,6 +8,7 @@ import { decryptOrNull } from "@/server/crypto";
 import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
 import { scopeReader } from "@/lib/refs";
 import { runServerIds } from "@/server/deploy/distribution";
+import { type CardVolume, cardVolumes } from "@/server/services/card-volumes";
 
 export type { ServiceUse };
 
@@ -28,6 +29,8 @@ export type ServiceCardData = {
   serverName: string;
   /** Services of the environment this one references in its variables. */
   uses: ServiceUse[];
+  /** Where it keeps its data, with sizes when measured. */
+  volumes: CardVolume[];
 };
 
 export async function environmentServices(environmentId: string): Promise<ServiceCardData[]> {
@@ -39,7 +42,8 @@ export async function environmentServices(environmentId: string): Promise<Servic
     .orderBy(asc(schema.service.createdAt));
   if (!services.length) return [];
   const ids = services.map((s) => s.id);
-  const [domains, deployments, issues, vars, servers, mesh, [scopeRow]] = await Promise.all([
+  const serverIds = [...new Set(services.map((s) => s.serverId))];
+  const [domains, deployments, issues, vars, servers, mesh, [scopeRow], sizes] = await Promise.all([
     db.select().from(schema.domain).where(inArray(schema.domain.serviceId, ids)).orderBy(asc(schema.domain.createdAt)),
     db
       .selectDistinctOn([schema.deployment.serviceId], {
@@ -73,6 +77,7 @@ export async function environmentServices(environmentId: string): Promise<Servic
       .from(schema.environment)
       .innerJoin(schema.project, eq(schema.environment.projectId, schema.project.id))
       .where(eq(schema.environment.id, environmentId)),
+    db.select().from(schema.volumeSize).where(inArray(schema.volumeSize.serverId, serverIds)),
   ]);
   // Shared variables, for references that go through them (like variable resolution does).
   const shared = scopeRow
@@ -129,6 +134,7 @@ export async function environmentServices(environmentId: string): Promise<Servic
       serverId: s.serverId,
       serverName: servers.find((x) => x.id === s.serverId)?.name ?? "",
       uses: uses.get(s.id) ?? [],
+      volumes: cardVolumes(s, sizes),
     };
   });
 }

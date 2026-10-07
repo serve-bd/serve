@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -788,7 +789,7 @@ func (a *App) tokensCmd() *cobra.Command {
 			return printJSON(l.Raw)
 		}
 		if len(l.Items) == 0 {
-			ui.Info("No API tokens. Make one in the dashboard under Keys & tokens.")
+			ui.Info("No API tokens. Make one with `serve tokens create <name> --access <permissions>`.")
 			return nil
 		}
 		current := ""
@@ -819,11 +820,10 @@ func (a *App) tokensCmd() *cobra.Command {
 		ui.Table([]string{"NAME", "PREFIX", "OWNER", "ACCESS", "LAST USED", "EXPIRES", "ID"}, rows)
 		return nil
 	})
-	cmd.Short = "List and revoke API tokens"
+	cmd.Short = "List, create and revoke API tokens"
 	cmd.Long = `List API tokens: your own, or every token of the organization with the members.manage
-permission. New tokens are made in the dashboard (Keys & tokens), where a person signs in;
-serve login makes one for the CLI.`
-	cmd.Example = "  serve tokens\n  serve tokens rm \"Old CI\""
+permission. serve tokens create makes one (for CI, say); serve login makes one for the CLI.`
+	cmd.Example = "  serve tokens\n  serve tokens create CI --access services.deploy,projects.view --expires 90\n  serve tokens rm \"Old CI\""
 	var yes bool
 	rm := &cobra.Command{
 		Use:     "rm <token>",
@@ -864,7 +864,103 @@ the members.manage permission.`,
 		},
 	}
 	rm.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask for the name")
-	cmd.AddCommand(rm)
+	cmd.AddCommand(a.tokenCreateCmd(), rm)
+	return cmd
+}
+
+func (a *App) tokenCreateCmd() *cobra.Command {
+	var access, projects string
+	var expires int
+	var noExpiry bool
+	cmd := &cobra.Command{
+		Use:         "create <name>",
+		Annotations: printsJSON,
+		Short:       "Make an API token and print it once",
+		Long: `Make an API token for yourself. --access is what it may do: permissions from
+serve roles permissions (comma-separated), or admin; never more than this login may do.
+--projects limits it to these projects (names or ids). --expires is the number of days it
+lasts (1 to 3650); --no-expiry makes one that does not expire. Left out, it does not expire,
+unless this login expires itself: then the new one expires with it.
+
+The token is printed once, on standard output: it cannot be shown again. Keep it somewhere safe,
+like your CI's secrets, and use it as SERVE_TOKEN with SERVE_URL.`,
+		Example: "  serve tokens create CI --access services.deploy,projects.view --expires 90\n  serve tokens create backup-bot --access databases.backups --projects shop\n  serve tokens create admin-script --access admin --json",
+		Args:    exactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			name := strings.TrimSpace(args[0])
+			if name == "" {
+				return usagef("give the token a name")
+			}
+			scopes := splitList(access)
+			if len(scopes) == 0 {
+				return usagef("say what the token may do with --access (see `serve roles permissions`), or --access admin")
+			}
+			fl := cmd.Flags()
+			if fl.Changed("expires") && noExpiry {
+				return usagef("pass --expires or --no-expiry, not both")
+			}
+			if fl.Changed("expires") && (expires < 1 || expires > 3650) {
+				return usagef("--expires is a number of days from 1 to 3650")
+			}
+			c, err := a.Client()
+			if err != nil {
+				return err
+			}
+			if !slices.Contains(scopes, "admin") {
+				if scopes, err = a.checkPermissions(ctx, scopes); err != nil {
+					return err
+				}
+			} else if len(scopes) > 1 {
+				return usagef("admin may do everything: pass --access admin alone")
+			}
+			body := map[string]any{"name": name, "scopes": scopes}
+			if projects != "" {
+				ids, err := a.projectIDs(ctx, splitList(projects))
+				if err != nil {
+					return err
+				}
+				if len(ids) == 0 {
+					return usagef("--projects needs at least one project")
+				}
+				body["projectIds"] = ids
+			}
+			if fl.Changed("expires") {
+				body["expiresInDays"] = expires
+			} else if noExpiry {
+				body["expiresInDays"] = nil
+			}
+			var r struct {
+				Token     string   `json:"token"`
+				ID        *string  `json:"id"`
+				Name      string   `json:"name"`
+				Granted   []string `json:"granted"`
+				ExpiresAt *string  `json:"expiresAt"`
+			}
+			if err := c.Post(ctx, "/tokens", body, &r); err != nil {
+				return err
+			}
+			if r.Token == "" {
+				return errors.New("the token was made, but the server's answer did not hold it. Revoke it with `serve tokens rm` and make another")
+			}
+			if jsonFlag(cmd) {
+				return printJSON(r)
+			}
+			expiry := "does not expire"
+			if r.ExpiresAt != nil {
+				expiry = "expires " + when(*r.ExpiresAt)
+			}
+			ui.Success("Made the token %s (%s; %s).", ui.Bold(txt(orName(r.Name, name))), strings.Join(scopes, ", "), expiry)
+			ui.Warn("It is shown only this once. Copy it now.")
+			fmt.Fprintln(ui.Out, r.Token)
+			return nil
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&access, "access", "", "permissions, comma-separated (or admin)")
+	f.StringVar(&projects, "projects", "", "only these projects (comma-separated names or ids)")
+	f.IntVar(&expires, "expires", 0, "days until it expires (1 to 3650)")
+	f.BoolVar(&noExpiry, "no-expiry", false, "make a token that does not expire")
 	return cmd
 }
 

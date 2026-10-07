@@ -114,8 +114,9 @@ with a login of its own. Apps reach one with ${{<database>.branches.<name>.DATAB
 		Short: "Make a branch: a copy of the database's data",
 		Long: `Make a branch: a copy of the database's data inside the same container, with a login of
 its own. --from copies another ready branch instead of the main data. --hide-personal-data runs
-the database's clean-up SQL on the copy (set it in the dashboard first). --all-databases also
-copies every other database on the server. --wait waits until the copy is ready.`,
+the database's clean-up SQL on the copy (set it first with serve db branches cleanup-sql).
+--all-databases also copies every other database on the server. --wait waits until the copy
+is ready.`,
 		Example: "  serve db branches create staging --wait\n  serve db branches create demo --hide-personal-data -s postgres",
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -241,6 +242,51 @@ unless --yes.`,
 	rm.Flags().BoolVarP(&rmYes, "yes", "y", false, "do not ask for the branch's name")
 	rm.Flags().BoolVar(&children, "children", false, "also delete the branches copied from it")
 
-	cmd.AddCommand(create, reset, rm)
+	var clearSQL bool
+	cleanup := &cobra.Command{
+		Use:   "cleanup-sql <sql | ->",
+		Short: "Set the SQL that hides personal data in branches",
+		Long: `Set the clean-up SQL of the database: it runs on the copy of every branch made with
+--hide-personal-data, like "UPDATE users SET email = id || '@example.com';". - reads it from
+standard input. It replaces the SQL saved before; --clear removes it. Branches made already
+are not changed. The database is the linked one, or --service.`,
+		Example: "  serve db branches cleanup-sql \"UPDATE users SET email = id || '@example.com';\"\n  serve db branches cleanup-sql - < scrub.sql\n  serve db branches cleanup-sql --clear",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if clearSQL {
+				return noArgs(cmd, args)
+			}
+			return exactArgs(1)(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			var sql any
+			if !clearSQL {
+				text, err := readArg(args[0], "SQL")
+				if err != nil {
+					return err
+				}
+				if strings.TrimSpace(text) == "" {
+					return usagef("the SQL is empty. Pass --clear to remove it")
+				}
+				sql = text
+			}
+			s, err := a.database(ctx, nil)
+			if err != nil {
+				return err
+			}
+			if err := a.client.PutJSON(ctx, "/services/"+api.P(s.ID)+"/branches/cleanup-sql", map[string]any{"sql": sql}, nil); err != nil {
+				return err
+			}
+			if clearSQL {
+				ui.Success("Removed the clean-up SQL of %s.", ui.Bold(s.Name))
+			} else {
+				ui.Success("Saved the clean-up SQL of %s. Branches made with --hide-personal-data run it.", ui.Bold(s.Name))
+			}
+			return nil
+		},
+	}
+	cleanup.Flags().BoolVar(&clearSQL, "clear", false, "remove the clean-up SQL")
+
+	cmd.AddCommand(create, reset, rm, cleanup)
 	return cmd
 }

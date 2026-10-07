@@ -552,9 +552,9 @@ func findStorage(ctx context.Context, c *api.Client, ref string) (string, error)
 }
 
 func (a *App) dbReplicasCmd() *cobra.Command {
-	cmd := dbListCmd("replicas", "List the read replicas of a database",
+	cmd := dbListCmd("replicas", "List, add, remove and promote read replicas of a database",
 		"List the read replicas of the database: their server, state (copying, following, stopped, failed) and how far behind they are.",
-		"  serve db replicas\n  serve db replicas postgres --json",
+		"  serve db replicas\n  serve db replicas postgres --json\n  serve db replicas add eu-2 -s postgres\n  serve db replicas rm 2 -s postgres",
 		func(cmd *cobra.Command, args []string, asJSON bool) error {
 			ctx := cmd.Context()
 			s, err := a.database(ctx, args)
@@ -569,7 +569,7 @@ func (a *App) dbReplicasCmd() *cobra.Command {
 				return printJSON(orEmpty(list))
 			}
 			if len(list) == 0 {
-				ui.Info("%s has no read replicas. Add them in the dashboard.", s.Name)
+				ui.Info("%s has no read replicas. Add one with `serve db replicas add <server> -s %s`.", s.Name, s.Name)
 				return nil
 			}
 			servers := a.serverNames(ctx)
@@ -602,29 +602,10 @@ database is the linked one, or --service.`,
 			if err != nil {
 				return err
 			}
-			list, err := a.client.Replicas(ctx, s.ID)
+			r, servers, err := a.findReplica(ctx, s, args[0])
 			if err != nil {
 				return err
 			}
-			servers := a.serverNames(ctx)
-			var match []api.Replica
-			for _, r := range list {
-				if r.ID == args[0] {
-					match = []api.Replica{r}
-					break
-				}
-				if strings.EqualFold(servers[r.ServerID], args[0]) || r.ServerID == args[0] {
-					match = append(match, r)
-				}
-			}
-			switch len(match) {
-			case 0:
-				return fmt.Errorf("%s has no replica %q. See `serve db replicas -s %s`", s.Name, args[0], s.Name)
-			case 1:
-			default:
-				return fmt.Errorf("%s has %d replicas on %s. Name the replica by its id", s.Name, len(match), args[0])
-			}
-			r := match[0]
 			if !yes {
 				ui.Warn("%s moves to %s with the replica's data. Changes the replica had not received are lost.", s.Name, orName(servers[r.ServerID], r.ServerID))
 			}
@@ -639,7 +620,7 @@ database is the linked one, or --service.`,
 		},
 	}
 	promote.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask for the database's name")
-	cmd.AddCommand(promote)
+	cmd.AddCommand(promote, a.dbReplicaAddCmd(), a.dbReplicaRmCmd())
 	return cmd
 }
 

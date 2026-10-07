@@ -23,7 +23,11 @@ func (a *App) envCmd() *cobra.Command {
 		Use:     "env",
 		Aliases: []string{"variables"},
 		Short:   "Read and change the service's environment variables",
-		Long:    "Read and change the service's environment variables. Changes apply on the next deploy, or right away with --redeploy.",
+		Long: `Read and change the service's environment variables. Changes apply on the next deploy, or
+right away with --redeploy.
+
+push and unset also take --preview (the variables pull request previews use) and --replica N
+(the variables only replica N gets).`,
 	}
 	list := func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
@@ -136,12 +140,33 @@ func (a *App) envCmd() *cobra.Command {
 		},
 	}
 
+	var preview, yes bool
+	var replica int
 	unset := &cobra.Command{
 		Use:     "unset KEY...",
 		Aliases: []string{"rm"},
 		Short:   "Remove one or more variables",
-		Args:    minArgs(1),
+		Long: `Remove variables of the service. With --preview or --replica N, remove every preview
+variable or every variable of replica N (those are replaced as a whole: they cannot be read
+back to remove only some). Asks first unless --yes.`,
+		Example: "  serve env unset OLD_KEY --redeploy\n  serve env unset --preview\n  serve env unset --replica 2 --yes",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if preview || cmd.Flags().Changed("replica") {
+				if len(args) > 0 {
+					return usagef("preview and replica variables are removed all at once: run it without keys, or replace them with `serve env push <file> --preview` (or --replica N)")
+				}
+				return nil
+			}
+			return minArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			scope, err := extraVarsScope(cmd, preview, replica)
+			if err != nil {
+				return err
+			}
+			if scope != nil {
+				return a.putExtraVars(cmd.Context(), scope, nil, redeploy, yes)
+			}
 			changes := map[string]any{}
 			for _, k := range args {
 				changes[k] = nil
@@ -197,14 +222,24 @@ func (a *App) envCmd() *cobra.Command {
 	push := &cobra.Command{
 		Use:   "push [file]",
 		Short: "Set the variables of a .env file (- for stdin); others stay",
-		Args:  maxArgs(1),
+		Long: `Set the variables of a .env file (- for standard input) on the service; the others stay.
+
+--preview sets the variables that pull request previews use instead of the service's ones of
+the same name. --replica N sets the variables only replica N (1, 2, ...) gets on top of the
+service's. Both replace what was set before as a whole (the values cannot be read back), so
+they ask first unless --yes.`,
+		Example: "  serve env push\n  serve env push .env.production --redeploy\n  serve env push .env.preview --preview\n  serve env push replica2.env --replica 2 --redeploy",
+		Args:    maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			scope, err := extraVarsScope(cmd, preview, replica)
+			if err != nil {
+				return err
+			}
 			file := ".env"
 			if len(args) > 0 {
 				file = args[0]
 			}
 			var b []byte
-			var err error
 			if file == "-" {
 				b, err = io.ReadAll(os.Stdin)
 			} else {
@@ -218,7 +253,13 @@ func (a *App) envCmd() *cobra.Command {
 				return fmt.Errorf("%s: %w", file, err)
 			}
 			if len(vars) == 0 {
+				if scope != nil {
+					return fmt.Errorf("%s has no variables. To remove them all, run `serve env unset` with the same flag", file)
+				}
 				return fmt.Errorf("%s has no variables", file)
+			}
+			if scope != nil {
+				return a.putExtraVars(cmd.Context(), scope, vars, redeploy, yes)
 			}
 			changes := map[string]any{}
 			for _, v := range vars {
@@ -229,6 +270,11 @@ func (a *App) envCmd() *cobra.Command {
 	}
 	for _, c := range []*cobra.Command{set, unset, push} {
 		c.Flags().BoolVar(&redeploy, "redeploy", false, "deploy again so the change applies now")
+	}
+	for _, c := range []*cobra.Command{unset, push} {
+		c.Flags().BoolVar(&preview, "preview", false, "the variables pull request previews use (replaced as a whole)")
+		c.Flags().IntVar(&replica, "replica", 0, "the variables only replica `N` gets (replaced as a whole)")
+		c.Flags().BoolVarP(&yes, "yes", "y", false, "with --preview or --replica: do not ask first")
 	}
 	cmd.AddCommand(ls, get, set, unset, pull, push)
 	return cmd
@@ -249,6 +295,87 @@ func (a *App) patchVars(ctx context.Context, changes map[string]any, redeploy bo
 			ui.Line(ui.Dim("Redeploying: serve logs --build " + id + " -f"))
 		}
 	} else {
+		ui.Line(ui.Dim("This applies on the next deploy. Pass --redeploy to apply it now."))
+	}
+	return nil
+}
+
+// extraScope is a set of variables the API only replaces as a whole: the preview variables, or
+// one replica's.
+type extraScope struct {
+	path  string // after /services/{id}
+	label string // "preview variables", "variables of replica 2"
+}
+
+// extraVarsScope reads --preview and --replica; nil when neither was passed.
+func extraVarsScope(cmd *cobra.Command, preview bool, replica int) (*extraScope, error) {
+	fl := cmd.Flags()
+	byReplica := fl.Changed("replica")
+	switch {
+	case preview && byReplica:
+		return nil, usagef("pass --preview or --replica, not both")
+	case preview:
+		if fl.Changed("redeploy") {
+			return nil, usagef("--redeploy does not go with --preview: open previews use the variables from their next deploy")
+		}
+		return &extraScope{"/preview-variables", "preview variables"}, nil
+	case byReplica:
+		if replica < 1 {
+			return nil, usagef("--replica is the number of a replica: 1, 2, ...")
+		}
+		return &extraScope{fmt.Sprintf("/replicas/%d/variables", replica), fmt.Sprintf("variables of replica %d", replica)}, nil
+	}
+	if fl.Changed("yes") {
+		return nil, usagef("--yes goes with --preview or --replica")
+	}
+	return nil, nil
+}
+
+// putExtraVars replaces the variables of a scope (none: removes them all), after asking.
+func (a *App) putExtraVars(ctx context.Context, scope *extraScope, vars []dotenv.Var, redeploy, yes bool) error {
+	s, err := a.target(ctx, ".", anyService)
+	if err != nil {
+		return err
+	}
+	// The last value of a key wins, as in a .env file; the API refuses a key twice.
+	list := []map[string]string{}
+	at := map[string]int{}
+	for _, v := range vars {
+		if i, ok := at[v.Key]; ok {
+			list[i]["value"] = v.Value
+			continue
+		}
+		at[v.Key] = len(list)
+		list = append(list, map[string]string{"key": v.Key, "value": v.Value})
+	}
+	question := fmt.Sprintf("Remove every one of the %s of %s?", scope.label, s.Name)
+	if len(list) > 0 {
+		question = fmt.Sprintf("Replace the %s of %s with these %d? Ones not in the file are removed.", scope.label, s.Name, len(list))
+	}
+	if err := confirmYes(question, "replace the "+scope.label, yes); err != nil {
+		return err
+	}
+	body := map[string]any{"variables": list}
+	if scope.path != "/preview-variables" {
+		body["redeploy"] = redeploy
+	}
+	var r map[string]any
+	if err := a.client.PutJSON(ctx, "/services/"+api.P(s.ID)+scope.path, body, &r); err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		ui.Success("Removed the %s of %s.", scope.label, ui.Bold(s.Name))
+	} else {
+		ui.Success("Set the %s of %s (%d).", scope.label, ui.Bold(s.Name), len(list))
+	}
+	switch {
+	case scope.path == "/preview-variables":
+		ui.Line(ui.Dim("New previews start with them; open previews use them from their next deploy."))
+	case redeploy:
+		if id := api.DeploymentIDOf(r); id != "" {
+			ui.Line(ui.Dim("Redeploying: serve logs --build " + id + " -f"))
+		}
+	default:
 		ui.Line(ui.Dim("This applies on the next deploy. Pass --redeploy to apply it now."))
 	}
 	return nil

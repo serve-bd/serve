@@ -49,7 +49,11 @@ address that works from outside, when the database has a public port or a domain
 			conn := r.Connection
 			if public {
 				if conn.PublicURL == nil || *conn.PublicURL == "" {
-					return fmt.Errorf("%s cannot be reached from outside: give it a public port or a domain in the dashboard first", s.Name)
+					// The URL holds the password: without the permission it is left out.
+					if conn.PublicPort != nil || deref(conn.Domain) != "" {
+						return errors.New(noSecrets)
+					}
+					return publicHint(s)
 				}
 				fmt.Fprintln(ui.Out, *conn.PublicURL)
 				return nil
@@ -77,5 +81,11 @@ address that works from outside, when the database has a public port or a domain
 	cmd.AddCommand(a.dbBranchesCmd())
 	cmd.AddCommand(a.dbReplicasCmd())
 	cmd.AddCommand(a.dbDependentsCmd())
+	cmd.AddCommand(a.dbConfigCmd(), a.dbApplyCmd(), a.dbPublicCmd(), a.dbDomainCmd())
 	return cmd
+}
+
+// publicHint is the error for a database without a way in from outside.
+func publicHint(s *api.Service) error {
+	return fmt.Errorf("%s cannot be reached from outside: open a public port with `serve db public on -s %s`, or put it on a domain with `serve db domain <hostname> -s %s`", s.Name, s.Name, s.Name)
 }

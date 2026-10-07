@@ -22,7 +22,21 @@ const state = vi.hoisted(() => ({
   tables: {} as Record<string, Record<string, unknown>[]>,
   calls: [] as [string, ...unknown[]][],
   results: {} as Record<string, { ok: boolean; data?: unknown; error?: string }>,
-  services: {} as Record<string, { id: string; projectId: string; orgId: string; name: string; type: string; database?: unknown; deployApproval?: string | null }>,
+  services: {} as Record<
+    string,
+    {
+      id: string;
+      projectId: string;
+      orgId: string;
+      name: string;
+      type: string;
+      database?: unknown;
+      deployApproval?: string | null;
+      proxy?: unknown;
+      compose?: unknown;
+      requestLog?: unknown;
+    }
+  >,
 }));
 
 vi.mock("server-only", () => ({}));
@@ -64,7 +78,7 @@ vi.mock("@/server/api/data", async (actual) => {
   const loadService = async (auth: { organizationId: string; canAccessProject: (id: string) => boolean }, id: string) => {
     const s = state.services[id];
     if (!s || s.orgId !== auth.organizationId || !auth.canAccessProject(s.projectId)) throw new ApiError(404, "Service not found");
-    return { service: { ...s, runtime: {}, compose: null }, project: { id: s.projectId } };
+    return { service: { runtime: {}, compose: null, proxy: null, requestLog: null, ...s }, project: { id: s.projectId } };
   };
   return {
     ...real,
@@ -127,6 +141,11 @@ vi.mock("@/server/actions/databases", (actual) => partly("setDatabasePooler", "m
 vi.mock("@/server/actions/database-access", (actual) => partly("setAddonAccess")(actual));
 vi.mock("@/server/actions/database-domains", (actual) => partly("retryDatabaseCertificate")(actual));
 vi.mock("@/server/actions/deploy-rules", (actual) => partly("saveDeployRules", "setServiceApproval")(actual));
+vi.mock("@/server/actions/service-proxy", (actual) => partly("updateServiceProxy", "saveServiceProxyCustom")(actual));
+vi.mock("@/server/actions/compose-storage", (actual) => partly("saveComposeMounts")(actual));
+vi.mock("@/server/actions/environments", (actual) => partly("savePreviewDatabase")(actual));
+vi.mock("@/server/actions/monitoring", (actual) => partly("saveRequestLog", "deleteRequestLog")(actual));
+vi.mock("@/server/actions/services", (actual) => partly("pointDomainAtMain")(actual));
 
 const { createRouter } = await import("@/server/api/router");
 const { statusPageRoutes } = await import("@/server/api/routes/status-pages");
@@ -163,7 +182,28 @@ beforeEach(() => {
   state.results = {};
   state.instanceAdmin = false;
   state.services = {
-    s1: { id: "s1", projectId: "p1", orgId: "o1", name: "web", type: "app" },
+    s1: {
+      id: "s1",
+      projectId: "p1",
+      orgId: "o1",
+      name: "web",
+      type: "app",
+      proxy: {
+        basicAuth: { username: "ada", passwordHash: "$apr1$hash", bcryptHash: "$2a$hash" },
+        guests: [{ id: "g1", email: "g@example.com", hash: "$2a$guest" }],
+        gzip: false,
+        sticky: true,
+      },
+      requestLog: { enabled: true, days: 7, statuses: [4, 5], ips: true },
+    },
+    stack: {
+      id: "stack",
+      projectId: "p1",
+      orgId: "o1",
+      name: "stack",
+      type: "compose",
+      compose: { mode: "editor", content: "services:\n  web:\n    image: nginx\n    volumes:\n      - data:/data\n" },
+    },
     db1: { id: "db1", projectId: "p1", orgId: "o1", name: "pg", type: "database", database: { engine: "postgres" } },
     other: { id: "other", projectId: "px", orgId: "o2", name: "theirs", type: "app" },
     otherdb: { id: "otherdb", projectId: "px", orgId: "o2", name: "theirs", type: "database", database: { engine: "postgres" } },
@@ -193,6 +233,10 @@ beforeEach(() => {
     statusComponent: [
       { id: "c1", pageId: "sp1", name: "API", description: null, group: "Core", serviceId: "s1", position: 0 },
       { id: "c2", pageId: "sp2", name: "Theirs", description: null, group: null, serviceId: null, position: 0 },
+    ],
+    domain: [
+      { id: "d1", serviceId: "s1", hostname: "shop.example.com" },
+      { id: "d-other", serviceId: "other", hostname: "theirs.example.com" },
     ],
     project: [
       { id: "p1", organizationId: "o1", name: "shop", deployRules: { approval: { enabled: true, environmentIds: ["e1"] } } },
@@ -404,5 +448,99 @@ describe("deploy rules", () => {
       ["setServiceApproval", "s1", "never"],
       ["setServiceApproval", "s1", null],
     ]);
+  });
+});
+
+describe("HTTP options", () => {
+  it("show the options without passwords or hashes", async () => {
+    token(["projects.view"]);
+    const { options } = await (await call("GET", "/services/s1/proxy")).json();
+    expect(options).toMatchObject({ basicAuthUser: "ada", guests: [{ id: "g1", email: "g@example.com" }], gzip: false });
+    expect(JSON.stringify(options)).not.toMatch(/hash/i);
+    expect((await call("GET", "/services/other/proxy")).status).toBe(404);
+  });
+
+  it("are changed by organization admins, keeping what is left out", async () => {
+    token(["domains.manage"]);
+    expect((await call("PATCH", "/services/s1/proxy", { gzip: true })).status).toBe(403);
+    token(["domains.manage"], { admin: true });
+    expect((await call("PATCH", "/services/other/proxy", { gzip: true })).status).toBe(404);
+    expect((await call("PATCH", "/services/s1/proxy", { allow: ["not an ip"] })).status).toBe(400);
+    expect(called("updateServiceProxy")).toHaveLength(0);
+    expect((await call("PATCH", "/services/s1/proxy", { readTimeout: 600 })).status).toBe(200);
+    const [, sid, input] = called("updateServiceProxy")[0] as [string, string, Record<string, unknown>];
+    expect(sid).toBe("s1");
+    expect(input).toEqual({
+      gzip: false,
+      readTimeout: 600,
+      balancing: "sticky",
+      basicAuth: { enabled: true, username: "ada" },
+      guests: [{ id: "g1", email: "g@example.com" }],
+    });
+  });
+
+  it("let only Root admins replace the generated site", async () => {
+    token([], { admin: true });
+    expect((await call("PUT", "/services/s1/proxy/custom", { content: "location / {}" })).status).toBe(403);
+    state.instanceAdmin = true;
+    expect((await call("PUT", "/services/other/proxy/custom", { content: null })).status).toBe(404);
+    expect((await call("PUT", "/services/s1/proxy/custom", { content: null })).status).toBe(200);
+    expect(called("saveServiceProxyCustom")).toEqual([["saveServiceProxyCustom", "s1", null]]);
+  });
+});
+
+describe("compose storage, request log, preview databases and DNS", () => {
+  it("read and replace a stack's mounts, refusing unknown kinds", async () => {
+    token(["projects.view"]);
+    expect((await (await call("GET", "/services/stack/compose/mounts")).json()).services).toEqual([
+      { service: "web", mounts: [{ kind: "volume", source: "data", target: "/data" }] },
+    ]);
+    const mounts = [{ kind: "bind", source: "/srv/media", target: "/media" }];
+    expect((await call("PUT", "/services/stack/compose/mounts/web", { mounts })).status).toBe(403);
+    token(["services.manage"]);
+    expect((await call("PUT", "/services/stack/compose/mounts/web", { mounts: [{ kind: "tmpfs", target: "/tmp" }] })).status).toBe(400);
+    expect((await call("PUT", "/services/s1/compose/mounts/web", { mounts })).status).toBe(400);
+    expect((await call("PUT", "/services/other/compose/mounts/web", { mounts })).status).toBe(404);
+    expect(called("saveComposeMounts")).toHaveLength(0);
+    expect((await call("PUT", "/services/stack/compose/mounts/web", { mounts })).status).toBe(200);
+    expect(called("saveComposeMounts")).toEqual([["saveComposeMounts", "stack", "web", mounts]]);
+  });
+
+  it("change the request log settings keeping the rest, and delete the log", async () => {
+    token(["projects.view"]);
+    expect((await (await call("GET", "/services/s1/request-log/settings")).json()).settings).toEqual({ enabled: true, days: 7, statuses: [4, 5], ips: true });
+    expect((await call("PATCH", "/services/s1/request-log/settings", { ips: false })).status).toBe(403);
+    expect((await call("DELETE", "/services/s1/request-log")).status).toBe(403);
+    token(["services.manage"]);
+    expect((await call("PATCH", "/services/other/request-log/settings", { ips: false })).status).toBe(404);
+    expect((await call("DELETE", "/services/other/request-log")).status).toBe(404);
+    expect((await call("PATCH", "/services/s1/request-log/settings", { ips: false })).status).toBe(200);
+    expect(called("saveRequestLog")).toEqual([["saveRequestLog", "s1", { enabled: true, days: 7, statuses: [4, 5], ips: false }]]);
+    expect((await call("DELETE", "/services/s1/request-log")).status).toBe(200);
+    expect(called("deleteRequestLog")).toEqual([["deleteRequestLog", "s1"]]);
+  });
+
+  it("set and clear a preview database, only from the organization's own databases", async () => {
+    token(["services.deploy"]);
+    expect((await call("DELETE", "/services/s1/preview-database")).status).toBe(403);
+    token(["services.manage"]);
+    expect((await call("PUT", "/services/s1/preview-database", { sourceServiceId: "otherdb", variable: "DATABASE_URL" })).status).toBe(404);
+    expect((await call("PUT", "/services/other/preview-database", { sourceServiceId: "db1", variable: "DATABASE_URL" })).status).toBe(404);
+    expect(called("savePreviewDatabase")).toHaveLength(0);
+    expect((await call("PUT", "/services/s1/preview-database", { sourceServiceId: "db1", variable: "DATABASE_URL", mode: "branch" })).status).toBe(200);
+    expect((await call("DELETE", "/services/s1/preview-database")).status).toBe(200);
+    expect(called("savePreviewDatabase")).toEqual([
+      ["savePreviewDatabase", "s1", { sourceServiceId: "db1", variable: "DATABASE_URL", mode: "branch" }],
+      ["savePreviewDatabase", "s1", null],
+    ]);
+  });
+
+  it("point a domain at the main server", async () => {
+    token(["projects.view"]);
+    expect((await call("POST", "/domains/d1/point-at-main")).status).toBe(403);
+    token(["domains.manage"]);
+    expect((await call("POST", "/domains/d-other/point-at-main")).status).toBe(404);
+    expect((await call("POST", "/domains/d1/point-at-main")).status).toBe(200);
+    expect(called("pointDomainAtMain")).toEqual([["pointDomainAtMain", "d1"]]);
   });
 });

@@ -44,8 +44,20 @@ import { prepareMounts } from "@/server/services/mounts";
 import { adoptAnonymousVolumes, imageVolumePaths, statefulMounts, uncoveredPaths, volumesFor } from "./image-volumes";
 import { databasePlan } from "@/server/databases/options";
 import { ensureDatabaseTls } from "@/server/databases/tls";
-import { allocateSubnet, composeServiceNames, composeUp, stackNetworkName, transformCompose, writeComposeFiles } from "./compose";
-import type { ServiceStatus } from "@/server/db/schema";
+import {
+  allocateSubnet,
+  composeRollbackProblem,
+  composeServiceNames,
+  composeUp,
+  type ImagePin,
+  pinComposeImages,
+  recordComposeImages,
+  rollbackPin,
+  stackNetworkName,
+  transformCompose,
+  writeComposeFiles,
+} from "./compose";
+import type { ComposeSnapshotImage, ServiceStatus } from "@/server/db/schema";
 import { composeDockerfiles, composeLocalPaths, composeNameClashes, composeSecurityIssues, containedPath, pathsOutside, scopeCacheMounts } from "@/server/security";
 import { buildCacheScope, scopeDockerfiles } from "./build-cache";
 import { connectProxy, disconnectProxy, ensureEnvNetwork } from "@/server/docker/networks";
@@ -1199,6 +1211,24 @@ async function pruneImages(service: Service, server: ServerCtx, current: string)
   }
 }
 
+/** Keep the compose images of the newest N deployments of a stack (N is set per server), and those just recorded. */
+async function pruneComposeImages(service: Service, server: ServerCtx, current: Record<string, ComposeSnapshotImage>) {
+  const recent = await db
+    .select({ snapshot: schema.deployment.composeSnapshot })
+    .from(schema.deployment)
+    .where(and(eq(schema.deployment.serviceId, service.id), eq(schema.deployment.status, "success"), isNotNull(schema.deployment.composeSnapshot)))
+    .orderBy(desc(schema.deployment.createdAt))
+    .limit(Math.max(1, server.row.imageRetention));
+  const keep = new Set([...Object.values(current), ...recent.flatMap((r) => Object.values(r.snapshot?.images ?? {}))].map((i) => i.tag));
+  const images = await server.docker.listImages({ filters: { reference: [`serve/compose/${service.slug}:*`] } });
+  for (const tag of images.flatMap((img) => img.RepoTags ?? []))
+    if (!keep.has(tag))
+      await server.docker
+        .getImage(tag)
+        .remove()
+        .catch(() => {});
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                 Databases                                  */
 /* -------------------------------------------------------------------------- */
@@ -1352,34 +1382,88 @@ function composeVars(env: Record<string, string>, literal: readonly string[] = [
   return vars;
 }
 
+/**
+ * A compose rollback: the deployment it goes back to, with what it recorded. Its commit, file and
+ * images run again; nothing is built and nothing newer is pulled.
+ */
+async function composeRollbackOf(dep: Deployment, log: DeployLogger) {
+  if (!dep.rollbackOf) return null;
+  const [original] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, dep.rollbackOf));
+  if (!original || original.serviceId !== dep.serviceId) throw new Error("The deployment to roll back to no longer exists.");
+  const problem = composeRollbackProblem(original);
+  if (problem) throw new Error(problem);
+  log.step(`Rolling back to deployment ${original.id.slice(0, 8)}${original.commitSha ? ` (commit ${original.commitSha.slice(0, 7)})` : ""}`);
+  await setDeployment(dep.id, {
+    commitSha: original.commitSha,
+    commitMessage: original.commitMessage,
+    commitAuthor: original.commitAuthor,
+    branch: original.branch,
+  });
+  return { ...original.composeSnapshot!, commitSha: original.commitSha };
+}
+
+/** Returns the compose file it ran, as written (before Serve pins or changes anything). */
 async function deployCompose(service: Service, dep: Deployment, log: DeployLogger, server: ServerCtx, signal?: AbortSignal) {
-  const cfg = service.compose!;
+  const rollback = await composeRollbackOf(dep, log);
+  // A rollback runs the file the way that deployment got it: saved in Serve, or from git.
+  const cfg = rollback ? { ...service.compose!, mode: rollback.mode } : service.compose!;
   const env = await resolveEnv(service);
   log.redact(env.secrets);
   stopOnFailedSecrets(env);
   const serviceDir = paths.service(service.id);
   let dir = path.join(serviceDir, "compose");
-  let content = cfg.content;
+  let content = rollback?.content ?? cfg.content;
   let tracked: string[] | null = null;
+  let file: string | undefined;
+  // The stack's saved file is the one from git, and this deploy reads it from there.
+  const fromGit = cfg.mode === "git" && service.compose!.mode === "git";
+  // A rollback finds every image before it changes anything (a checkout changes the files mounted).
+  let pinned: string | null = null;
+  if (rollback) {
+    const where = server.local ? "this server" : server.name;
+    const pins: Record<string, ImagePin> = {};
+    for (const [name, entry] of Object.entries(rollback.images)) {
+      const localId = await server.docker
+        .getImage(entry.tag)
+        .inspect()
+        .then((i) => i.Id)
+        .catch(() => null);
+      const pin = rollbackPin(name, entry, localId, where);
+      pins[name] = pin;
+      log.line(`${name}: ${pin.image === entry.tag ? `${entry.ref} (kept as ${entry.tag})` : `${pin.image} (pulled if missing)`}`);
+    }
+    for (const name of composeServiceNames(rollback.content).filter((n) => !pins[n])) log.line(`${name}: ran no container in that deployment; left as the file has it`);
+    pinned = pinComposeImages(rollback.content, pins);
+  }
 
   if (cfg.mode === "git") {
     if (service.source?.type !== "git") throw new Error("Compose from git needs a git source.");
-    log.step("Cloning repository");
+    log.step(rollback ? `Checking out commit ${rollback.commitSha!.slice(0, 7)}` : "Cloning repository");
     const repoDir = path.join(serviceDir, "repo");
     // Updated in place: relative bind mounts keep their data in the repository directory.
-    const clone = await cloneRepository(service.source, repoDir, log.line, signal, await orgIdOf(service), { inPlace: true });
-    await setDeployment(dep.id, {
-      commitSha: clone.commitSha,
-      commitMessage: clone.commitMessage,
-      commitAuthor: clone.commitAuthor,
-      branch: service.source.branch,
-    });
+    const clone = await cloneRepository(service.source, repoDir, log.line, signal, await orgIdOf(service), { inPlace: true, commit: rollback?.commitSha ?? undefined }).catch(
+      (e: Error) => {
+        if (!rollback) throw e;
+        throw Object.assign(
+          new Error(`Could not check out commit ${rollback.commitSha} (${e.message}). The git host may not serve commits by id, or the commit is gone from the repository.`),
+          { output: (e as { output?: string }).output },
+        );
+      },
+    );
+    if (!rollback)
+      await setDeployment(dep.id, {
+        commitSha: clone.commitSha,
+        commitMessage: clone.commitMessage,
+        commitAuthor: clone.commitAuthor,
+        branch: service.source.branch,
+      });
     tracked = clone.files ?? null;
-    let composePath = containedPath(repoDir, cfg.path, "Compose file path");
+    const wantedPath = rollback?.file ?? cfg.path;
+    let composePath = containedPath(repoDir, wantedPath, "Compose file path");
     // The standard names are interchangeable: a repository with compose.yaml works with the default path.
     const standard = ["docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"];
     const base = path.posix.basename(cfg.path);
-    if (standard.includes(base) && !(await fs.stat(composePath).catch(() => null))) {
+    if (!rollback && standard.includes(base) && !(await fs.stat(composePath).catch(() => null))) {
       for (const name of standard) {
         const candidate = containedPath(repoDir, path.posix.join(path.posix.dirname(cfg.path), name), "Compose file path");
         if (await fs.stat(candidate).catch(() => null)) {
@@ -1392,14 +1476,17 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     // Resolve symlinks so a link in the repository cannot point at files on the server.
     const realRepo = await fs.realpath(repoDir);
     const realCompose = await fs.realpath(composePath).catch(() => {
-      throw new Error(`Compose file ${cfg.path} not found in the repository.`);
+      throw new Error(`Compose file ${wantedPath} not found in the repository.`);
     });
     if (realCompose !== realRepo && !realCompose.startsWith(realRepo + path.sep)) {
-      throw new Error(`Compose file ${cfg.path} points outside the repository.`);
+      throw new Error(`Compose file ${wantedPath} points outside the repository.`);
     }
-    content = await fs.readFile(composePath, "utf8").catch(() => {
-      throw new Error(`Compose file ${cfg.path} not found in the repository.`);
+    const read = await fs.readFile(composePath, "utf8").catch(() => {
+      throw new Error(`Compose file ${wantedPath} not found in the repository.`);
     });
+    // A rollback runs the file that deployment recorded (the same one, at the same commit).
+    content = rollback?.content ?? read;
+    file = path.relative(repoDir, composePath).split(path.sep).join("/");
     dir = path.dirname(composePath);
     // Bind mounts, env files, build contexts and secret files are read on the host: a symlink in the
     // repository must not lead them to files outside it.
@@ -1409,26 +1496,29 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     }
     // BuildKit cache mounts are shared by every build on the server: give this organization's its own ids.
     await scopeDockerfiles(composeDockerfiles(content, dir), buildCacheScope(await orgIdOf(service)), repoDir);
-    // Remember the file so the UI can show services and ports.
-    await db
-      .update(schema.service)
-      .set({ compose: { ...cfg, content } })
-      .where(eq(schema.service.id, service.id));
+    // Remember the file so the UI can show services and ports (not over a file saved in Serve).
+    if (fromGit)
+      await db
+        .update(schema.service)
+        .set({ compose: { ...service.compose!, content } })
+        .where(eq(schema.service.id, service.id));
   }
+  const raw = content;
+  if (pinned) content = pinned;
   // A name another service answers to would take its traffic: refused for everyone.
   const others = (
     await db.select({ id: schema.service.id, slug: schema.service.slug, hostname: schema.service.hostname, environmentId: schema.service.environmentId }).from(schema.service)
   ).filter((s) => s.id !== service.id);
   const hostnames = others.filter((s) => s.environmentId === service.environmentId && s.hostname).map((s) => s.hostname as string);
   const clashes = composeNameClashes(
-    content,
+    raw,
     others.map((s) => s.slug),
     hostnames,
   );
   if (clashes.length) throw new Error(`The compose file uses names of other services: ${clashes.slice(0, 3).join("; ")}`);
   // Checked at every deploy, for files from git and files saved before a rule existed: only the
   // Root organization may use host-level options or reach into Serve's own networks.
-  const issues = composeSecurityIssues(content);
+  const issues = composeSecurityIssues(raw);
   // Only for stacks of the Root organization that one of its admins set up (not any of its members).
   if (issues.length && !(cfg.hostAccess && (await orgIdOf(service)) === (await getSetting("rootOrganizationId")))) {
     throw new Error(
@@ -1449,7 +1539,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
       await db
         .update(schema.service)
         // With the file just read from git: the old one must not come back with the approval.
-        .set({ compose: { ...cfg, content, hostAccessIssues: issues } })
+        .set({ compose: { ...service.compose!, ...(fromGit ? { content: raw } : {}), hostAccessIssues: issues } })
         .where(eq(schema.service.id, service.id));
     }
   }
@@ -1570,6 +1660,14 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
       if (!joined) log.line(`Network ${stackNet} was not found; domains of this stack cannot be routed.`);
     }
   }
+  // What ran, for a rollback to this deployment. The stack runs already: a failure only costs that.
+  try {
+    const images = await recordComposeImages(server.docker, service.slug, service.id, dep.id, raw, rollback?.images);
+    await setDeployment(dep.id, { composeSnapshot: { mode: cfg.mode, content: raw, ...(file ? { file } : {}), images } });
+    await pruneComposeImages(service, server, images).catch(() => {});
+  } catch (error) {
+    log.line(`Could not record the images of this deployment, so it cannot be rolled back to: ${(error as Error).message}`);
+  }
   await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
   await meshAfterStart(server.id, log.line);
   log.step("Routing traffic");
@@ -1579,6 +1677,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   } catch (error) {
     log.line(`Warning: proxy update failed: ${(error as Error).message}`);
   }
+  return raw;
 }
 
 /** The service's server, checked for reachability before any work starts. */
@@ -1702,6 +1801,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     }
   }
 
+  let ranCompose: string | null = null;
   try {
     const server = await connectServer(service, log);
     await ensureNetwork(server.docker, server.network);
@@ -1712,7 +1812,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       await setDeployment(dep.id, { status: "deploying" });
       await deployDatabase(service, log, signal, dep.adopt ?? null);
       await db.update(schema.service).set({ currentDeploymentId: dep.id }).where(eq(schema.service.id, service.id));
-    } else await deployCompose(service, dep, log, server, signal);
+    } else ranCompose = await deployCompose(service, dep, log, server, signal);
 
     // A container moved in from a git build: it ran as it was; deploys build from the repository from now on.
     if (dep.adopt?.git && service.type === "app") {
@@ -1731,8 +1831,10 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
 
     // The settings it now runs with, read after the deploy: it saves some itself (a detected port,
     // the image's volumes, a compose file from git). Later changes show as waiting for a redeploy.
+    // A compose rollback ran an older file than the one saved: a redeploy would apply the saved one.
     const deployed = await db.query.service.findFirst({ where: eq(schema.service.id, service.id) });
-    if (deployed) await setDeployment(dep.id, { configHash: await configFingerprint(deployed).catch(() => null) });
+    const ran = deployed?.compose && ranCompose !== null ? { ...deployed, compose: { ...deployed.compose, content: ranCompose } } : deployed;
+    if (ran) await setDeployment(dep.id, { configHash: await configFingerprint(ran).catch(() => null) });
 
     const seconds = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
     log.step(`Deployed successfully in ${seconds}s`);

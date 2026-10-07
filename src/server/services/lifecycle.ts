@@ -249,7 +249,11 @@ async function destroyOnServer(opts: {
         .remove()
         .catch(() => {});
   }
-  const images = await docker.listImages({ filters: { reference: [`serve/${opts.slug}:*`] } });
+  // An app's images, and those a compose stack's deployments kept for rollbacks.
+  const images = [
+    ...(await docker.listImages({ filters: { reference: [`serve/${opts.slug}:*`] } })),
+    ...(await docker.listImages({ filters: { reference: [`serve/compose/${opts.slug}:*`] } })),
+  ];
   for (const img of images) {
     for (const tag of img.RepoTags ?? [])
       await docker

@@ -589,6 +589,13 @@
       "when": 1791312882219,
       "tag": "0083_backup_copies",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1791363030083,
+      "tag": "0084_compose_snapshot",
+      "breakpoints": true
     }
   ]
 }

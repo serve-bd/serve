@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
@@ -6,6 +7,7 @@ import { docker, LABEL } from "@/server/docker/client";
 import { run } from "@/server/process";
 import type { ServerCtx } from "@/server/servers/context";
 import type { ComposePort } from "@/server/services/types";
+import type { ComposeSnapshot, ComposeSnapshotImage } from "@/server/db/schema";
 import { sh } from "@/server/servers/ssh";
 import { composeAlias } from "@/server/proxy/names";
 import { replaceFile } from "./files";
@@ -271,4 +273,109 @@ export async function composeDownByProject(projectName: string, removeVolumes: b
   const { disconnectProxy } = await import("@/server/docker/networks");
   await disconnectProxy(stackNetworkName(projectName), server).catch(() => {});
   await run("docker", args, { env, isolatedEnv: true }).catch(() => {});
+}
+
+/* -------------------------------- Rollbacks ------------------------------- */
+
+/** Why a compose deployment cannot be rolled back, or null when it can. */
+export function composeRollbackProblem(dep: { status: string; commitSha: string | null; composeSnapshot: ComposeSnapshot | null }): string | null {
+  if (dep.status !== "success") return "Only successful deployments can be restored.";
+  const snap = dep.composeSnapshot;
+  if (!snap)
+    return "This deployment ran before Serve recorded the compose file and images of each deployment, so it cannot be rolled back exactly. Deployments from now on can be.";
+  if (!Object.keys(snap.images).length) return "No images were recorded for this deployment, so it cannot be rolled back exactly.";
+  if (snap.mode === "git" && (!snap.file || !dep.commitSha)) return "The commit or compose file path of this deployment was not recorded, so it cannot be rolled back.";
+  return null;
+}
+
+/** Serve's local tag that keeps the image a compose service ran in a deployment. */
+export function snapshotTag(slug: string, deploymentId: string, service: string) {
+  const tag = `${deploymentId}-${service}`;
+  // Docker tags stop at 128 characters; compose service names do not.
+  return `serve/compose/${slug}:${tag.length <= 128 ? tag : `${deploymentId}-${createHash("sha256").update(service).digest("hex").slice(0, 16)}`}`;
+}
+
+/** The repository of an image reference, as Docker lists it in RepoDigests (docker.io/library/ left out). */
+function familiarRepo(ref: string) {
+  const name = ref.split("@")[0];
+  const slash = name.lastIndexOf("/");
+  const colon = name.lastIndexOf(":");
+  const repo = colon > slash ? name.slice(0, colon) : name;
+  return repo.replace(/^(?:docker\.io|index\.docker\.io)\//, "").replace(/^library\//, "");
+}
+
+/** A pullable repo@sha256:… for an image, preferring the repository the compose file named. */
+export function pulledDigest(ref: string, repoDigests: string[]): string | null {
+  const wanted = familiarRepo(ref);
+  return repoDigests.find((d) => familiarRepo(d) === wanted) ?? repoDigests[0] ?? null;
+}
+
+export type ImagePin = { image: string; pullPolicy: "never" | "missing" };
+
+/**
+ * The image a compose service runs again in a rollback: Serve's tag while it still holds the very
+ * image the deployment ran, otherwise the image pulled by its recorded digest. A built image
+ * without its tag is gone: building it again would not give the same image.
+ */
+export function rollbackPin(service: string, entry: ComposeSnapshotImage, localId: string | null, where: string): ImagePin {
+  if (localId === entry.id) return { image: entry.tag, pullPolicy: "never" };
+  if (entry.digest) return { image: entry.digest, pullPolicy: "missing" };
+  throw new Error(
+    `The image service ${service} ran in that deployment (${entry.ref}) is no longer on ${where}: Serve keeps the images of the last deployments only (set in the server's settings). It cannot be rolled back exactly.`,
+  );
+}
+
+/** The compose file with each pinned service on its image: nothing is built, and nothing newer is pulled. */
+export function pinComposeImages(content: string, pins: Record<string, ImagePin>): string {
+  const doc = parseCompose(content);
+  for (const [name, pin] of Object.entries(pins)) {
+    const svc = doc.services?.[name];
+    if (!svc) throw new Error(`Service ${name} is missing from the recorded compose file.`);
+    svc.image = pin.image;
+    delete svc.build;
+    svc.pull_policy = pin.pullPolicy;
+  }
+  // Read back by transformCompose with the same YAML version, so every value stays as it was.
+  return YAML.stringify(doc);
+}
+
+/** The services a compose file builds: their images exist only where they were built. */
+export function builtServices(content: string): Set<string> {
+  return new Set(
+    Object.entries(parseCompose(content).services ?? {})
+      .filter(([, svc]) => svc.build !== undefined && svc.build !== null)
+      .map(([name]) => name),
+  );
+}
+
+/**
+ * The image each compose service's containers run after a deploy, each kept under Serve's own tag
+ * so a rollback finds it. `content`: the file as written. `before`: a rollback's recorded images
+ * (its pinned file names Serve's tags instead).
+ */
+export async function recordComposeImages(
+  d: Docker,
+  projectName: string,
+  serviceId: string,
+  deploymentId: string,
+  content: string,
+  before: Record<string, ComposeSnapshotImage> = {},
+): Promise<Record<string, ComposeSnapshotImage>> {
+  const built = builtServices(content);
+  const containers = await d.listContainers({ all: true, filters: { label: [`com.docker.compose.project=${projectName}`, `${LABEL.service}=${serviceId}`] } });
+  const images: Record<string, ComposeSnapshotImage> = {};
+  for (const c of containers) {
+    const name = c.Labels["com.docker.compose.service"];
+    if (!name || images[name] || c.Labels["com.docker.compose.oneoff"] === "True") continue;
+    const info = await d.getImage(c.ImageID).inspect();
+    const ref = before[name]?.ref ?? c.Image;
+    const tag = snapshotTag(projectName, deploymentId, name);
+    const colon = tag.lastIndexOf(":");
+    await d.getImage(info.Id).tag({ repo: tag.slice(0, colon), tag: tag.slice(colon + 1) });
+    // A built image has no registry to come back from (with containerd, Docker still lists a
+    // name@digest for it, which no registry serves).
+    const digest = before[name] ? before[name].digest : built.has(name) ? null : pulledDigest(ref, info.RepoDigests ?? []);
+    images[name] = { ref, id: info.Id, digest, tag };
+  }
+  return images;
 }

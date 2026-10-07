@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { UserError } from "@/server/action";
 import { db, schema } from "@/server/db";
 import { queueDeployment, recordSkipped } from "@/server/services/create";
-import { commentOnGithub, deployPreview, removePreview, type PullRequest } from "@/server/services/previews";
+import { commentOnPullRequest, deployPreview, removePreview, type PullRequest } from "@/server/services/previews";
 import { matchesWatchPaths } from "@/server/deploy/options";
 
 type Service = typeof schema.service.$inferSelect;
@@ -194,8 +194,11 @@ export async function applyPullRequest(service: Service, event: PrEvent): Promis
     throw e;
   }
   if (result) {
-    const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, result.preview.id));
-    void commentOnGithub(service, event.pr, domain ? `${domain.https ? "https" : "http"}://${domain.hostname}` : null);
+    const domains = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, result.preview.id));
+    // The URL template's address once it has one, over the generated one.
+    const domain = domains.find((d) => !d.generated) ?? domains[0];
+    const url = domain ? `${domain.https ? "https" : "http"}://${domain.hostname}` : null;
+    void commentOnPullRequest(service, event.pr, { url, dnsProblem: result.dnsProblem });
   }
   return { previewServiceId: result?.preview.id, deploymentId: result?.deploymentId };
 }

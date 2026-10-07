@@ -35,7 +35,8 @@ export function repoPath(repository: string, baseUrl?: string | null) {
     }
   }
   const path = rest.replace(/\.git$/, "").replace(/\/+$/, "");
-  if (!/^[\w.-]+(\/[\w.-]+)+$/.test(path)) throw new Error(`Could not read the repository path from ${repository}.`);
+  // No "." or ".." part: the path goes into API URLs, where those would climb out of the repository.
+  if (!/^[\w.-]+(\/[\w.-]+)+$/.test(path) || path.split("/").some((p) => /^\.+$/.test(p))) throw new Error(`Could not read the repository path from ${repository}.`);
   return path;
 }
 

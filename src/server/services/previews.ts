@@ -1,5 +1,5 @@
 import { withoutHostAccess } from "@/server/services/types";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { requireRoomFor } from "@/server/limits";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
@@ -20,7 +20,7 @@ export type PullRequest = {
   title: string | null;
   sha: string | null;
   author: string | null;
-  /** owner/repo, used for PR comments on GitHub. */
+  /** owner/repo of the pull request's target, used for its preview comment. */
   fullName?: string | null;
   /** Apps deployed from an image: the image the preview runs (see imageWithTag). */
   image?: string | null;
@@ -50,38 +50,46 @@ async function appDomainPort(serviceId: string) {
 /**
  * The preview URL template with the pull request number, reached like the app's own domain: through its Cloudflare Tunnel
  * (a record per preview), with a DNS record in its Cloudflare zone, or through a wildcard record the
- * owner points at the server. False when the service has no preview domain or the name is taken.
+ * owner points at the server. Not added when the service has no preview domain or the name is taken,
+ * nor when its DNS record could not be made (`dnsProblem` says why): the preview then keeps its
+ * generated address, and its next push tries again.
  */
-async function addPreviewDomain(parent: Service, previewId: string, prNumber: number) {
-  if (!parent.previewDomain) return false;
+export async function addPreviewDomain(parent: Service, previewId: string, prNumber: number): Promise<{ added: boolean; dnsProblem?: string }> {
+  if (!parent.previewDomain) return { added: false };
   const { previewHostname, previewTemplateProblem } = await import("@/lib/preview-url");
-  if (previewTemplateProblem(parent.previewDomain)) return false;
+  if (previewTemplateProblem(parent.previewDomain)) return { added: false };
   const hostname = previewHostname(parent.previewDomain, prNumber);
   const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
-  if (taken) return false;
+  if (taken) return { added: false };
   const own = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, parent.id));
   const like = own.find((d) => d.tunnelId) ?? own.find((d) => !d.generated && !d.redirectTo);
   const { Cloudflare } = await import("@/server/cloudflare/api");
   let route: { accountId: string; zoneId: string; recordId: string | null; tunnelId: string | null } | null = null;
-  if (like?.tunnelId) {
-    const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, like.tunnelId));
-    if (tunnel && tunnel.serverId === parent.serverId) {
-      const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
-      const zone = await cf.zoneFor(hostname).catch(() => null);
-      if (zone) {
-        const record = await cf.upsertTunnelRecord(zone.id, hostname, tunnel.cfTunnelId).catch(() => null);
-        route = { accountId: tunnel.cloudflareAccountId, zoneId: zone.id, recordId: record?.id ?? null, tunnelId: tunnel.id };
+  try {
+    if (like?.tunnelId) {
+      const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, like.tunnelId));
+      if (tunnel && tunnel.serverId === parent.serverId) {
+        const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+        const zone = await cf.zoneFor(hostname);
+        if (zone) {
+          const record = await cf.upsertTunnelRecord(zone.id, hostname, tunnel.cfTunnelId);
+          route = { accountId: tunnel.cloudflareAccountId, zoneId: zone.id, recordId: record?.id ?? null, tunnelId: tunnel.id };
+        }
+      }
+    } else if (like?.cloudflareAccountId && like.cloudflareRecordId) {
+      const { serverPublicIp } = await import("@/server/servers/access");
+      const ip = await serverPublicIp(parent.serverId);
+      const cf = await Cloudflare.forAccount(like.cloudflareAccountId);
+      const zone = ip ? await cf.zoneFor(hostname) : null;
+      if (ip && zone) {
+        // Null without an error: the owner's own A record already points at the server.
+        const record = await cf.upsertARecord(zone.id, hostname, ip, false);
+        route = { accountId: like.cloudflareAccountId, zoneId: zone.id, recordId: record?.id ?? null, tunnelId: null };
       }
     }
-  } else if (like?.cloudflareAccountId && like.cloudflareRecordId) {
-    const { serverPublicIp } = await import("@/server/servers/access");
-    const ip = await serverPublicIp(parent.serverId);
-    const cf = await Cloudflare.forAccount(like.cloudflareAccountId);
-    const zone = ip ? await cf.zoneFor(hostname).catch(() => null) : null;
-    if (ip && zone) {
-      const record = await cf.upsertARecord(zone.id, hostname, ip, false).catch(() => null);
-      route = { accountId: like.cloudflareAccountId, zoneId: zone.id, recordId: record?.id ?? null, tunnelId: null };
-    }
+  } catch (e) {
+    // An address that cannot resolve is never handed out.
+    return { added: false, dnsProblem: dnsProblem(hostname, e) };
   }
   // Cloudflare ends HTTPS for a tunnel; otherwise previews use HTTPS when the app's domain does.
   const https = route?.tunnelId ? false : (like?.https ?? true);
@@ -104,12 +112,18 @@ async function addPreviewDomain(parent: Service, previewId: string, prNumber: nu
     })
     .onConflictDoNothing()
     .returning();
-  if (!domain) return false;
+  if (!domain) return { added: false };
   if (route?.tunnelId) {
     const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
     await syncTunnelIngress(route.tunnelId).catch(() => {});
   } else if (https) await ensureCertificateFor(domain, await orgId(parent.projectId));
-  return true;
+  return { added: true };
+}
+
+/** Why a preview's DNS record could not be made, for the deployment log and the pull request. */
+export function dnsProblem(hostname: string, e: unknown) {
+  const reason = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim().slice(0, 300) || "unknown error";
+  return `The DNS record for ${hostname} could not be created in Cloudflare: ${reason}`;
 }
 
 /** Create or update the preview service for a pull request and deploy it. */
@@ -139,6 +153,7 @@ async function deployPreviewLocked(parent: Service, pr: PullRequest) {
       : // Previews never own the parent's repository webhook.
         { ...parent.source, branch: pr.branch, repository: pr.repository || parent.source.repository, webhook: null };
 
+  let dns: string | null = null;
   let databaseId: string | null = null;
   let branch: { id: string; serviceId: string; reset: boolean } | null = null;
   if (!preview) {
@@ -199,7 +214,9 @@ async function deployPreviewLocked(parent: Service, pr: PullRequest) {
     if (parent.previewDatabase?.mode === "branch") branch = await previewBranch(preview, parent, pr.number);
     else if (parent.previewDatabase) databaseId = await createPreviewDatabase(preview, parent, pr.number);
 
-    if (!(await addPreviewDomain(parent, id, pr.number))) {
+    const added = await addPreviewDomain(parent, id, pr.number);
+    dns = added.dnsProblem ?? null;
+    if (!added.added) {
       const host = await generatedHostname(slug, parent.serverId);
       if (host) {
         const [domain] = await db
@@ -222,23 +239,36 @@ async function deployPreviewLocked(parent: Service, pr: PullRequest) {
     // A URL template set after the preview opened: it gets that address with its next push.
     if (parent.previewDomain) {
       const domains = await db.select({ generated: schema.domain.generated }).from(schema.domain).where(eq(schema.domain.serviceId, preview.id));
-      if (domains.every((d) => d.generated)) await addPreviewDomain(parent, preview.id, pr.number);
+      if (domains.every((d) => d.generated)) dns = (await addPreviewDomain(parent, preview.id, pr.number)).dnsProblem ?? null;
     }
+  }
+  if (dns) {
+    await logActivity({ action: "preview.dns-failed", projectId: parent.projectId, targetType: "service", targetId: preview.id, message: `${preview.name}: ${dns}` });
   }
 
   const deployment = { commitSha: pr.sha, commitMessage: pr.title, branch: parent.source.type === "git" ? pr.branch : null };
   // A new preview with its own branch: fill it first; that job deploys the preview.
   if (branch) {
     await enqueueBranchJob({ branchId: branch.id, op: branch.reset ? "reset" : "create", preview: { previewId: preview.id, deployment } }, branch.serviceId);
-    return { preview, deploymentId: null };
+    return { preview, deploymentId: null, dnsProblem: dns };
   }
   // A new preview with its own database: fill the copy first; that job deploys the preview.
   if (databaseId) {
     await enqueue("preview.database", { previewId: preview.id, databaseId, parentId: parent.id, deployment }, { concurrencyKey: `service:${databaseId}:copy` });
-    return { preview, deploymentId: null };
+    return { preview, deploymentId: null, dnsProblem: dns };
   }
   const deploymentId = await queueDeployment(preview.id, "webhook", deployment);
-  return { preview, deploymentId };
+  if (dns) await appendLog(deploymentId, `${dns}. The next push tries again.`);
+  return { preview, deploymentId, dnsProblem: dns };
+}
+
+/** One more line in a deployment's log. */
+async function appendLog(deploymentId: string, line: string) {
+  await db
+    .update(schema.deployment)
+    .set({ logs: sql`${schema.deployment.logs} || ${`${line}\n`}` })
+    .where(eq(schema.deployment.id, deploymentId))
+    .catch((e: Error) => console.error(`[previews] could not log to ${deploymentId}: ${e.message}`));
 }
 
 /**
@@ -290,36 +320,57 @@ export async function removePreview(parent: Service, prNumber: number) {
   // Also removes the preview's database copy.
   await teardownServices([preview], true);
   await logActivity({ action: "preview.removed", projectId: parent.projectId, message: `Preview for PR #${prNumber} removed` });
+  void commentOnPullRequest(parent, { number: prNumber, sha: null }, "removed");
   return true;
 }
 
-/** Post (or update) a comment on the GitHub PR with the preview URL. Best effort. */
-export async function commentOnGithub(parent: Service, pr: PullRequest, url: string | null) {
-  if (parent.source?.type !== "git" || !parent.source.credentialId || !pr.fullName) return;
-  const [cred] = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.id, parent.source.credentialId));
-  if (!cred || (cred.provider !== "github" && cred.provider !== "github-app")) return;
-  let token: string;
+/** Text inside a Markdown code span: no backtick or line break can end it early. */
+const code = (text: string) => `\`${text.replace(/[`\r\n]+/g, " ").slice(0, 400)}\``;
+
+export type PreviewCommentState = { url: string | null; dnsProblem?: string | null } | "removed";
+
+/** The preview comment's text (the provider's hidden marker is added when it is sent). */
+export function previewCommentBody(serviceName: string, sha: string | null | undefined, state: PreviewCommentState) {
+  const head = `**Serve preview** for ${code(serviceName)}`;
+  if (state === "removed") return `${head}\n\nThe preview was removed.`;
+  const lines = [head, ""];
+  if (state.dnsProblem) {
+    const meanwhile = state.url ? `Until then the preview answers at ${state.url}` : "Until then the preview has no address.";
+    lines.push(`⚠️ ${code(state.dnsProblem)}`, "", `Serve tries again on the next push. ${meanwhile}`);
+  } else lines.push(state.url ? `🔗 ${state.url}` : "Deploying…");
+  const commit = sha && /^[0-9a-f]{7,64}$/i.test(sha) ? sha.slice(0, 7) : "latest";
+  lines.push("", `Commit ${code(commit)}`);
+  return lines.join("\n");
+}
+
+const commentLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * Writes the preview's state into its pull request comment (GitHub, GitLab, Gitea/Forgejo and
+ * Bitbucket Cloud): made on the first deploy, edited after, and only edited (never made) when the
+ * preview is removed. Best effort: a failure is logged, never thrown.
+ */
+export function commentOnPullRequest(parent: Service, pr: Pick<PullRequest, "number" | "sha" | "fullName">, state: PreviewCommentState) {
+  // One at a time per pull request, so two quick deploys do not both make a comment.
+  const key = `${parent.id}:${pr.number}`;
+  const run = (commentLocks.get(key) ?? Promise.resolve()).then(() => writeComment(parent, pr, state));
+  commentLocks.set(key, run);
+  void run.then(() => {
+    if (commentLocks.get(key) === run) commentLocks.delete(key);
+  });
+  return run;
+}
+
+async function writeComment(parent: Service, pr: Pick<PullRequest, "number" | "sha" | "fullName">, state: PreviewCommentState) {
   try {
-    token =
-      cred.provider === "github-app" ? await (await import("@/server/git/github-app")).installationToken(cred) : await (await import("@/server/git/oauth")).credentialToken(cred);
-  } catch {
-    return;
-  }
-  const api = `${cred.baseUrl ? `${cred.baseUrl.replace(/\/$/, "")}/api/v3` : "https://api.github.com"}/repos/${pr.fullName}/issues/${pr.number}/comments`;
-  const marker = "<!-- serve-preview -->";
-  const body = `${marker}\n**Serve preview** for \`${parent.name}\`\n\n${url ? `🔗 ${url}` : "Deploying…"}\n\nCommit \`${pr.sha?.slice(0, 7) ?? "latest"}\``;
-  const headers = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json" };
-  try {
-    const { gitHttp } = await import("@/server/git/http");
-    const target = { selfHosted: !!cred.baseUrl?.trim(), organizationId: cred.organizationId };
-    const existing = JSON.parse((await gitHttp(`${api}?per_page=100`, { headers }, target)).text) as { id: number; body: string }[];
-    const mine = Array.isArray(existing) ? existing.find((c) => c.body?.includes(marker)) : undefined;
-    if (mine) {
-      await gitHttp(api.replace(/\/issues\/\d+\/comments$/, `/issues/comments/${mine.id}`), { method: "PATCH", headers, body: JSON.stringify({ body }) }, target);
-    } else {
-      await gitHttp(api, { method: "POST", headers, body: JSON.stringify({ body }) }, target);
-    }
-  } catch {
-    // ignore
+    if (parent.source?.type !== "git" || !parent.source.credentialId) return;
+    const [cred] = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.id, parent.source.credentialId));
+    if (!cred) return;
+    const { upsertPreviewComment } = await import("@/server/git/pr-comments");
+    const body = previewCommentBody(parent.name, pr.sha, state);
+    // The pull request's repository when the event names it, else the app's (the same one).
+    await upsertPreviewComment(cred, pr.fullName || parent.source.repository, pr.number, body, { create: state !== "removed" });
+  } catch (e) {
+    console.error(`[previews] could not comment on pull request #${pr.number} for service ${parent.id}: ${(e as Error).message}`);
   }
 }

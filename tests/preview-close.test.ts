@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const removePreview = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
 vi.mock("@/server/services/create", () => ({ queueDeployment: vi.fn() }));
-vi.mock("@/server/services/previews", () => ({ removePreview, deployPreview: vi.fn(), commentOnGithub: vi.fn() }));
+vi.mock("@/server/services/previews", () => ({ removePreview, deployPreview: vi.fn(), commentOnPullRequest: vi.fn() }));
 
 import { applyPullRequest } from "@/server/git/events";
 

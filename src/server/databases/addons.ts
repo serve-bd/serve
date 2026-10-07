@@ -334,73 +334,81 @@ export async function ensureReplicas(service: Service, log: (l: string) => void 
   const tag = plan.image;
   plan.image = await pinnedImage(home, tag);
   const { meshBeforeStart, meshAfterStart } = await import("@/server/mesh");
+  // Each replica on its own: one whose server does not answer must not keep the others stopped.
+  const failed: string[] = [];
   for (const r of instances) {
-    const server = r.serverId === home.id ? home : await getServer(r.serverId);
-    const d = server.docker;
-    const name = replicaName(service, r.id);
-    const dataVolume = volumeName(service.slug, `replica-${r.id}-data`);
-    // A replica runs the database's own version: after a major version change it is copied again.
-    const current = await d
-      .getContainer(name)
-      .inspect()
-      .catch(() => null);
-    // A new replica, or one copied again: its first start copies the database.
-    const kept = await d
-      .getVolume(dataVolume)
-      .inspect()
-      .then(() => true)
-      .catch(() => false);
-    const fresh = !kept || (!!current && copiedFor(current) !== null && copiedFor(current) !== tag);
-    if (current && copiedFor(current) !== null && copiedFor(current) !== tag) {
-      log(`Replica ${r.id}: the database's version changed, copying it again`);
-      await removeContainer(name, 30, d);
-      await d
+    try {
+      const server = r.serverId === home.id ? home : await getServer(r.serverId);
+      const d = server.docker;
+      const name = replicaName(service, r.id);
+      const dataVolume = volumeName(service.slug, `replica-${r.id}-data`);
+      // A replica runs the database's own version: after a major version change it is copied again.
+      const current = await d
+        .getContainer(name)
+        .inspect()
+        .catch(() => null);
+      // A new replica, or one copied again: its first start copies the database.
+      const kept = await d
         .getVolume(dataVolume)
-        .remove()
-        .catch(() => {});
+        .inspect()
+        .then(() => true)
+        .catch(() => false);
+      const fresh = !kept || (!!current && copiedFor(current) !== null && copiedFor(current) !== tag);
+      if (current && copiedFor(current) !== null && copiedFor(current) !== tag) {
+        log(`Replica ${r.id}: the database's version changed, copying it again`);
+        await removeContainer(name, 30, d);
+        await d
+          .getVolume(dataVolume)
+          .remove()
+          .catch(() => {});
+      }
+      await ensureImage(server, plan.image, log);
+      const network = await ensureEnvNetwork(service.environmentId, server);
+      // On another server, the database's name answers there once the private network has it.
+      if (server.id !== home.id) await meshBeforeStart(service, server.id, log);
+      // Public access: the shared port on this replica's server, with TLS.
+      const pub = cfg.replica?.public?.port ? cfg.replica.public : null;
+      const tls = pub ? await publicTls(server, service, pub.domain ?? null, [replicaHost(service), replicaHost(service, r.id)], log) : null;
+      await removeContainer(name, 30, d);
+      await startContainer(
+        {
+          name,
+          image: plan.image,
+          slug: service.slug,
+          serviceId: service.id,
+          kind: `replica-${r.id}`,
+          env: {
+            ...(plan.env.PGDATA ? { PGDATA: plan.env.PGDATA } : {}),
+            SERVE_IMAGE: tag,
+            PRIMARY_HOST: service.slug,
+            REPLICA_PASSWORD: password,
+            REPLICA_SLOT: replicaSlot(r.id),
+            ...(tls ? { PUBLIC: "1", ...tls.env } : {}),
+          },
+          extraBinds: tls?.binds,
+          cmd: ["sh", "-c", REPLICA_SCRIPT],
+          // With the database's own login: a check as root fills the log with failed logins.
+          healthcheck: ["CMD-SHELL", `pg_isready -q -h 127.0.0.1 -p 5432 -U '${cfg.username.replace(/'/g, "")}' -d postgres`],
+          healthTiming: { interval: 10, timeout: 5, retries: 6, startPeriod: 600 },
+          runtime: {
+            ...defaultRuntime(5432),
+            restartPolicy: "unless-stopped",
+            volumes: [{ kind: "volume", source: `replica-${r.id}-data`, mountPath: plan.dataMountPath }],
+            ports: pub ? [{ host: pub.port!, container: 5432, protocol: "tcp", bindAddress: pub.bind }] : [],
+          },
+          aliases: [name, replicaHost(service, r.id), replicaHost(service)],
+          network,
+        },
+        server,
+      );
+      await meshAfterStart(server.id, log);
+      log(`Read replica ${r.id} starting on ${server.row.name} at ${replicaHost(service, r.id)}:5432.${fresh ? " Its first start copies the database." : ""}`);
+    } catch (e) {
+      failed.push(`replica ${r.id}: ${(e as Error).message}`);
+      log(`Read replica ${r.id} did not start: ${(e as Error).message}`);
     }
-    await ensureImage(server, plan.image, log);
-    const network = await ensureEnvNetwork(service.environmentId, server);
-    // On another server, the database's name answers there once the private network has it.
-    if (server.id !== home.id) await meshBeforeStart(service, server.id, log);
-    // Public access: the shared port on this replica's server, with TLS.
-    const pub = cfg.replica?.public?.port ? cfg.replica.public : null;
-    const tls = pub ? await publicTls(server, service, pub.domain ?? null, [replicaHost(service), replicaHost(service, r.id)], log) : null;
-    await removeContainer(name, 30, d);
-    await startContainer(
-      {
-        name,
-        image: plan.image,
-        slug: service.slug,
-        serviceId: service.id,
-        kind: `replica-${r.id}`,
-        env: {
-          ...(plan.env.PGDATA ? { PGDATA: plan.env.PGDATA } : {}),
-          SERVE_IMAGE: tag,
-          PRIMARY_HOST: service.slug,
-          REPLICA_PASSWORD: password,
-          REPLICA_SLOT: replicaSlot(r.id),
-          ...(tls ? { PUBLIC: "1", ...tls.env } : {}),
-        },
-        extraBinds: tls?.binds,
-        cmd: ["sh", "-c", REPLICA_SCRIPT],
-        // With the database's own login: a check as root fills the log with failed logins.
-        healthcheck: ["CMD-SHELL", `pg_isready -q -h 127.0.0.1 -p 5432 -U '${cfg.username.replace(/'/g, "")}' -d postgres`],
-        healthTiming: { interval: 10, timeout: 5, retries: 6, startPeriod: 600 },
-        runtime: {
-          ...defaultRuntime(5432),
-          restartPolicy: "unless-stopped",
-          volumes: [{ kind: "volume", source: `replica-${r.id}-data`, mountPath: plan.dataMountPath }],
-          ports: pub ? [{ host: pub.port!, container: 5432, protocol: "tcp", bindAddress: pub.bind }] : [],
-        },
-        aliases: [name, replicaHost(service, r.id), replicaHost(service)],
-        network,
-      },
-      server,
-    );
-    await meshAfterStart(server.id, log);
-    log(`Read replica ${r.id} starting on ${server.row.name} at ${replicaHost(service, r.id)}:5432.${fresh ? " Its first start copies the database." : ""}`);
   }
+  if (failed.length) throw new Error(`Not every read replica started (${failed.join("; ")}).`);
 }
 
 /**
@@ -440,73 +448,81 @@ async function ensureOtherReplicas(service: Service, instances: ReplicaInstance[
   const engine = engines[cfg.engine];
   const [project] = await db.select({ organizationId: schema.project.organizationId }).from(schema.project).where(eq(schema.project.id, service.projectId));
   const { meshBeforeStart, meshAfterStart } = await import("@/server/mesh");
+  // Each replica on its own: one whose server does not answer must not keep the others stopped.
+  const failed: string[] = [];
   for (const r of instances) {
-    const server = r.serverId === home.id ? home : await getServer(r.serverId);
-    const d = server.docker;
-    const name = replicaName(service, r.id);
-    const dataVolume = volumeName(service.slug, `replica-${r.id}-data`);
-    // Public access: the shared port on this replica's server, with the domain's certificate when TLS is on.
-    const pub = cfg.replica?.public?.port ? cfg.replica.public : null;
-    const cert = pub?.domain && cfg.tls?.enabled && project ? await activeCertMount(server, project.organizationId, pub.domain) : null;
-    if (pub?.domain && cfg.tls?.enabled && !cert) log(`No certificate for ${pub.domain} on ${server.row.name} yet: Serve's own certificate is used until it is issued.`);
-    const spec = replicaSpec(service, r.id, server, password, cert);
-    const tag = spec.image;
-    spec.image = await pinnedImage(home, tag);
-    spec.env.SERVE_IMAGE = tag;
-    // A replica runs the database's own version: after a version change it is copied again.
-    const current = await d
-      .getContainer(name)
-      .inspect()
-      .catch(() => null);
-    // Copied again only for another version of the database (its tag), not for a newer build of the same one.
-    // A new replica, or one copied again: its first start copies the database.
-    const kept = await d
-      .getVolume(dataVolume)
-      .inspect()
-      .then(() => true)
-      .catch(() => false);
-    const fresh = !kept || (!!current && copiedFor(current) !== null && copiedFor(current) !== tag);
-    if (current && copiedFor(current) !== null && copiedFor(current) !== tag) {
-      log(`Replica ${r.id}: the database's version changed, copying it again`);
-      await removeContainer(name, 30, d);
-      await d
+    try {
+      const server = r.serverId === home.id ? home : await getServer(r.serverId);
+      const d = server.docker;
+      const name = replicaName(service, r.id);
+      const dataVolume = volumeName(service.slug, `replica-${r.id}-data`);
+      // Public access: the shared port on this replica's server, with the domain's certificate when TLS is on.
+      const pub = cfg.replica?.public?.port ? cfg.replica.public : null;
+      const cert = pub?.domain && cfg.tls?.enabled && project ? await activeCertMount(server, project.organizationId, pub.domain) : null;
+      if (pub?.domain && cfg.tls?.enabled && !cert) log(`No certificate for ${pub.domain} on ${server.row.name} yet: Serve's own certificate is used until it is issued.`);
+      const spec = replicaSpec(service, r.id, server, password, cert);
+      const tag = spec.image;
+      spec.image = await pinnedImage(home, tag);
+      spec.env.SERVE_IMAGE = tag;
+      // A replica runs the database's own version: after a version change it is copied again.
+      const current = await d
+        .getContainer(name)
+        .inspect()
+        .catch(() => null);
+      // Copied again only for another version of the database (its tag), not for a newer build of the same one.
+      // A new replica, or one copied again: its first start copies the database.
+      const kept = await d
         .getVolume(dataVolume)
-        .remove()
-        .catch(() => {});
-    }
-    if (cfg.tls?.enabled) await copyTlsFiles(home, server, service.id);
-    for (const f of spec.files) await server.fs.writeFile(f.path, f.content, f.mode);
-    await ensureImage(server, spec.image, log);
-    const network = await ensureEnvNetwork(service.environmentId, server);
-    // On another server, the database's name answers there once the private network has it.
-    if (server.id !== home.id) await meshBeforeStart(service, server.id, log);
-    await removeContainer(name, 30, d);
-    await startContainer(
-      {
-        name,
-        image: spec.image,
-        slug: service.slug,
-        serviceId: service.id,
-        kind: `replica-${r.id}`,
-        env: spec.env,
-        extraBinds: spec.binds,
-        cmd: spec.cmd,
-        healthcheck: spec.healthcheck,
-        healthTiming: { interval: 10, timeout: 5, retries: 6, startPeriod: 600 },
-        runtime: {
-          ...defaultRuntime(engine.port),
-          restartPolicy: "unless-stopped",
-          volumes: [{ kind: "volume", source: `replica-${r.id}-data`, mountPath: spec.dataMountPath }],
-          ports: pub ? [{ host: pub.port!, container: spec.publicTarget, protocol: "tcp", bindAddress: pub.bind }] : [],
+        .inspect()
+        .then(() => true)
+        .catch(() => false);
+      const fresh = !kept || (!!current && copiedFor(current) !== null && copiedFor(current) !== tag);
+      if (current && copiedFor(current) !== null && copiedFor(current) !== tag) {
+        log(`Replica ${r.id}: the database's version changed, copying it again`);
+        await removeContainer(name, 30, d);
+        await d
+          .getVolume(dataVolume)
+          .remove()
+          .catch(() => {});
+      }
+      if (cfg.tls?.enabled) await copyTlsFiles(home, server, service.id);
+      for (const f of spec.files) await server.fs.writeFile(f.path, f.content, f.mode);
+      await ensureImage(server, spec.image, log);
+      const network = await ensureEnvNetwork(service.environmentId, server);
+      // On another server, the database's name answers there once the private network has it.
+      if (server.id !== home.id) await meshBeforeStart(service, server.id, log);
+      await removeContainer(name, 30, d);
+      await startContainer(
+        {
+          name,
+          image: spec.image,
+          slug: service.slug,
+          serviceId: service.id,
+          kind: `replica-${r.id}`,
+          env: spec.env,
+          extraBinds: spec.binds,
+          cmd: spec.cmd,
+          healthcheck: spec.healthcheck,
+          healthTiming: { interval: 10, timeout: 5, retries: 6, startPeriod: 600 },
+          runtime: {
+            ...defaultRuntime(engine.port),
+            restartPolicy: "unless-stopped",
+            volumes: [{ kind: "volume", source: `replica-${r.id}-data`, mountPath: spec.dataMountPath }],
+            ports: pub ? [{ host: pub.port!, container: spec.publicTarget, protocol: "tcp", bindAddress: pub.bind }] : [],
+          },
+          aliases: [name, replicaHost(service, r.id), replicaHost(service)],
+          network,
         },
-        aliases: [name, replicaHost(service, r.id), replicaHost(service)],
-        network,
-      },
-      server,
-    );
-    await meshAfterStart(server.id, log);
-    log(`Read replica ${r.id} starting on ${server.row.name} at ${replicaHost(service, r.id)}:${engine.port}.${fresh ? " Its first start copies the database." : ""}`);
+        server,
+      );
+      await meshAfterStart(server.id, log);
+      log(`Read replica ${r.id} starting on ${server.row.name} at ${replicaHost(service, r.id)}:${engine.port}.${fresh ? " Its first start copies the database." : ""}`);
+    } catch (e) {
+      failed.push(`replica ${r.id}: ${(e as Error).message}`);
+      log(`Read replica ${r.id} did not start: ${(e as Error).message}`);
+    }
   }
+  if (failed.length) throw new Error(`Not every read replica started (${failed.join("; ")}).`);
 }
 
 /** Removes one replica: its container and copy on its server, and its slot on the database (so no WAL is kept for it). */
@@ -535,6 +551,30 @@ export async function removeReplicaInstance(service: Service, r: { id: string; s
 export type ReplicaState = { id: string; serverId: string; state: "copying" | "following" | "stopped" | "failed"; lagSeconds: number | null; error?: string | null };
 
 /** How each replica is doing: still copying, following (and how far behind), or not running. */
+/**
+ * Start a read replica that stopped (stopped by hand: Docker's unless-stopped then leaves it
+ * stopped). Its container starts again; one that is gone is made again with the others.
+ */
+export async function startReplica(service: Service, id: string) {
+  const r = replicaInstances(service).find((x) => x.id === id);
+  if (!r) throw new Error("That replica is gone.");
+  const server = await getServer(r.serverId);
+  const container = server.docker.getContainer(replicaName(service, r.id));
+  const info = await container.inspect().catch(() => null);
+  if (!info || info.Config.Labels?.[LABEL.service] !== service.id) return ensureReplicas(service);
+  await container.start().catch((e: Error & { statusCode?: number }) => {
+    // 304: already running.
+    if (e.statusCode !== 304) throw e;
+  });
+}
+
+/** Start every replica of the database, wherever it runs; returns the ones that did not start. */
+export async function startReplicas(service: Service) {
+  const failed: string[] = [];
+  for (const r of replicaInstances(service)) await startReplica(service, r.id).catch((e: Error) => failed.push(`replica ${r.id}: ${e.message}`));
+  return failed;
+}
+
 export async function replicaStatuses(service: Service): Promise<ReplicaState[]> {
   const instances = replicaInstances(service);
   if (!instances.length) return [];

@@ -2,16 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
 const removeContainer = vi.fn(async () => {});
-vi.mock("@/server/docker/client", () => ({ imageExists: vi.fn(), LABEL: {}, pullImage: vi.fn(), removeContainer }));
+vi.mock("@/server/docker/client", () => ({
+  imageExists: vi.fn(),
+  LABEL: { service: "serve.service", kind: "serve.kind", managed: "serve.managed" },
+  pullImage: vi.fn(),
+  removeContainer,
+}));
 const inspect = vi.fn();
 const serverOf = vi.fn();
 // Reaching the replica's server means the promotion went past the guard: it stops there.
-const getServer = vi.fn(async () => {
+const getServer = vi.fn(async (_id: string): Promise<unknown> => {
   throw new Error("past the guard");
 });
 vi.mock("@/server/servers/context", () => ({ serverOf, getServer }));
 
-const { promoteReplica } = await import("@/server/databases/addons");
+const { promoteReplica, startReplica, startReplicas } = await import("@/server/databases/addons");
 
 const service = {
   id: "svc",
@@ -49,5 +54,46 @@ describe("promoting a read replica", () => {
     serverOf.mockRejectedValue(new Error("unreachable"));
     await expect(promoteReplica(service, "r1")).rejects.toThrow("past the guard");
     expect(removeContainer).not.toHaveBeenCalled();
+  });
+});
+
+describe("starting a stopped read replica", () => {
+  const start = vi.fn();
+  const db2 = {
+    ...(service as object),
+    database: {
+      engine: "postgres",
+      replica: {
+        enabled: true,
+        instances: [
+          { id: "2", serverId: "far" },
+          { id: "3", serverId: "s1" },
+        ],
+      },
+    },
+  } as never;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    start.mockReset().mockResolvedValue(undefined);
+    getServer.mockImplementation(async (id: string) => {
+      if (id === "far") throw new Error("far does not answer");
+      return { docker: { getContainer: () => ({ inspect: async () => ({ Config: { Labels: { "serve.service": "svc" } } }), start }) } };
+    });
+  });
+
+  it("starts its container, and is fine with one already running", async () => {
+    await startReplica(db2, "3");
+    expect(start).toHaveBeenCalledTimes(1);
+    start.mockRejectedValueOnce(Object.assign(new Error("already started"), { statusCode: 304 }));
+    await expect(startReplica(db2, "3")).resolves.toBeUndefined();
+  });
+
+  it("starts the others when one server does not answer, and names the one that failed", async () => {
+    expect(await startReplicas(db2)).toEqual(["replica 2: far does not answer"]);
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a replica that is gone", async () => {
+    await expect(startReplica(db2, "9")).rejects.toThrow("That replica is gone.");
   });
 });

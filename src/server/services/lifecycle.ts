@@ -133,7 +133,18 @@ async function startNow(serviceId: string): Promise<"started" | "needs-deploy"> 
   }
   await setServiceStatus(service.id, "running");
   await syncServiceProxy(service.id).catch(() => {});
+  await startDatabaseReplicas(service);
   return "started";
+}
+
+/**
+ * A database's read replicas on other servers than its own (its own server's are among its
+ * containers): started with it. One that fails shows as not running on the Read replicas list.
+ */
+async function startDatabaseReplicas(service: Service) {
+  if (service.type !== "database" || !service.database?.replica?.enabled) return;
+  const { startReplicas } = await import("@/server/databases/addons");
+  await startReplicas(service).catch(() => []);
 }
 
 export async function restartService(serviceId: string) {
@@ -171,6 +182,7 @@ async function restartNow(serviceId: string) {
   await onExtras(service, restart);
   await setServiceStatus(service.id, "running");
   await syncServiceProxy(service.id).catch(() => {});
+  await startDatabaseReplicas(service);
 }
 
 /** Queue of the cleanup on a server an app was taken off (apart from the app's own deploys). */

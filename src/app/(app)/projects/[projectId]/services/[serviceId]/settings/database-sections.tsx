@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Download, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
+import { Download, KeyRound, Play, Plus, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { SecretField } from "@/components/ui/secret-field";
@@ -21,6 +21,7 @@ import {
   redeployServices,
   setDatabasePooler,
   promoteDatabaseReplica,
+  startDatabaseReplica,
   setDatabaseReplicas,
   updateDatabaseSettings,
 } from "@/server/actions/databases";
@@ -737,6 +738,9 @@ function ReplicaSection(props: DatabaseSettingsProps) {
   const promote = useAction((id: string) => promoteDatabaseReplica(props.serviceId, id), {
     onSuccess: () => router.refresh(),
   });
+  const startOne = useAction((id: string) => startDatabaseReplica(props.serviceId, id), {
+    onSuccess: () => router.refresh(),
+  });
   const status = useAddonStatus(props.serviceId, saved.length > 0);
   const home = props.replicaServers.find((s) => s.home)?.id ?? props.replicaServers[0]?.id ?? "";
   const homeName = props.replicaServers.find((s) => s.home)?.name ?? "the database's server";
@@ -814,6 +818,12 @@ function ReplicaSection(props: DatabaseSettingsProps) {
                             : `Not on a private network with ${homeName}. Add it under Servers → ${s.name} → Private network.`,
                       }))}
                     />
+                    {/* Stopped by hand (Docker then leaves it stopped) or failed: start it again. */}
+                    {r.id && props.running && (live?.state === "stopped" || live?.state === "failed") && saved.some((x) => x.id === r.id && x.serverId === r.serverId) && (
+                      <Button type="button" size="sm" loading={startOne.pending} onClick={() => startOne.run(r.id!)}>
+                        <Play /> Start
+                      </Button>
+                    )}
                     {r.id && saved.some((x) => x.id === r.id && x.serverId === r.serverId) && (
                       <Button
                         type="button"

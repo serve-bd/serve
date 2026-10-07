@@ -548,6 +548,18 @@ export async function databaseAddonStatus(serviceId: string) {
   });
 }
 
+/** Start a read replica that is not running, on whatever server it runs. */
+export async function startDatabaseReplica(serviceId: string, replicaId: string) {
+  return act(async () => {
+    const { ctx, service } = await databaseForAddon(serviceId, "replicas");
+    if (!ctx.can("services.deploy")) throw new UserError(cannotMessage("services.deploy"));
+    if (service.status !== "running") throw new UserError("Start the database first: a replica follows it.");
+    const { startReplica } = await import("@/server/databases/addons");
+    await startReplica(service, replicaId);
+    return null;
+  });
+}
+
 /**
  * Makes a read replica the database (its server was lost, or it must move there now). The
  * database deploys on the replica's server with the replica's data; the public side of its pooler

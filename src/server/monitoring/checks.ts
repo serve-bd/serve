@@ -74,7 +74,14 @@ export async function containerCheck(service: Service): Promise<CheckResult> {
   try {
     const server = await serverOf(service);
     const all = await listServiceContainers(service.id, true, server.docker);
-    const relevant = service.type === "app" ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : all;
+    // A database's read replicas are not the database: one stopped shows on its Read replicas list,
+    // and the database stays up.
+    const relevant =
+      service.type === "app"
+        ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId)
+        : service.type === "database"
+          ? all.filter((c) => !c.Labels[LABEL.kind]?.startsWith("replica-"))
+          : all;
     if (!relevant.length) return { ok: false, latencyMs: null, statusCode: null, error: "No containers" };
     const bad = relevant.find((c) => c.State !== "running" || /\(unhealthy\)/.test(c.Status));
     const latency = Date.now() - started;

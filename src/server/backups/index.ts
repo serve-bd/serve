@@ -232,7 +232,7 @@ async function composeCommands(service: ServiceRow, name: string): Promise<Comma
   if ((engine === "redis" || engine === "valkey") && !creds.password) creds.password = requirePass([...(info.Config.Entrypoint ?? []), ...(info.Config.Cmd ?? [])]);
   // MongoDB in a stack: its users can be restored too, as for a database service.
   const restoreUsers = engine === "mongodb" && creds.username ? engines.mongodb.restoreUsersCommand?.({ ...creds, tlsRequired: false }) : undefined;
-  return {
+  const t: Commands = {
     docker,
     container,
     engine,
@@ -242,6 +242,19 @@ async function composeCommands(service: ServiceRow, name: string): Promise<Comma
     database: creds.database ?? "",
     username: creds.username,
   };
+  // ClickHouse in a stack keeps its data in databases the app names (Plausible: plausible), not
+  // only in default: the backup takes every one. A listing that fails fails the backup.
+  if (engine === "clickhouse") {
+    const c = { username: creds.username, password: creds.password, database: creds.database || "default", tlsRequired: false };
+    const spec = serverDatabases("clickhouse", c)!;
+    const listed = (await runIn(t, `${spec.list} 2>/dev/null`, Readable.from([]), false))
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => /^[A-Za-z0-9_][A-Za-z0-9_$-]{0,63}$/.test(l) && !spec.system.includes(l));
+    const several = listed.length ? engines.clickhouse.backupDatabasesCommand?.(c, listed) : undefined;
+    if (several) t.backup = several.command;
+  }
+  return t;
 }
 
 /**

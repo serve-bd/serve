@@ -19,6 +19,7 @@ export function engineOfImage(image: string): Engine | null {
   if (/^(mongo|mongodb|mongodb-community-server)$/.test(last)) return "mongodb";
   if (/^valkey$/.test(last)) return "valkey";
   if (/^(redis|redis-stack-server|redis-stack)$/.test(last)) return "redis";
+  if (/^(clickhouse|clickhouse-server)$/.test(last)) return "clickhouse";
   return null;
 }
 
@@ -82,8 +83,9 @@ export function credsFromEnv(engine: Engine, env: Record<string, string>, files:
     case "valkey":
       return { username: "", password: get("REDIS_PASSWORD", "VALKEY_PASSWORD"), database: "", root: true };
     case "clickhouse": {
-      const username = get("CLICKHOUSE_USER") || "default";
-      return { username, password: get("CLICKHOUSE_PASSWORD"), database: get("CLICKHOUSE_DB") || "default", root: true };
+      // The official image, then Bitnami's.
+      const username = get("CLICKHOUSE_USER", "CLICKHOUSE_ADMIN_USER") || "default";
+      return { username, password: get("CLICKHOUSE_PASSWORD", "CLICKHOUSE_ADMIN_PASSWORD"), database: get("CLICKHOUSE_DB") || "default", root: true };
     }
   }
 }

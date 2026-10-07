@@ -17,6 +17,24 @@ describe("compose backups", () => {
     expect(engineOfImage("prometheuscommunity/postgres-exporter")).toBeNull();
     expect(engineOfImage("prodrigestivill/postgres-backup-local:16")).toBeNull();
     expect(engineOfImage("redisinsight")).toBeNull();
+    expect(engineOfImage("clickhouse/clickhouse-server:24.8")).toBe("clickhouse");
+    expect(engineOfImage("clickhouse:25")).toBe("clickhouse");
+    expect(engineOfImage("bitnami/clickhouse:24")).toBe("clickhouse");
+    expect(engineOfImage("clickhouse/clickhouse-keeper:24.8")).toBeNull();
+  });
+
+  it("reads ClickHouse credentials of the official and Bitnami images", () => {
+    expect(credsFromEnv("clickhouse", { CLICKHOUSE_USER: "app", CLICKHOUSE_PASSWORD: "pw", CLICKHOUSE_DB: "events" })).toMatchObject({
+      username: "app",
+      password: "pw",
+      database: "events",
+    });
+    expect(credsFromEnv("clickhouse", { CLICKHOUSE_ADMIN_USER: "admin", CLICKHOUSE_ADMIN_PASSWORD: "pw2" })).toMatchObject({
+      username: "admin",
+      password: "pw2",
+      database: "default",
+    });
+    expect(credsFromEnv("clickhouse", {})).toMatchObject({ username: "default", database: "default" });
   });
 
   it("lists the databases of a compose file", () => {

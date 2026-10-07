@@ -14,7 +14,7 @@ import { useRouter } from "@/hooks/use-router";
 import { checkStatusDomain, createStatusRecord, deleteStatusPage, saveStatusPage, setStatusDomain, setStatusVisibility } from "@/server/actions/status-pages";
 import type { EditorData } from "@/server/status-pages/admin";
 import type { StatusVisibility } from "@/lib/status-page";
-import { certificateCovers } from "@/server/ssl/match";
+import { bestCertificate, certificateCovers } from "@/server/ssl/match";
 import { cn } from "@/lib/utils";
 
 export function SettingsTab({ data, canManage }: { data: EditorData; canManage: boolean }) {
@@ -163,7 +163,13 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
     (tunnel?.id ?? null) !== data.page.tunnelId ||
     (!tunnel && (https !== data.page.https || (https ? cert : null) !== data.page.certificateId));
   const ip = data.domain.serverIp;
-  const auto = data.domain.proxy === "nginx" ? "Automatic (Let's Encrypt)" : `Automatic (${data.domain.proxy === "caddy" ? "Caddy" : "Traefik"} gets it)`;
+  // Automatic serves the best certificate that already covers the name (as the proxy picks it), else gets one.
+  const covering = host ? bestCertificate(host, data.domain.certificates) : undefined;
+  const auto = covering
+    ? `Automatic · ${covering.name}`
+    : data.domain.proxy === "nginx"
+      ? "Automatic (Let's Encrypt)"
+      : `Automatic (${data.domain.proxy === "caddy" ? "Caddy" : "Traefik"} gets it)`;
   const saved = data.domain.certificate;
 
   return (

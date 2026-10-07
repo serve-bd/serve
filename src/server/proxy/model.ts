@@ -6,7 +6,7 @@ import { env } from "@/server/env";
 import { getSettings } from "@/server/settings";
 import type { ServerCtx } from "@/server/servers/context";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
-import { certificateCovers } from "@/server/ssl/match";
+import { bestCertificate } from "@/server/ssl/match";
 import { maintenanceOf, type ProxyMaintenance } from "@/server/services/maintenance";
 import { gateUpstream } from "@/server/gate";
 import { gateOn } from "@/server/services/proxy-config";
@@ -60,7 +60,7 @@ type CertRow = typeof schema.certificate.$inferSelect;
 
 export function certificateFor(hostname: string, explicitId: string | null, certs: CertRow[]) {
   const usable = certs.filter((c) => c.status === "active" && c.certPath && c.keyPath);
-  const cert = (explicitId && usable.find((c) => c.id === explicitId)) || usable.find((c) => certificateCovers(c.domains, hostname));
+  const cert = (explicitId && usable.find((c) => c.id === explicitId)) || bestCertificate(hostname, usable);
   return cert ? { cert: cert.certPath!, key: cert.keyPath! } : null;
 }
 

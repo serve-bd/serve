@@ -3,7 +3,7 @@ import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { publicBaseUrl } from "@/server/git/github-app";
 import { getSettings } from "@/server/settings";
-import { certificateCovers } from "@/server/ssl/match";
+import { bestCertificate, certificateCovers } from "@/server/ssl/match";
 import { designOf, maskTarget, subscribeOf } from "@/lib/status-page";
 import { decryptOrNull } from "@/server/crypto";
 import { isEmailConfigured } from "@/server/email/send";
@@ -104,7 +104,9 @@ export async function editorData(pageId: string, organizationId: string) {
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
       .where(and(eq(schema.cloudflareTunnel.organizationId, organizationId), eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID))),
   ]);
-  const certificate = page.domain ? (certificates.find((c) => c.id === page.certificateId) ?? certificates.find((c) => certificateCovers(c.domains, page.domain!))) : undefined;
+  const certificate = page.domain
+    ? (certificates.find((c) => c.id === page.certificateId) ?? bestCertificate(page.domain, certificates) ?? certificates.find((c) => certificateCovers(c.domains, page.domain!)))
+    : undefined;
 
   const serviceRows: EditorService[] = services.map((s) => ({ id: s.id, name: s.name, project: s.project, check: s.status ? (s.enabled ? s.status : "paused") : null }));
   return {

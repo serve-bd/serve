@@ -30,7 +30,7 @@ import {
   type SiteServer,
   type SiteUpstream,
 } from "./templates";
-import { certificateCovers } from "@/server/ssl/match";
+import { bestCertificate, certificateCovers } from "@/server/ssl/match";
 import { composeAlias, tunnelNetworkName, upstreamNamer } from "./names";
 import { ensureTunnelNetwork } from "./tunnel-network";
 import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
@@ -815,7 +815,7 @@ type CertRow = typeof schema.certificate.$inferSelect;
 
 function tlsFor(hostname: string, explicitId: string | null, certs: CertRow[]): SiteServer["tls"] {
   const usable = certs.filter((c) => c.status === "active" && c.certPath && c.keyPath);
-  const cert = (explicitId && usable.find((c) => c.id === explicitId)) || usable.find((c) => certificateCovers(c.domains, hostname));
+  const cert = (explicitId && usable.find((c) => c.id === explicitId)) || bestCertificate(hostname, usable);
   return cert ? { cert: cert.certPath!, key: cert.keyPath! } : null;
 }
 

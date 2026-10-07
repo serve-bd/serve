@@ -404,7 +404,9 @@ function CertificateRow({
   // A failed renewal keeps the certificate active (the old one still works), but it is shown too.
   const renewFailed = c.status === "active" && !!c.lastError;
   const explained = (failed || renewFailed) && c.lastError ? explainCertError(c.lastError, { serverIp: c.serverIp ?? serverIp, provider: c.provider }) : null;
-  const problem = explained && renewFailed ? { ...explained, title: `Renewal failed: ${explained.title}` } : explained;
+  // A renewal that worked but was not loaded everywhere is not a failed renewal.
+  const notLoaded = !!c.lastError?.startsWith("Not loaded everywhere yet");
+  const problem = explained && renewFailed && !notLoaded ? { ...explained, title: `Renewal failed: ${explained.title}` } : explained;
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3.5 sm:px-5">

@@ -302,27 +302,44 @@ export async function copyCertificate(cert: Cert, serverId: string): Promise<Cer
   return copy;
 }
 
-/** Re-render every site that could use this certificate. */
-export async function applyCertificate(cert: Cert) {
+/**
+ * Re-render every site that could use this certificate. Returns what could not take it (a proxy
+ * that did not reload serves the old certificate until it does), also kept on the certificate.
+ */
+export async function applyCertificate(cert: Cert): Promise<string[]> {
+  const problems: string[] = [];
+  const attempt = (what: string, work: Promise<unknown>) => work.catch((e: Error) => void problems.push(`${what}: ${e.message}`));
   const services = await servicesUsingCertificate(cert);
-  for (const id of services) await syncServiceProxy(id).catch(() => {});
+  for (const id of services)
+    await syncServiceProxy(id).catch(async (e: Error) => {
+      const [row] = await db.select({ name: schema.service.name }).from(schema.service).where(eq(schema.service.id, id));
+      problems.push(`${row?.name ?? id}: ${e.message}`);
+    });
   const settings = await getSettings();
   // The dashboard is served by the local proxy only.
   if (cert.serverId === LOCAL_SERVER_ID && settings.dashboardDomain && certificateCovers(cert.domains, settings.dashboardDomain)) {
-    await syncDashboardProxy().catch(() => {});
+    await attempt("Dashboard", syncDashboardProxy());
   }
   if (cert.serverId === LOCAL_SERVER_ID && (await statusDomainsOf(cert.organizationId)).some((d) => certificateCovers(cert.domains, d))) {
-    await syncStatusProxy().catch(() => {});
+    await attempt("Status pages", syncStatusProxy());
   }
   // A renewal writes the same file paths: sites with their own proxy config would keep the old one.
   if (cert.serverId) {
-    await getServer(cert.serverId)
-      .then((server) => reloadProxy(server))
-      .catch(() => {});
+    await attempt(
+      "Proxy reload",
+      getServer(cert.serverId).then((server) => reloadProxy(server)),
+    );
     // Databases on domains serve the certificate themselves: they load a new or renewed one.
     const { refreshDatabaseCertificates } = await import("@/server/databases/domain-tls");
-    await refreshDatabaseCertificates(cert.serverId, cert.domains, cert.organizationId).catch(() => {});
+    await attempt("Databases on its domains", refreshDatabaseCertificates(cert.serverId, cert.domains, cert.organizationId));
   }
+  if (problems.length) {
+    const text = `Not loaded everywhere yet: ${problems.slice(0, 5).join("; ")}${problems.length > 5 ? `; and ${problems.length - 5} more` : ""}`.slice(0, 2000);
+    // A deleted certificate has no row left: nothing to keep it on.
+    await appendLog(cert.id, text).catch(() => {});
+    await db.update(schema.certificate).set({ lastError: text }).where(eq(schema.certificate.id, cert.id));
+  }
+  return problems;
 }
 
 /** A connected Cloudflare account whose zones contain every domain, if any. */
@@ -394,7 +411,17 @@ export async function issueCertificate(certificateId: string) {
       })
       .where(eq(schema.certificate.id, cert.id))
       .returning();
-    await applyCertificate(updated);
+    const problems = await applyCertificate(updated);
+    if (problems.length)
+      void notify(cert.organizationId, "certificate.failed", {
+        ok: false,
+        title: `Certificate ${wasActive ? "renewed" : "issued"}, but not loaded everywhere`,
+        body: `${cert.domains.join(", ")}: ${problems.join("; ").slice(0, 300)}`,
+        url: "/certificates",
+        error: problems.join("\n").slice(0, 2000),
+        dedupKey: `certificate:${cert.id}:apply`,
+        data: { certificateId: cert.id, domains: cert.domains },
+      });
     void notify(cert.organizationId, "certificate.renewed", {
       ok: true,
       title: `Certificate ${wasActive ? "renewed" : "issued"}`,

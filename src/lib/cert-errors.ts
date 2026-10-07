@@ -1,5 +1,12 @@
 /** Turns raw certbot / ACME errors into a short explanation and the next step. */
 export function explainCertError(error: string, ctx: { serverIp?: string | null; provider: string }): { title: string; hint: string } {
+  // Issued or renewed fine, but a proxy or database did not load it (applyCertificate).
+  const notLoaded = error.match(/^Not loaded everywhere yet: ([\s\S]*)$/);
+  if (notLoaded)
+    return {
+      title: "Not loaded everywhere",
+      hint: `The certificate is valid, but these could not load it yet: ${notLoaded[1]}. Fix the cause (often a proxy config error or a server that does not answer), then retry.`,
+    };
   const e = error.toLowerCase();
   const domains = [...new Set([...error.matchAll(/(?:for|looking up (?:a|aaaa|txt|caa) for) ([a-z0-9*._-]+\.[a-z]{2,})/gi)].map((m) => m[1].replace(/^_acme-challenge\./, "")))];
   const which = domains.length ? domains.join(", ") : "the domain";

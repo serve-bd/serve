@@ -119,7 +119,7 @@ describe("deleting kept data", () => {
 
   it("never reaches another organization's data", async () => {
     state.rows = [{ ...volume, organizationId: "o2" }];
-    expect(await deleteKeptData("volume", "k1", "pw")).toEqual({ ok: false, error: "That kept data is gone." });
+    expect(await deleteKeptData("volume", "k1", "pw")).toEqual({ ok: false, error: "Kept data not found." });
     expect(state.removed).toEqual([]);
     expect(state.rows).toHaveLength(1);
   });
@@ -158,7 +158,7 @@ describe("deleting kept data", () => {
   it("refuses a volume a container still uses, and keeps the record", async () => {
     state.removeError = { statusCode: 409, message: "volume is in use" };
     const res = await deleteKeptData("volume", "k1", "pw");
-    expect(res).toEqual({ ok: false, error: expect.stringContaining("is still used by a container") });
+    expect(res).toEqual({ ok: false, error: expect.stringContaining("is already in use by a container") });
     expect(state.rows.map((r) => r.id).sort()).toEqual(["k1", "k2"]);
     expect(state.activity).toEqual([]);
   });

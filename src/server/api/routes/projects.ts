@@ -8,6 +8,8 @@ import * as environments from "@/server/actions/environments";
 import * as services from "@/server/actions/services";
 import * as sharedVars from "@/server/actions/shared-vars";
 import * as move from "@/server/actions/move";
+import * as keptData from "@/server/actions/kept-data";
+import { environmentKept } from "@/server/services/kept-data";
 import { approveDeployment, rejectDeployment, saveDeployRules } from "@/server/actions/deploy-rules";
 import type { DeployRules } from "@/lib/deploy-rules";
 import { deploymentView, environmentView, loadDeployment, loadEnvironment, loadProject, loadServer, projectFilter, projectView, serviceView } from "../data";
@@ -300,6 +302,39 @@ export const projectRoutes: ApiRoute[] = [
       await unwrap(projects.saveSharedVars(params.environmentId, body.variables));
       const deployed = body.redeploy ? await unwrap(projects.redeployEnvironment(params.environmentId)) : null;
       return { ok: true, redeployed: deployed?.count ?? 0 };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/environments/{environmentId}/kept-data",
+    tag: "Environments",
+    summary: "List data kept from deleted services",
+    description:
+      "Volumes of services deleted with their data kept: databases (kind database; start a new database on one with keptId in POST /services) and apps' and stacks' volumes (kind volume). bytes is the last measured size, or null.",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      const { project } = await loadEnvironment(auth, params.environmentId);
+      return { keptData: await environmentKept(params.environmentId, project.organizationId) };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/kept-data/{kind}/{keptId}",
+    tag: "Environments",
+    summary: "Delete kept data",
+    description:
+      "kind is database or volume. Removes the Docker volume when Serve made it; a host folder or a volume made outside Serve is only forgotten (note says so). Refused while a container uses the volume.",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      if (params.kind !== "database" && params.kind !== "volume") throw new ApiError(404, "Kept data not found");
+      const table = params.kind === "database" ? schema.keptDatabase : schema.keptVolume;
+      const [row] = await db
+        .select({ projectId: table.projectId })
+        .from(table)
+        .where(and(eq(table.id, params.keptId), eq(table.organizationId, auth.organizationId)));
+      // Data kept before it had a project is the organization's: not for a token limited to some projects.
+      if (!row || (row.projectId ? !auth.canAccessProject(row.projectId) : auth.projectIds !== null)) throw new ApiError(404, "Kept data not found");
+      return { ok: true, ...(await unwrap(keptData.deleteKeptData(params.kind, params.keptId))) };
     },
   }),
   route({

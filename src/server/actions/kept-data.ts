@@ -28,7 +28,7 @@ export async function deleteKeptData(kind: "database" | "volume", id: string, pa
       .from(table)
       .where(and(eq(table.id, String(id)), eq(table.organizationId, ctx.org.id)));
     // Members limited to some projects only reach data of those projects.
-    if (!row || (row.projectId ? !ctx.canAccessProject(row.projectId) : ctx.projectIds !== null)) throw new UserError("That kept data is gone.");
+    if (!row || (row.projectId ? !ctx.canAccessProject(row.projectId) : ctx.projectIds !== null)) throw new UserError("Kept data not found.");
     await requireDeleteProof(ctx, password);
     const folder = row.volume.startsWith("/");
     if (!folder && !VOLUME_NAME_RE.test(row.volume)) throw new UserError(`"${row.volume}" is not a Docker volume name. Nothing was deleted.`);
@@ -37,7 +37,7 @@ export async function deleteKeptData(kind: "database" | "volume", id: string, pa
       .delete(table)
       .where(and(eq(table.id, row.id), eq(table.organizationId, ctx.org.id)))
       .returning();
-    if (!claimed) throw new UserError("That kept data is gone.");
+    if (!claimed) throw new UserError("Kept data not found.");
     const restore = () => db.insert(table).values(claimed as never);
 
     let note: string | null = null;
@@ -61,7 +61,7 @@ export async function deleteKeptData(kind: "database" | "volume", id: string, pa
       } catch (e) {
         await restore();
         const status = (e as { statusCode?: number }).statusCode;
-        if (status === 409) throw new UserError(`${row.volume} is still used by a container. Remove that container first. Nothing was deleted.`);
+        if (status === 409) throw new UserError(`${row.volume} is already in use by a container. Remove that container first. Nothing was deleted.`);
         throw new UserError(`Could not delete ${row.volume}: ${e instanceof Error ? e.message : String(e)}. Nothing was deleted.`);
       }
     }

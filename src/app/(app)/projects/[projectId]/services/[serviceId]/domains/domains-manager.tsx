@@ -38,8 +38,10 @@ import {
   checkDomainDns,
   pointDomainAtMain,
   generateDomain,
+  domainRecordState,
   removeDomain,
   reconnectDomainTunnel,
+  replaceDomain,
   retryCertificate,
   setDomainRoute,
   setPrimaryDomain,
@@ -490,6 +492,52 @@ function NotServedNotice({ text }: { text: string }) {
   );
 }
 
+/** One way to reach the domain: a Cloudflare Tunnel of the server, or the server's public IP. */
+function RouteCard({
+  kind,
+  selected,
+  onSelect,
+  tunnelAccount,
+  serverIp,
+}: {
+  kind: "tunnel" | "ip";
+  selected: boolean;
+  onSelect: () => void;
+  tunnelAccount?: string;
+  serverIp: string | null;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        "flex items-start gap-3 rounded-xl border p-3.5 text-left transition-colors",
+        selected ? "border-accent bg-accent-soft/40 ring-1 ring-accent/30" : "border-line bg-surface hover:border-line-strong",
+      )}
+    >
+      <span className={cn("mt-0.5 flex size-4 flex-none items-center justify-center rounded-full border", selected ? "border-accent" : "border-line-strong")}>
+        {selected && <span className="size-2 rounded-full bg-accent" />}
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
+          {kind === "tunnel" ? <Waypoints className="size-3.5 text-[#f38020]" /> : <Globe className="size-3.5 text-muted" />}
+          {kind === "tunnel" ? "Cloudflare Tunnel" : "Server IP"}
+          {kind === "tunnel" && <Badge tone="info">Recommended</Badge>}
+        </span>
+        <span className="text-xs leading-relaxed text-muted">
+          {kind === "tunnel"
+            ? `Through the tunnel in ${tunnelAccount}. HTTPS by Cloudflare; no public IP or open port needed.`
+            : serverIp
+              ? `Visitors connect to ${serverIp}. Ports 80 and 443 must be reachable.`
+              : "Visitors connect to the server's public IP. Set it in the server settings first."}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: boolean; onOpenChange: (o: boolean) => void }) {
   // Apps on several servers: visitors enter through one of them, picked here. The options below
   // (tunnels, IP, certificates) are those of the picked server.
@@ -578,33 +626,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   );
 
   const routeCard = (r: "tunnel" | "ip") => (
-    <button
-      key={r}
-      type="button"
-      onClick={() => setRoute(r)}
-      className={cn(
-        "flex items-start gap-3 rounded-xl border p-3.5 text-left transition-colors",
-        route === r ? "border-accent bg-accent-soft/40 ring-1 ring-accent/30" : "border-line bg-surface hover:border-line-strong",
-      )}
-    >
-      <span className={cn("mt-0.5 flex size-4 flex-none items-center justify-center rounded-full border", route === r ? "border-accent" : "border-line-strong")}>
-        {route === r && <span className="size-2 rounded-full bg-accent" />}
-      </span>
-      <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
-          {r === "tunnel" ? <Waypoints className="size-3.5 text-[#f38020]" /> : <Globe className="size-3.5 text-muted" />}
-          {r === "tunnel" ? "Cloudflare Tunnel" : "Server IP"}
-          {r === "tunnel" && <Badge tone="info">Recommended</Badge>}
-        </span>
-        <span className="text-xs leading-relaxed text-muted">
-          {r === "tunnel"
-            ? `Through the tunnel in ${tunnel?.accountName}. HTTPS by Cloudflare; no public IP or open port needed.`
-            : p.serverIp
-              ? `Visitors connect to ${p.serverIp}. Ports 80 and 443 must be reachable.`
-              : "Visitors connect to the server's public IP. Set it in the server settings first."}
-        </span>
-      </span>
-    </button>
+    <RouteCard key={r} kind={r} selected={route === r} onSelect={() => setRoute(r)} tunnelAccount={tunnel?.accountName} serverIp={p.serverIp} />
   );
 
   return (
@@ -805,140 +827,280 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   );
 }
 
-/** Change where a domain routes: the compose service and the container port. */
+/**
+ * Everything about a domain, as when adding it: its name, route or redirect, the compose service and
+ * port, Cloudflare Tunnel or the server's IP, HTTPS and its certificate, and the DNS record in
+ * Cloudflare. A new name is added and the old one removed (with the DNS record Serve made for it).
+ */
 function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: DomainRow; onClose: () => void }) {
   const compose = props.type === "compose";
+  const [hostname, setHostname] = React.useState(domain.hostname);
+  const renamed = hostname !== domain.hostname;
+  const validHost = /^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(hostname);
+  const [mode, setMode] = React.useState<"route" | "redirect">(domain.redirectTo ? "redirect" : "route");
+  const [redirect, setRedirect] = React.useState(domain.redirectTo ?? "");
   const [composeService, setComposeService] = React.useState(domain.composeService ?? props.composeServices[0] ?? "");
   const [port, setPort] = React.useState(domain.port ? String(domain.port) : "");
-  const [tls, setTls] = React.useState<"auto" | "custom" | "none">(!domain.https ? "none" : domain.certificateId ? "custom" : "auto");
+  const [tls, setTls] = React.useState<"auto" | "custom" | "none">(!domain.https && !domain.tunnel && !domain.wantsTunnel ? "none" : domain.certificateId ? "custom" : "auto");
   const [certificateId, setCertificateId] = React.useState(domain.certificateId ?? "");
-  const tlsChange = () => {
-    const https = tls !== "none";
-    return {
-      https,
-      // Keep the redirect setting while HTTPS stays on; turning HTTPS on redirects plain HTTP to it.
-      forceHttps: https && (domain.https ? domain.forceHttps : true),
-      certificateId: tls === "custom" && certificateId ? certificateId : null,
-    };
-  };
-  const save = useAction(
-    () => updateDomain(domain.id, { port: port ? Number(port) : null, ...(compose ? { composeService: composeService || null } : {}), ...(showTls ? tlsChange() : {}) }),
-    {
-      onSuccess: onClose,
-    },
-  );
-  const submit = async () => {
-    const wantTunnel = route === "tunnel";
-    const usesTunnel = domain.tunnel || domain.wantsTunnel;
-    // Only admins see (and may change) the route: for others it stays as it is.
-    if (props.isAdmin && wantTunnel && !domain.tunnel) {
-      if (!tunnel) {
-        // Still waiting for a tunnel: nothing to change; otherwise there is no tunnel to switch to.
-        if (!domain.wantsTunnel)
-          return void showError("No tunnel can serve this domain", `Create a Cloudflare Tunnel on ${props.serverName} for the account that manages ${domain.hostname}.`);
-      } else if ((await reroute.run(tunnel.id)) === undefined) return;
-    } else if (props.isAdmin && !wantTunnel && usesTunnel) {
-      // run() resolves to undefined when the action failed (the error is already shown).
-      if ((await reroute.run(null)) === undefined) return;
-    }
-    await save.run();
-  };
-  const detected = compose ? (props.composePorts[composeService] ?? []) : [];
-  const [route, setRoute] = React.useState<"ip" | "tunnel">(domain.tunnel || domain.wantsTunnel ? "tunnel" : "ip");
-  // The tunnel of the Cloudflare account that manages this domain: known account first, else a zone lookup.
-  const known = props.tunnels.find((t) => t.id === domain.tunnelId) ?? props.tunnels.find((t) => t.accountId === domain.cloudflareAccountId);
-  const { data: zone } = useSWR(!known && props.tunnels.length ? ["cf-zone", domain.hostname] : null, async () => {
-    const res = await findCloudflareZone(domain.hostname);
+  const [proof, setProof] = React.useState<{ recordName: string; recordValue: string } | null>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  // The Cloudflare zone of the name as typed: it decides the tunnel and the DNS record options.
+  const lookup = useDebounced(hostname, 500);
+  const { data: zoneData, isLoading: zoneLoading } = useSWR(props.hasCloudflare && /\.[a-z]{2,}$/i.test(lookup) ? ["cf-zone", lookup] : null, async () => {
+    const res = await findCloudflareZone(lookup);
     return res.ok ? res.data : null;
   });
-  const tunnel = known ?? (zone ? props.tunnels.find((t) => t.accountId === zone.accountId) : undefined);
-  // Tunnel domains get HTTPS from Cloudflare, and without a proxy there is nothing to secure here.
-  const showTls = route === "ip" && (props.proxyKind ?? "nginx") !== "none";
-  const reroute = useAction((to: string | null) => setDomainRoute(domain.id, to), {
-    onSuccess: (r) => {
-      if (r?.warning) toast.warning("Route updated", r.warning);
-    },
+  const zone = props.hasCloudflare && validHost && lookup === hostname ? (zoneData ?? null) : null;
+  const known = !renamed ? props.tunnels.find((t) => t.id === domain.tunnelId) : undefined;
+  const tunnel = props.isAdmin && props.proxyKind !== "none" ? (known ?? (zone ? props.tunnels.find((t) => t.accountId === zone.accountId) : undefined)) : undefined;
+  const wasTunnel = domain.tunnel || domain.wantsTunnel;
+  const [route, setRoute] = React.useState<"ip" | "tunnel">(wasTunnel ? "tunnel" : "ip");
+  const viaTunnel = route === "tunnel" && (!!tunnel || (!renamed && domain.wantsTunnel));
+  const routeChanged = viaTunnel !== wasTunnel;
+
+  // The A record Serve keeps in Cloudflare, and whether Cloudflare proxies it.
+  const { data: recordState } = useSWR(domain.managedRecord && !wasTunnel ? ["domain-record", domain.id] : null, async () => {
+    const res = await domainRecordState(domain.id);
+    return res.ok ? res.data : null;
   });
+  const [record, setRecord] = React.useState<boolean | null>(null);
+  const [proxied, setProxied] = React.useState<boolean | null>(null);
+  const keepRecord = record ?? (renamed || routeChanged ? true : domain.managedRecord);
+  const isProxied = proxied ?? recordState?.proxied ?? true;
+  const dnsChanged = record !== null || proxied !== null || routeChanged;
+
+  const https = mode === "redirect" ? tls !== "none" : viaTunnel ? false : tls !== "none";
+  const ready =
+    validHost &&
+    (mode === "redirect" ? !!redirect.trim() : !compose || (!!composeService && !!port)) &&
+    !(renamed && domain.generated) &&
+    !(viaTunnel && hostname.startsWith("*."));
+
+  const reroute = useAction((to: string | null) => setDomainRoute(domain.id, to));
+  const update = useAction((input: Parameters<typeof updateDomain>[1]) => updateDomain(domain.id, input));
+  const replace = useAction((input: Parameters<typeof replaceDomain>[1]) => replaceDomain(domain.id, input));
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const warnings: string[] = [];
+      const tlsFields = {
+        https,
+        // Keep the redirect setting while HTTPS stays on; turning HTTPS on redirects plain HTTP to it.
+        forceHttps: https && (domain.https ? domain.forceHttps : true),
+        certificateId: https && tls === "custom" && certificateId ? certificateId : null,
+      };
+      const target = {
+        port: port ? Number(port) : null,
+        ...(compose ? { composeService: composeService || null } : {}),
+        redirectTo: mode === "redirect" ? redirect.trim() : null,
+      };
+      if (renamed) {
+        // Another name: proved first (as when adding), then added and the old one removed.
+        const owned = await checkDomainOwnership(hostname);
+        if (!owned.ok) return void showError(owned.error);
+        if (!owned.data.verified) return void setProof({ recordName: owned.data.recordName, recordValue: owned.data.recordValue });
+        const r = await replace.run({
+          hostname,
+          ...target,
+          ...tlsFields,
+          cloudflare: zone && !viaTunnel ? { accountId: zone.accountId, zoneId: zone.zoneId, proxied: isProxied, createRecord: keepRecord } : null,
+          tunnelId: viaTunnel && tunnel ? tunnel.id : null,
+        });
+        if (r === undefined) return;
+        if (r.warning) warnings.push(r.warning);
+      } else {
+        // Only admins see (and may change) the route: for others it stays as it is.
+        if (props.isAdmin && routeChanged) {
+          if (viaTunnel && !tunnel)
+            return void showError("No tunnel can serve this domain", `Create a Cloudflare Tunnel on ${props.serverName} for the account that manages ${hostname}.`);
+          const r = await reroute.run(viaTunnel ? tunnel!.id : null);
+          if (r === undefined) return;
+          if (r?.warning) warnings.push(r.warning);
+        }
+        const r = await update.run({
+          ...target,
+          ...(viaTunnel ? {} : tlsFields),
+          ...(zone && !viaTunnel && props.isAdmin && dnsChanged ? { dns: { accountId: zone.accountId, zoneId: zone.zoneId, record: keepRecord, proxied: isProxied } } : {}),
+        });
+        if (r === undefined) return;
+        if (r?.warning) warnings.push(r.warning);
+      }
+      if (warnings.length) toast.warning(renamed ? `${hostname} saved` : "Domain saved", warnings.join(" "));
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const detected = compose ? (props.composePorts[composeService] ?? []) : [];
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void submit();
+            if (ready) void submit();
           }}
         >
-          <DialogHeader title={`Edit ${domain.hostname}`} description="Where traffic for this domain goes. Applies right away; no redeploy needed." />
+          <DialogHeader title={`Edit ${domain.hostname}`} description="Change anything about this domain. Applies right away; no redeploy needed." />
           <DialogBody>
-            {props.isAdmin && (props.tunnels.length > 0 || domain.wantsTunnel) && (
-              <Field
-                label="Route traffic through"
-                description={
-                  route === "tunnel"
-                    ? "Cloudflare serves HTTPS and forwards to this server through the tunnel. No public IP or open port needed."
-                    : "Visitors connect to the server's public IP. Ports 80 and 443 must be reachable."
-                }
-              >
-                <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
-                  {(["ip", "tunnel"] as const).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setRoute(r)}
-                      className={cn(
-                        "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg text-[13px] transition-colors",
-                        route === r ? "bg-surface font-medium text-fg shadow-sm" : "text-muted hover:text-fg",
-                      )}
-                    >
-                      {r === "tunnel" ? <Waypoints className="size-3.5 text-[#f38020]" /> : <Globe className="size-3.5" />}
-                      {r === "tunnel" ? "Cloudflare Tunnel" : "Server IP"}
-                    </button>
-                  ))}
-                </div>
-              </Field>
-            )}
-            {compose && (
-              <Field label="Compose service">
-                <Select
-                  value={composeService}
-                  onValueChange={(v) => {
-                    setComposeService(v);
-                    const first = props.composePorts[v]?.[0];
-                    if (first) setPort(String(first));
-                  }}
-                  options={props.composeServices.map((s) => ({
-                    value: s,
-                    label: s,
-                    description: props.composePorts[s]?.length ? `Ports ${props.composePorts[s].join(", ")}` : undefined,
-                  }))}
-                />
-              </Field>
-            )}
             <Field
-              label="Container port"
-              optional={!compose}
+              label="Domain"
               description={
-                detected.length
-                  ? `Found in the compose file: ${detected.join(", ")}`
-                  : !compose && props.defaultPort
-                    ? `Empty uses the service port (${props.defaultPort}).`
-                    : "The port the app listens on inside the container."
+                domain.generated
+                  ? "A generated address keeps its name. Add your own domain for another one."
+                  : renamed
+                    ? `${hostname || "The new name"} is added and ${domain.hostname} removed, with the DNS record Serve made for it.`
+                    : undefined
               }
             >
               <Input
-                value={port}
-                onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
-                placeholder={String(props.defaultPort ?? 80)}
-                inputMode="numeric"
-                required={compose}
+                value={hostname}
+                onChange={(e) => {
+                  setHostname(e.target.value.trim().toLowerCase());
+                  setProof(null);
+                  setRecord(null);
+                }}
+                disabled={domain.generated}
+                required
+                className="font-mono text-[13px]"
               />
             </Field>
-            {showTls && <TlsChoice props={props} hostname={domain.hostname} value={tls} onChange={setTls} certificateId={certificateId} onCertificate={setCertificateId} />}
+            {proof && <DomainProof recordName={proof.recordName} recordValue={proof.recordValue} domain={hostname.replace(/^\*\./, "")} />}
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
+              {(["route", "redirect"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  className={cn("h-8 rounded-lg text-[13px] font-medium transition-all", mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
+                >
+                  {m === "route" ? "Route to this service" : "Redirect to a URL"}
+                </button>
+              ))}
+            </div>
+            {mode === "redirect" ? (
+              <Field label="Redirect to" description="Visitors are sent to this URL with a permanent redirect.">
+                <Input value={redirect} onChange={(e) => setRedirect(e.target.value)} placeholder="https://www.example.com" required />
+              </Field>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {compose && (
+                  <Field label="Compose service">
+                    <Select
+                      value={composeService}
+                      onValueChange={(v) => {
+                        setComposeService(v);
+                        const first = props.composePorts[v]?.[0];
+                        if (first) setPort(String(first));
+                      }}
+                      options={props.composeServices.map((sv) => ({
+                        value: sv,
+                        label: sv,
+                        description: props.composePorts[sv]?.length ? `Ports ${props.composePorts[sv].join(", ")}` : undefined,
+                      }))}
+                    />
+                  </Field>
+                )}
+                <Field
+                  label="Container port"
+                  optional={!compose}
+                  description={
+                    detected.length
+                      ? `Found in the compose file: ${detected.join(", ")}`
+                      : !compose && props.defaultPort
+                        ? `Empty uses the service port (${props.defaultPort}).`
+                        : undefined
+                  }
+                >
+                  <Input
+                    value={port}
+                    onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
+                    placeholder={String(props.defaultPort ?? 80)}
+                    inputMode="numeric"
+                    required={compose}
+                  />
+                </Field>
+              </div>
+            )}
+            {zoneLoading && !zoneData && renamed && <p className="text-xs text-muted">Looking for {hostname} in your Cloudflare accounts…</p>}
+            {(tunnel || (domain.wantsTunnel && !renamed)) && props.isAdmin && (
+              <div className="grid grid-cols-1 gap-2" role="radiogroup" aria-label="Route">
+                {(["tunnel", "ip"] as const).map((r) => (
+                  <RouteCard
+                    key={r}
+                    kind={r}
+                    selected={route === r}
+                    onSelect={() => {
+                      setRoute(r);
+                      setRecord(null);
+                    }}
+                    tunnelAccount={tunnel?.accountName ?? "Cloudflare"}
+                    serverIp={props.serverIp}
+                  />
+                ))}
+              </div>
+            )}
+            {viaTunnel ? (
+              <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
+                <Waypoints className="mt-0.5 size-4 flex-none text-[#f38020]" />
+                <p>
+                  <span className="font-mono text-fg">{hostname}</span> points at the tunnel{tunnel ? ` in ${tunnel.accountName}` : ""}. Cloudflare serves it over HTTPS, so no
+                  certificate or open port is needed.
+                </p>
+              </div>
+            ) : props.proxyKind === "none" ? (
+              <NotServedNotice text={`${notServed(props)} The domain is saved, and served once a proxy runs.`} />
+            ) : (
+              <>
+                {notServed(props) && <NotServedNotice text={`${notServed(props)} The domain is saved, and served once it runs again.`} />}
+                <TlsChoice props={props} hostname={hostname} value={tls} onChange={setTls} certificateId={certificateId} onCertificate={setCertificateId} />
+                {tls === "auto" && validHost && challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx") && (
+                  <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
+                    {challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel or add it from a Cloudflare zone for
+                    DNS validation.
+                  </p>
+                )}
+              </>
+            )}
+            {zone && !viaTunnel && (
+              <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4">
+                <div className="flex items-center gap-2 text-[13px] font-medium text-fg">
+                  <Cloud className="size-4 text-[#f38020]" /> {zone.zoneName} in Cloudflare ({zone.accountName})
+                </div>
+                {props.isAdmin ? (
+                  <>
+                    <SwitchRow
+                      title={domain.managedRecord && !renamed && !routeChanged ? "Keep the DNS record" : "Create the DNS record"}
+                      description={
+                        props.serverIp ? `A record → ${props.serverIp}${keepRecord ? "" : ". Off removes the one Serve made."}` : "Set the server IP in Server settings first."
+                      }
+                      checked={keepRecord}
+                      onCheckedChange={setRecord}
+                    />
+                    {keepRecord && (
+                      <SwitchRow
+                        title="Proxy through Cloudflare"
+                        description="Orange cloud. Hides your server IP and adds Cloudflare's CDN and DDoS protection."
+                        checked={isProxied}
+                        onCheckedChange={setProxied}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-muted">An organization admin can change its DNS record.</p>
+                )}
+              </div>
+            )}
+            {!zone && renamed && validHost && props.serverIp && !viaTunnel && <DnsRecordTable hostname={hostname} ip={props.serverIp} />}
           </DialogBody>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
-            <Button type="submit" variant="primary" size="sm" loading={save.pending || reroute.pending}>
-              Save
+            <Button type="submit" variant="primary" size="sm" disabled={!ready} loading={busy}>
+              {proof ? "Check again" : "Save"}
             </Button>
           </DialogFooter>
         </form>

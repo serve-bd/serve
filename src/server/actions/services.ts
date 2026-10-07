@@ -1884,6 +1884,8 @@ const domainUpdateSchema = z.object({
   forceHttps: z.boolean().optional(),
   redirectTo: z.string().trim().nullable().optional(),
   certificateId: z.string().nullable().optional(),
+  /** The A record in a Cloudflare zone of the organization (public IP route): kept and proxied or not, or removed. */
+  dns: z.object({ accountId: z.string(), zoneId: z.string(), record: z.boolean(), proxied: z.boolean() }).optional(),
 });
 
 /**
@@ -2012,7 +2014,7 @@ export async function updateDomain(domainId: string, input: z.input<typeof domai
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
     const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
-    const data = domainUpdateSchema.parse(input);
+    const { dns, ...data } = domainUpdateSchema.parse(input);
     if (data.redirectTo !== undefined) data.redirectTo = safeRedirectUrl(data.redirectTo);
     if (data.certificateId) await certificateOnServer(data.certificateId, ctx.org.id, service.serverId);
     // Tunnel domains get HTTPS from Cloudflare; a certificate at the proxy is never needed.
@@ -2020,10 +2022,84 @@ export async function updateDomain(domainId: string, input: z.input<typeof domai
       data.https = false;
       data.forceHttps = false;
     }
-    const [updated] = await db.update(schema.domain).set(data).where(eq(schema.domain.id, domainId)).returning();
+    let warning: string | null = null;
+    const record: Partial<typeof schema.domain.$inferInsert> = {};
+    // The DNS record of a domain on the public IP route (a tunnel's CNAME is setDomainRoute's).
+    if (dns && !domain.tunnelId) {
+      if (!ctx.isAdmin) throw new UserError("Only organization admins can change DNS records.");
+      const [account] = await db
+        .select({ id: schema.cloudflareAccount.id })
+        .from(schema.cloudflareAccount)
+        .where(and(eq(schema.cloudflareAccount.id, dns.accountId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
+      if (!account) throw new UserError("Cloudflare account not found.");
+      const cf = await Cloudflare.forAccount(account.id);
+      const zone = await cf.zone(dns.zoneId).catch(() => null);
+      if (!zone || (domain.hostname !== zone.name && !domain.hostname.endsWith(`.${zone.name}`))) throw new UserError("That domain is not part of the selected Cloudflare zone.");
+      if (dns.record) {
+        const ip = await serverPublicIp(service.serverId);
+        if (!ip) throw new UserError("Set the public IP of this service's server before creating DNS records.");
+        try {
+          const made = await cf.upsertARecord(dns.zoneId, domain.hostname, ip, dns.proxied);
+          Object.assign(record, { cloudflareAccountId: account.id, cloudflareZoneId: dns.zoneId, cloudflareRecordId: made?.id ?? null });
+          if (!made) warning = `${domain.hostname} already has an A record pointing at ${ip}. Serve left it as it is, including its Cloudflare proxy setting.`;
+        } catch (e) {
+          warning = `DNS record not changed: ${(e as Error).message}`;
+        }
+      } else if (domain.cloudflareRecordId && domain.cloudflareZoneId && domain.cloudflareAccountId) {
+        const own = await Cloudflare.forAccount(domain.cloudflareAccountId);
+        await own
+          .removeDnsRecord(domain.cloudflareZoneId, domain.cloudflareRecordId)
+          .then(() => Object.assign(record, { cloudflareRecordId: null }))
+          .catch((e: Error) => (warning = `DNS record not removed: ${e.message}`));
+      }
+    }
+    const [updated] = await db
+      .update(schema.domain)
+      .set({ ...data, ...record })
+      .where(eq(schema.domain.id, domainId))
+      .returning();
     if (updated.https && !updated.certificateId) await ensureCertificateFor(updated, ctx.org.id);
     await syncServiceProxy(domain.serviceId);
-    return null;
+    return warning ? { warning } : null;
+  });
+}
+
+/** Whether the A record Serve made for a domain is proxied by Cloudflare (orange cloud); null without one. */
+export async function domainRecordState(domainId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("domains.manage");
+    const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
+    if (!domain) throw new UserError("Domain not found.");
+    await serviceInOrg(domain.serviceId, ctx.org.id);
+    if (!domain.cloudflareRecordId || !domain.cloudflareZoneId || !domain.cloudflareAccountId || domain.tunnelId) return null;
+    const cf = await Cloudflare.forAccount(domain.cloudflareAccountId);
+    const found = (await cf.dnsRecords(domain.cloudflareZoneId, { name: domain.hostname }).catch(() => [])).find((r) => r.id === domain.cloudflareRecordId);
+    return found ? { proxied: found.proxied } : null;
+  });
+}
+
+/**
+ * Give a domain another name: the new one is added with the given settings (ownership, DNS record,
+ * tunnel, certificate, exactly as when adding), then the old one is removed with the DNS record Serve
+ * made for it. Primary stays primary. Nothing changes when the new name cannot be added.
+ */
+export async function replaceDomain(domainId: string, input: z.input<typeof domainSchema>) {
+  return act(async () => {
+    const ctx = await requirePermission("domains.manage");
+    const [old] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
+    if (!old) throw new UserError("Domain not found.");
+    await serviceInOrg(old.serviceId, ctx.org.id);
+    const added = await addDomain(old.serviceId, input);
+    if (!added.ok) throw new UserError(added.error);
+    const warnings = [added.data.warning];
+    if (old.primary) {
+      const primary = await setPrimaryDomain(added.data.id);
+      if (!primary.ok) warnings.push(`${input.hostname} is not the primary domain: ${primary.error}`);
+    }
+    const removed = await removeDomain(old.id, !!old.cloudflareRecordId);
+    warnings.push(removed.ok ? (removed.data?.warning ?? null) : `${old.hostname} is still connected: ${removed.error}. Remove it from the list.`);
+    const warning = warnings.filter(Boolean).join(" ");
+    return { id: added.data.id, warning: warning || null };
   });
 }
 

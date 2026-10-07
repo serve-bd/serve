@@ -2232,6 +2232,13 @@ export async function restoreFromBackup(
     }
     if (opts.tables?.length) {
       if ((opts.databases?.length ?? 0) > 1) throw new UserError("Choose one database to restore single tables from.");
+      // ClickHouse: its dump names the original database inside each CREATE statement and its views,
+      // so it cannot go into a temporary database to copy tables from, and rows put back into a live
+      // table would run its materialized views again (doubling their target's rows).
+      if (service.database?.engine === "clickhouse")
+        throw new UserError(
+          "Single tables cannot be restored for ClickHouse: its backups name the original database in every table and view, and putting a table's rows back would run its materialized views a second time. Restore the whole backup into another ClickHouse service and copy the table from there.",
+        );
       if (!["postgres", "mysql", "mariadb"].includes(service.database?.engine ?? "")) throw new UserError("Single tables can be restored for Postgres, MySQL and MariaDB.");
       if (opts.tables.some((t) => !t || t.length > 200)) throw new UserError("A table name is not valid.");
     }

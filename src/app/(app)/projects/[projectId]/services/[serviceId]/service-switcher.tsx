@@ -22,7 +22,7 @@ export type SiblingService = {
 function hasTab(type: string, tab: string, engine: string | null) {
   if (tab === "branches") return type === "database";
   if (tab === "data") return type === "database";
-  if (tab === "users") return type === "database" && ["postgres", "mysql", "mariadb", "mongodb"].includes(engine ?? "");
+  if (tab === "users") return type === "database" && ["postgres", "mysql", "mariadb", "mongodb", "clickhouse"].includes(engine ?? "");
   if (tab === "domains" || tab === "tasks") return type !== "database";
   return true;
 }

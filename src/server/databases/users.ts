@@ -1,9 +1,9 @@
 import type { DatabaseConfig } from "@/server/services/types";
 import type { DatabaseUserAccess } from "@/server/db/schema";
-import { type EngineCreds, mongoTls, pgDbname } from "./engines";
+import { chClient, chIdent, type EngineCreds, mongoTls, pgDbname } from "./engines";
 
 /** Engines whose logins the Users page manages. */
-export const userEngines = new Set(["postgres", "mysql", "mariadb", "mongodb"]);
+export const userEngines = new Set(["postgres", "mysql", "mariadb", "mongodb", "clickhouse"]);
 export const usersSupported = (cfg: Pick<DatabaseConfig, "engine"> | null | undefined) => !!cfg && userEngines.has(cfg.engine);
 
 /** Lowercase letters, digits and underscores, starting with a letter: safe as an identifier everywhere, and short enough for MySQL (32). */
@@ -16,6 +16,7 @@ const SYSTEM_USERS: Record<string, RegExp> = {
   mysql: /^(root|mysql\..*|healthcheck)$/,
   mariadb: /^(root|mariadb\.sys|mysql\..*|healthcheck)$/,
   mongodb: /^(__system)$/,
+  clickhouse: /^default$/,
 };
 export const isSystemUser = (engine: string, name: string) => !!SYSTEM_USERS[engine]?.test(name);
 
@@ -25,6 +26,7 @@ const SYSTEM_DATABASES: Record<string, Set<string>> = {
   mysql: new Set(["information_schema", "mysql", "performance_schema", "sys"]),
   mariadb: new Set(["information_schema", "mysql", "performance_schema", "sys"]),
   mongodb: new Set(["admin", "local", "config"]),
+  clickhouse: new Set(["system", "INFORMATION_SCHEMA", "information_schema"]),
 };
 
 /** SQL on a pipe, as base64: a heredoc could be ended by a line of the text (a database name, say). */
@@ -177,6 +179,36 @@ function mongoScripts(main: EngineCreds): UserScripts {
   };
 }
 
+/* ---------------------------------------------------------------- ClickHouse */
+
+const CLICKHOUSE_PRIVILEGES: Record<DatabaseUserAccess, string> = {
+  read: "SELECT, SHOW, dictGet",
+  readwrite: "SELECT, INSERT, ALTER UPDATE, ALTER DELETE, SHOW, dictGet",
+  owner: "ALL",
+};
+
+function clickhouseScripts(main: EngineCreds): UserScripts {
+  // The main login has access management (CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT); default always exists.
+  const client = chClient({ ...main, database: "default" });
+  const run = (sql: string) => `${pipeSql(sql)} | ${client} --multiquery`;
+  const chLiteral = (s: string) => `'${s.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
+  const grants = (name: string, access: DatabaseUserAccess, databases: string[]) =>
+    databases.map((d) => `GRANT ${CLICKHOUSE_PRIVILEGES[access]} ON ${chIdent(d)}.* TO ${checkName(name)};`);
+  const head = ["set -e", "(set -o pipefail) 2>/dev/null && set -o pipefail"];
+  return {
+    list: () =>
+      [
+        ...head,
+        `${client} -q ${sh("SELECT concat('SERVE_DB', char(9), name) FROM system.databases UNION ALL SELECT concat('SERVE_USER', char(9), name) FROM system.users FORMAT TSVRaw")}`,
+      ].join("\n"),
+    create: (name, password, access, databases) =>
+      [...head, run([`CREATE USER ${checkName(name)} IDENTIFIED WITH sha256_password BY ${chLiteral(password)};`, ...grants(name, access, databases)].join("\n"))].join("\n"),
+    setPassword: (name, password) => [...head, run(`ALTER USER ${checkName(name)} IDENTIFIED WITH sha256_password BY ${chLiteral(password)};`)].join("\n"),
+    setAccess: (name, access, databases) => [...head, run([`REVOKE ALL ON *.* FROM ${checkName(name)};`, ...grants(name, access, databases)].join("\n"))].join("\n"),
+    remove: (name) => [...head, run(`DROP USER IF EXISTS ${checkName(name)};`)].join("\n"),
+  };
+}
+
 /** The scripts that list and change the logins inside a database container of this engine. */
 export function userScripts(engine: string, main: EngineCreds): UserScripts {
   switch (engine) {
@@ -188,7 +220,9 @@ export function userScripts(engine: string, main: EngineCreds): UserScripts {
       return mysqlScripts("mariadb", main);
     case "mongodb":
       return mongoScripts(main);
+    case "clickhouse":
+      return clickhouseScripts(main);
     default:
-      throw new Error("Users are available for PostgreSQL, MySQL, MariaDB and MongoDB.");
+      throw new Error("Users are available for PostgreSQL, MySQL, MariaDB, MongoDB and ClickHouse.");
   }
 }

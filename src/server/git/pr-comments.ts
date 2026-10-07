@@ -3,6 +3,7 @@ import { statusProvider, type StatusProvider } from "./commit-status";
 import { gitHttp } from "./http";
 import { apiBase, authHeaders } from "./providers";
 import { repoPath } from "./repo-webhooks";
+import { hmac } from "@/server/crypto";
 
 /**
  * The preview comment on a pull request (GitHub, Gitea/Forgejo issue comments, GitLab merge
@@ -12,9 +13,16 @@ import { repoPath } from "./repo-webhooks";
 
 type Credential = typeof schema.gitCredential.$inferSelect;
 
-export const PREVIEW_MARKER = "<!-- serve-preview -->";
-// Bitbucket shows raw HTML as text; an empty link reference renders as nothing.
-const BITBUCKET_MARKER = "[//]: # (serve-preview)";
+/**
+ * The hidden marker of the preview comment on one pull request. It holds a tag only this instance
+ * can make (keyed with its secret): anyone may comment on a pull request, and a fixed marker copied
+ * into their comment would have Serve edit theirs.
+ */
+export function previewMarker(repository: string, number: number, bitbucket = false) {
+  const tag = hmac(`preview-comment:${repository}#${number}`).slice(0, 24);
+  // Bitbucket shows raw HTML as text; an empty link reference renders as nothing.
+  return bitbucket ? `[//]: # (serve-preview ${tag})` : `<!-- serve-preview ${tag} -->`;
+}
 
 type Existing = { id: number; text: string };
 type CommentApi = {
@@ -30,7 +38,7 @@ type CommentApi = {
 const array = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
 
 /** Where and how each provider lists, creates and edits a pull request's comments. */
-export function commentApi(provider: StatusProvider, api: string, repo: string, number: number): CommentApi {
+export function commentApi(provider: StatusProvider, api: string, repo: string, number: number, marker: string): CommentApi {
   if (provider === "gitlab") {
     const notes = `${api}/projects/${encodeURIComponent(repo)}/merge_requests/${number}/notes`;
     return {
@@ -43,7 +51,7 @@ export function commentApi(provider: StatusProvider, api: string, repo: string, 
         array(json)
           .filter((n) => !n.system)
           .map((n) => ({ id: Number(n.id), text: String(n.body ?? "") })),
-      marker: PREVIEW_MARKER,
+      marker,
     };
   }
   if (provider === "bitbucket") {
@@ -58,7 +66,7 @@ export function commentApi(provider: StatusProvider, api: string, repo: string, 
         array((json as { values?: unknown } | null)?.values)
           .filter((c) => !c.deleted)
           .map((c) => ({ id: Number(c.id), text: String((c.content as { raw?: unknown } | undefined)?.raw ?? "") })),
-      marker: BITBUCKET_MARKER,
+      marker,
     };
   }
   // GitHub and Gitea/Forgejo share the issue comments API.
@@ -71,7 +79,7 @@ export function commentApi(provider: StatusProvider, api: string, repo: string, 
     updateMethod: "PATCH",
     payload: (body) => ({ body }),
     read: (json) => array(json).map((c) => ({ id: Number(c.id), text: String(c.body ?? "") })),
-    marker: PREVIEW_MARKER,
+    marker,
   };
 }
 
@@ -91,7 +99,8 @@ export async function upsertPreviewComment(cred: Credential, repository: string,
   if (!provider) return "none";
   const name = NAMES[provider];
   // The credential's own host (Bitbucket Cloud: always its API), and the service's own repository.
-  const c = commentApi(provider, apiBase(provider, cred.baseUrl), repoPath(repository, cred.baseUrl), number);
+  const repo = repoPath(repository, cred.baseUrl);
+  const c = commentApi(provider, apiBase(provider, cred.baseUrl), repo, number, previewMarker(`${provider}:${cred.baseUrl ?? ""}:${repo}`, number, provider === "bitbucket"));
   const token = await tokenFor(cred);
   const headers = {
     ...(cred.provider === "github-app" ? { authorization: `Bearer ${token}` } : authHeaders(cred.provider, token, { oauth: !!cred.oauthAppId })),

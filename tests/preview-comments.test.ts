@@ -21,8 +21,12 @@ vi.mock("@/server/git/oauth", () => ({ credentialToken: async () => "SECRET-TOKE
 vi.mock("@/server/git/github-app", () => ({ installationToken: async () => "APP-TOKEN" }));
 vi.mock("@/server/servers/access", () => ({ serverPublicIp: async () => "203.0.113.7" }));
 vi.mock("@/server/cloudflare/api", () => ({ Cloudflare: { forAccount: async () => cf } }));
+// The instance's secret tag in the marker, fixed here.
+vi.mock("@/server/crypto", async (real) => ({ ...(await real<typeof import("@/server/crypto")>()), hmac: () => "f".repeat(64) }));
 
-const { upsertPreviewComment, PREVIEW_MARKER } = await import("@/server/git/pr-comments");
+const { upsertPreviewComment } = await import("@/server/git/pr-comments");
+const PREVIEW_MARKER = `<!-- serve-preview ${"f".repeat(24)} -->`;
+const BITBUCKET_MARKER = `[//]: # (serve-preview ${"f".repeat(24)})`;
 const { addPreviewDomain, commentOnPullRequest, previewCommentBody } = await import("@/server/services/previews");
 
 type Cred = Parameters<typeof upsertPreviewComment>[0];
@@ -107,17 +111,17 @@ describe("preview comment per provider", () => {
     expect(await upsertPreviewComment(c, "https://bitbucket.org/ws/repo.git", 8, "Body", { create: true })).toBe("created");
     const comments = "https://api.bitbucket.org/2.0/repositories/ws/repo/pullrequests/8/comments";
     expect(calls[0]).toMatchObject({ url: `${comments}?pagelen=100`, method: "GET" });
-    expect(calls[1]).toMatchObject({ url: comments, method: "POST", body: { content: { raw: "[//]: # (serve-preview)\nBody" } } });
+    expect(calls[1]).toMatchObject({ url: comments, method: "POST", body: { content: { raw: `${BITBUCKET_MARKER}\nBody` } } });
     expect(calls[1].headers.authorization).toBe("Bearer SECRET-TOKEN");
 
     calls = [];
-    const mine = { id: 70, content: { raw: "[//]: # (serve-preview)\nold" } };
+    const mine = { id: 70, content: { raw: `${BITBUCKET_MARKER}\nold` } };
     answers = [
       { status: 200, body: { values: [{ ...mine, id: 69, deleted: true }, mine] } },
       { status: 200, body: {} },
     ];
     expect(await upsertPreviewComment(c, "https://bitbucket.org/ws/repo.git", 8, "New", { create: true })).toBe("updated");
-    expect(calls[1]).toMatchObject({ url: `${comments}/70`, method: "PUT", body: { content: { raw: "[//]: # (serve-preview)\nNew" } } });
+    expect(calls[1]).toMatchObject({ url: `${comments}/70`, method: "PUT", body: { content: { raw: `${BITBUCKET_MARKER}\nNew` } } });
   });
 
   it("GitHub keeps its issue comments", async () => {
@@ -129,6 +133,21 @@ describe("preview comment per provider", () => {
     expect(calls[0].url).toBe("https://api.github.com/repos/o/r/issues/4/comments?per_page=100");
     expect(calls[1]).toMatchObject({ url: "https://api.github.com/repos/o/r/issues/comments/3", method: "PATCH" });
     expect(calls[1].headers.authorization).toBe("Bearer APP-TOKEN");
+  });
+
+  it("never edits someone else's comment that copies the marker anyone can read in the source", async () => {
+    answers = [
+      {
+        status: 200,
+        body: [
+          { id: 8, body: "<!-- serve-preview -->\nmine now" },
+          { id: 9, body: "<!-- serve-preview 0123456789abcdef01234567 -->" },
+        ],
+      },
+      { status: 201, body: {} },
+    ];
+    expect(await upsertPreviewComment(cred("github-app"), "o/r", 4, "B", { create: true })).toBe("created");
+    expect(calls[1]).toMatchObject({ url: "https://api.github.com/repos/o/r/issues/4/comments", method: "POST" });
   });
 
   it("on teardown only edits: no comment is made when there was none", async () => {

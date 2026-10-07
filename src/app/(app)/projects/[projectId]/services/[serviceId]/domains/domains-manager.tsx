@@ -947,28 +947,45 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
         >
           <DialogHeader title={`Edit ${domain.hostname}`} description="Change anything about this domain. Applies right away; no redeploy needed." />
           <DialogBody>
-            <Field
-              label="Domain"
-              description={
-                domain.generated
-                  ? "A generated address keeps its name. Add your own domain for another one."
-                  : renamed
-                    ? `${hostname || "The new name"} is added and ${domain.hostname} removed, with the DNS record Serve made for it.`
-                    : undefined
-              }
-            >
-              <Input
-                value={hostname}
-                onChange={(e) => {
-                  setHostname(e.target.value.trim().toLowerCase());
-                  setProof(null);
-                  setRecord(null);
-                }}
-                disabled={domain.generated}
-                required
-                className="font-mono text-[13px]"
-              />
-            </Field>
+            {/* The name, with the port it routes to beside it (a redirect has none). */}
+            <div className={cn("grid gap-3", mode === "route" && "grid-cols-[minmax(0,1fr)_6.5rem]")}>
+              <Field
+                label="Domain"
+                description={
+                  domain.generated
+                    ? "A generated address keeps its name. Add your own domain for another one."
+                    : renamed
+                      ? `${hostname || "The new name"} is added and ${domain.hostname} removed, with the DNS record Serve made for it.`
+                      : undefined
+                }
+              >
+                <Input
+                  value={hostname}
+                  onChange={(e) => {
+                    setHostname(e.target.value.trim().toLowerCase());
+                    setProof(null);
+                    setRecord(null);
+                  }}
+                  disabled={domain.generated}
+                  required
+                  className="font-mono text-[13px]"
+                />
+              </Field>
+              {mode === "route" && (
+                <Field label="Port" optional={!compose}>
+                  <Input
+                    value={port}
+                    onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
+                    // Empty uses the service's own port.
+                    placeholder={String((compose ? detected[0] : props.defaultPort) ?? 80)}
+                    title={!compose && props.defaultPort ? `Empty uses the service port (${props.defaultPort}).` : undefined}
+                    inputMode="numeric"
+                    required={compose}
+                    className="font-mono text-[13px]"
+                  />
+                </Field>
+              )}
+            </div>
             {proof && <DomainProof recordName={proof.recordName} recordValue={proof.recordValue} domain={hostname.replace(/^\*\./, "")} />}
             <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
               {(["route", "redirect"] as const).map((m) => (
@@ -993,44 +1010,23 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
                 <Input value={redirect} onChange={(e) => setRedirect(e.target.value)} placeholder="https://www.example.com" required />
               </Field>
             ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {compose && (
-                  <Field label="Compose service">
-                    <Select
-                      value={composeService}
-                      onValueChange={(v) => {
-                        setComposeService(v);
-                        const first = props.composePorts[v]?.[0];
-                        if (first) setPort(String(first));
-                      }}
-                      options={props.composeServices.map((sv) => ({
-                        value: sv,
-                        label: sv,
-                        description: props.composePorts[sv]?.length ? `Ports ${props.composePorts[sv].join(", ")}` : undefined,
-                      }))}
-                    />
-                  </Field>
-                )}
-                <Field
-                  label="Container port"
-                  optional={!compose}
-                  description={
-                    detected.length
-                      ? `Found in the compose file: ${detected.join(", ")}`
-                      : !compose && props.defaultPort
-                        ? `Empty uses the service port (${props.defaultPort}).`
-                        : undefined
-                  }
-                >
-                  <Input
-                    value={port}
-                    onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
-                    placeholder={String(props.defaultPort ?? 80)}
-                    inputMode="numeric"
-                    required={compose}
+              compose && (
+                <Field label="Compose service" description={detected.length ? `Ports in the compose file: ${detected.join(", ")}` : undefined}>
+                  <Select
+                    value={composeService}
+                    onValueChange={(v) => {
+                      setComposeService(v);
+                      const first = props.composePorts[v]?.[0];
+                      if (first) setPort(String(first));
+                    }}
+                    options={props.composeServices.map((sv) => ({
+                      value: sv,
+                      label: sv,
+                      description: props.composePorts[sv]?.length ? `Ports ${props.composePorts[sv].join(", ")}` : undefined,
+                    }))}
                   />
                 </Field>
-              </div>
+              )
             )}
             {zoneLoading && !zoneData && renamed && <p className="text-xs text-muted">Looking for {hostname} in your Cloudflare accounts…</p>}
             {(tunnel || (domain.wantsTunnel && !renamed)) && props.isAdmin && (

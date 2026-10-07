@@ -384,13 +384,17 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
     // Output already in the log: the error names its last line only.
     // The database's own ERROR line (and its DETAIL) says why; a HINT after it does not.
     const lines = clean.split("\n").filter((l) => l.trim());
-    const errorAt = lines.findLastIndex((l) => /^(ERROR|FATAL)\b/.test(l.replace(/^[^A-Z]*/, "")));
+    // ClickHouse says "Code: 62. DB::Exception: …", then lists every token it expected: only its reason is kept.
+    // mongorestore says "<time>\tFailed: …", and a count of what it did restore after it.
+    const errorAt = lines.findLastIndex((l) => /^(ERROR|FATAL)\b|^Code: \d+\. DB::Exception:/.test(l.replace(/^[^A-Z]*/, "")) || /^\S+\tFailed: /.test(l));
     const reason =
       errorAt >= 0
         ? lines
             .slice(errorAt, errorAt + 2)
             .filter((l, i) => i === 0 || /DETAIL/.test(l))
             .join(" ")
+            .replace(/^\S+\t(?=Failed: )/, "")
+            .replace(/\.? Expected one of:.*$/, ".")
         : null;
     const summary = onOutput ? (reason ?? lines.at(-1) ?? "") : clean.slice(-1500);
     if (exitCode !== null && exitCode !== 0) throw new Error(summary || `Command exited with ${exitCode}`);

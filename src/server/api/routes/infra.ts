@@ -23,6 +23,15 @@ import { ApiError, type ApiRoute, route, unwrap } from "../router";
 
 const loose = z.looseObject({});
 
+async function cloudflareAccountOf(organizationId: string, accountId: string) {
+  const [row] = await db
+    .select({ id: schema.cloudflareAccount.id })
+    .from(schema.cloudflareAccount)
+    .where(and(eq(schema.cloudflareAccount.id, accountId), eq(schema.cloudflareAccount.organizationId, organizationId)));
+  if (!row) throw new ApiError(404, "Cloudflare account not found");
+  return row;
+}
+
 export const infraRoutes: ApiRoute[] = [
   // Servers
   route({
@@ -859,6 +868,46 @@ export const infraRoutes: ApiRoute[] = [
     needs: ["integrations.manage"],
     handler: async ({ params }) => (await unwrap(integrations.purgeZoneCache(params.accountId, params.zoneId))) ?? { ok: true },
   }),
+  route({
+    method: "PATCH",
+    path: "/cloudflare/accounts/{accountId}/zones/{zoneId}/settings",
+    tag: "Integrations",
+    summary: "Change a zone's SSL mode or Always Use HTTPS",
+    description: "ssl: off, flexible, full or strict. alwaysHttps: redirect http to https at Cloudflare. Fields left out are not changed.",
+    needs: ["integrations.manage"],
+    body: z.object({ ssl: z.enum(["off", "flexible", "full", "strict"]).optional(), alwaysHttps: z.boolean().optional() }),
+    handler: async ({ auth, params, body }) => {
+      await cloudflareAccountOf(auth.organizationId, params.accountId);
+      if (body.ssl !== undefined) await unwrap(integrations.setZoneSsl(params.accountId, params.zoneId, body.ssl));
+      if (body.alwaysHttps !== undefined) await unwrap(integrations.setZoneAlwaysHttps(params.accountId, params.zoneId, body.alwaysHttps));
+      return { ok: true };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/cloudflare/accounts",
+    tag: "Integrations",
+    summary: "Connect Cloudflare with an API token",
+    description:
+      "apiToken: a Cloudflare API token with Zone:Read and DNS:Edit (it is stored encrypted and never shown again). Each Cloudflare account the token reaches is connected; name names them. originCaKey: an Origin CA key, for Cloudflare origin certificates.",
+    needs: ["integrations.manage"],
+    status: 201,
+    body: z.object({ name: z.string().max(100).default(""), apiToken: z.string().max(500), originCaKey: z.string().max(500).optional() }),
+    handler: async ({ body }) => unwrap(integrations.connectCloudflare(body)),
+  }),
+  route({
+    method: "DELETE",
+    path: "/cloudflare/accounts/{accountId}",
+    tag: "Integrations",
+    summary: "Disconnect a Cloudflare account",
+    description: "Its tunnels are stopped and deleted first, with the DNS records Serve made for them: domains served through them stop working.",
+    needs: ["integrations.manage"],
+    handler: async ({ auth, params }) => {
+      await cloudflareAccountOf(auth.organizationId, params.accountId);
+      await unwrap(integrations.disconnectCloudflare(params.accountId));
+      return { deleted: true };
+    },
+  }),
 
   // Git
   route({
@@ -871,6 +920,51 @@ export const infraRoutes: ApiRoute[] = [
     handler: async ({ auth }) => {
       const rows = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.organizationId, auth.organizationId)).orderBy(asc(schema.gitCredential.name));
       return { credentials: rows.map((c) => ({ id: c.id, name: c.name, provider: c.provider, baseUrl: c.baseUrl, info: c.publicInfo, createdAt: iso(c.createdAt) })) };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/git/credentials/token",
+    tag: "Integrations",
+    summary: "Add a Git access token",
+    description:
+      "provider github, gitlab, gitea or bitbucket; baseUrl for a self-hosted GitLab or Gitea. Serve checks the token with the provider and stores it encrypted; it is never shown again. warning: scopes the token lacks.",
+    needs: ["integrations.manage"],
+    status: 201,
+    body: z.object({
+      provider: z.enum(["github", "gitlab", "gitea", "bitbucket"]),
+      name: z.string().max(100).default(""),
+      token: z.string().max(2000),
+      baseUrl: z.string().max(500).optional(),
+    }),
+    handler: async ({ body }) => unwrap(integrations.addGitToken(body)),
+  }),
+  route({
+    method: "POST",
+    path: "/git/credentials/deploy-key",
+    tag: "Integrations",
+    summary: "Make an SSH deploy key",
+    description: "Serve makes the key pair and keeps the private key. Add publicKey to the repository as a deploy key (read-only is enough).",
+    needs: ["integrations.manage"],
+    status: 201,
+    body: z.object({ name: z.string().max(100).default("") }),
+    handler: async ({ body }) => unwrap(integrations.createDeployKey(body.name)),
+  }),
+  route({
+    method: "DELETE",
+    path: "/git/credentials/{credentialId}",
+    tag: "Integrations",
+    summary: "Remove a Git connection",
+    description: "It is removed from Serve only: revoke the token or key at the provider yourself.",
+    needs: ["integrations.manage"],
+    handler: async ({ auth, params }) => {
+      const [row] = await db
+        .select({ id: schema.gitCredential.id })
+        .from(schema.gitCredential)
+        .where(and(eq(schema.gitCredential.id, params.credentialId), eq(schema.gitCredential.organizationId, auth.organizationId)));
+      if (!row) throw new ApiError(404, "Git connection not found");
+      await unwrap(integrations.deleteGitCredential(row.id));
+      return { deleted: true };
     },
   }),
   route({

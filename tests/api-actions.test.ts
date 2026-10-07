@@ -150,6 +150,20 @@ vi.mock("@/server/actions/shared-vars", (actual) => partly("saveServerVars", "sa
 vi.mock("@/server/actions/servers", (actual) => partly("checkOsUpdatesAction", "installOsUpdatesAction", "makeDefaultServer")(actual));
 vi.mock("@/server/actions/server-proxy", (actual) => partly("saveProxyCustomConfig")(actual));
 vi.mock("@/server/actions/main-server", (actual) => partly("setMainServer")(actual));
+vi.mock("@/server/actions/integrations", (actual) =>
+  partly(
+    "connectCloudflare",
+    "disconnectCloudflare",
+    "setZoneSsl",
+    "setZoneAlwaysHttps",
+    "addGitToken",
+    "createDeployKey",
+    "deleteGitCredential",
+    "registerServiceWebhook",
+    "removeServiceWebhook",
+  )(actual),
+);
+vi.mock("@/server/actions/tailscale", (actual) => partly("connectTailnet", "updateTailnet", "removeTailnet")(actual));
 vi.mock("@/server/crypto", async (actual) => ({ ...(await actual<Record<string, unknown>>()), decryptOrNull: (v: string) => `plain:${v}` }));
 // Admins of the organization that owns a server manage it.
 vi.mock("@/server/servers/access", async (actual) => ({
@@ -171,7 +185,8 @@ const { databaseRoutes } = await import("@/server/api/routes/databases");
 const { serviceRoutes } = await import("@/server/api/routes/services");
 const { projectRoutes } = await import("@/server/api/routes/projects");
 const { infraRoutes } = await import("@/server/api/routes/infra");
-const handle = createRouter([...statusPageRoutes, ...databaseRoutes, ...serviceRoutes, ...projectRoutes, ...infraRoutes]);
+const { networkingRoutes } = await import("@/server/api/routes/networking");
+const handle = createRouter([...statusPageRoutes, ...databaseRoutes, ...serviceRoutes, ...projectRoutes, ...infraRoutes, ...networkingRoutes]);
 
 const call = (method: string, path: string, body?: unknown) =>
   handle(
@@ -253,6 +268,15 @@ beforeEach(() => {
       { id: "c1", pageId: "sp1", name: "API", description: null, group: "Core", serviceId: "s1", position: 0 },
       { id: "c2", pageId: "sp2", name: "Theirs", description: null, group: null, serviceId: null, position: 0 },
     ],
+    cloudflareAccount: [
+      { id: "cf1", organizationId: "o1", name: "Mine" },
+      { id: "cf2", organizationId: "o2", name: "Theirs" },
+    ],
+    gitCredential: [
+      { id: "cred1", organizationId: "o1", name: "gh" },
+      { id: "cred2", organizationId: "o2", name: "theirs" },
+    ],
+    tailscaleTailnet: [{ id: "tn1", name: "corp", tailnet: "-", authType: "oauth", clientId: "k123", tag: "tag:serve" }],
     server: [
       { id: "srv1", name: "web", ownerOrganizationId: "o1", osUpdates: { packages: [{ name: "openssl" }] } },
       { id: "srv-other", name: "theirs", ownerOrganizationId: "o2", osUpdates: null },
@@ -654,5 +678,75 @@ describe("servers", () => {
     state.results.setMainServer = { ok: true, data: { manual: [], warnings: [] } };
     expect(await (await call("PUT", "/services/s1/main-server", { serverId: "srv1" })).json()).toEqual({ manual: [], warnings: [] });
     expect(called("setMainServer")).toEqual([["setMainServer", "s1", "srv1"]]);
+  });
+});
+
+describe("integrations", () => {
+  it("connect and disconnect Cloudflare, and change zone settings, within the organization", async () => {
+    token(["projects.view", "domains.manage"]);
+    expect((await call("POST", "/cloudflare/accounts", { apiToken: "x".repeat(40) })).status).toBe(403);
+    token(["integrations.manage"]);
+    state.results.connectCloudflare = { ok: true, data: { accounts: 1 } };
+    const res = await call("POST", "/cloudflare/accounts", { name: "Main", apiToken: "cf-secret-token-value-0123456789" });
+    expect(res.status).toBe(201);
+    expect(JSON.stringify(await res.json())).not.toContain("cf-secret");
+    expect(called("connectCloudflare")).toEqual([["connectCloudflare", { name: "Main", apiToken: "cf-secret-token-value-0123456789" }]]);
+    expect((await call("DELETE", "/cloudflare/accounts/cf2")).status).toBe(404);
+    expect((await call("PATCH", "/cloudflare/accounts/cf2/zones/z1/settings", { ssl: "strict" })).status).toBe(404);
+    expect((await call("PATCH", "/cloudflare/accounts/cf1/zones/z1/settings", { ssl: "lenient" })).status).toBe(400);
+    expect((await call("PATCH", "/cloudflare/accounts/cf1/zones/z1/settings", { ssl: "strict", alwaysHttps: true })).status).toBe(200);
+    expect((await call("DELETE", "/cloudflare/accounts/cf1")).status).toBe(200);
+    expect(state.calls.slice(1)).toEqual([
+      ["setZoneSsl", "cf1", "z1", "strict"],
+      ["setZoneAlwaysHttps", "cf1", "z1", true],
+      ["disconnectCloudflare", "cf1"],
+    ]);
+  });
+
+  it("add Git tokens and deploy keys, and remove only the organization's own", async () => {
+    token(["services.manage"]);
+    expect((await call("POST", "/git/credentials/deploy-key", { name: "ci" })).status).toBe(403);
+    token(["integrations.manage"]);
+    expect((await call("POST", "/git/credentials/token", { provider: "ssh", token: "abcdefgh" })).status).toBe(400);
+    state.results.addGitToken = { ok: true, data: { id: "cred3", login: "ada", warning: null } };
+    const res = await call("POST", "/git/credentials/token", { provider: "gitlab", token: "glpat-secret", baseUrl: "https://code.example.com" });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ id: "cred3", login: "ada", warning: null });
+    expect(called("addGitToken")).toEqual([["addGitToken", { provider: "gitlab", name: "", token: "glpat-secret", baseUrl: "https://code.example.com" }]]);
+    expect((await call("POST", "/git/credentials/deploy-key", { name: "ci" })).status).toBe(201);
+    expect(called("createDeployKey")).toEqual([["createDeployKey", "ci"]]);
+    expect((await call("DELETE", "/git/credentials/cred2")).status).toBe(404);
+    expect((await call("DELETE", "/git/credentials/cred1")).status).toBe(200);
+    expect(called("deleteGitCredential")).toEqual([["deleteGitCredential", "cred1"]]);
+  });
+
+  it("register and remove a service's repository webhook", async () => {
+    token(["services.deploy"]);
+    expect((await call("POST", "/services/s1/repo-webhook")).status).toBe(403);
+    token(["services.manage"]);
+    expect((await call("POST", "/services/other/repo-webhook")).status).toBe(404);
+    expect((await call("DELETE", "/services/other/repo-webhook")).status).toBe(404);
+    state.results.registerServiceWebhook = { ok: true, data: { provider: "github", id: "7", url: "https://serve.example.com/api/webhooks/git/s1", createdAt: "x" } };
+    expect((await (await call("POST", "/services/s1/repo-webhook")).json()).webhook).toMatchObject({ provider: "github", id: "7" });
+    expect((await call("DELETE", "/services/s1/repo-webhook")).status).toBe(200);
+    expect(state.calls).toEqual([
+      ["registerServiceWebhook", "s1"],
+      ["removeServiceWebhook", "s1"],
+    ]);
+  });
+
+  it("connect, change and disconnect tailnets as a Root admin only", async () => {
+    token([], { admin: true });
+    expect((await call("POST", "/tailscale/tailnets", { authType: "apikey", secret: "tskey-api-x" })).status).toBe(403);
+    expect((await call("DELETE", "/tailscale/tailnets/tn1")).status).toBe(403);
+    state.instanceAdmin = true;
+    state.results.connectTailnet = { ok: true, data: { id: "tn2", devices: 3 } };
+    expect(await (await call("POST", "/tailscale/tailnets", { authType: "apikey", secret: "tskey-api-x" })).json()).toEqual({ id: "tn2", devices: 3 });
+    expect(called("connectTailnet")).toEqual([["connectTailnet", { tailnet: "-", authType: "apikey", secret: "tskey-api-x" }]]);
+    expect((await call("PATCH", "/tailscale/tailnets/nope", { name: "x" })).status).toBe(404);
+    expect((await call("PATCH", "/tailscale/tailnets/tn1", { tag: "tag:web" })).status).toBe(200);
+    expect(called("updateTailnet")).toEqual([["updateTailnet", "tn1", { name: "corp", tailnet: "-", authType: "oauth", clientId: "k123", secret: "", tag: "tag:web" }]]);
+    expect((await call("DELETE", "/tailscale/tailnets/tn1")).status).toBe(200);
+    expect(called("removeTailnet")).toEqual([["removeTailnet", "tn1"]]);
   });
 });

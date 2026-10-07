@@ -141,6 +141,70 @@ export const networkingRoutes: ApiRoute[] = [
     },
   }),
   route({
+    method: "POST",
+    path: "/tailscale/tailnets",
+    tag: "Tailscale",
+    summary: "Connect a tailnet",
+    description:
+      'authType "oauth" (clientId and secret: an OAuth client with the Devices and Auth Keys scopes) or "apikey" (secret: a tskey-api- key). tailnet: its name, or - for the credentials\' default tailnet. tag: the tag servers join with (tag:serve). Serve checks the credentials by making and removing an auth key. Root admins only.',
+    needs: ["instance"],
+    status: 201,
+    body: z.object({
+      name: z.string().optional(),
+      tailnet: z.string().default("-"),
+      authType: z.enum(["oauth", "apikey"]),
+      clientId: z.string().optional(),
+      secret: z.string(),
+      tag: z.string().optional(),
+    }),
+    handler: async ({ body }) => unwrap(tailscale.connectTailnet(body)),
+  }),
+  route({
+    method: "PATCH",
+    path: "/tailscale/tailnets/{tailnetId}",
+    tag: "Tailscale",
+    summary: "Change a tailnet's credentials, name or tag",
+    description: "Fields left out keep their value; secret left out keeps the stored one (unless the client or auth type changes). The credentials are checked again.",
+    needs: ["instance"],
+    body: z.object({
+      name: z.string().optional(),
+      tailnet: z.string().optional(),
+      authType: z.enum(["oauth", "apikey"]).optional(),
+      clientId: z.string().optional(),
+      secret: z.string().optional(),
+      tag: z.string().optional(),
+    }),
+    handler: async ({ params, body }) => {
+      const [row] = await db.select().from(schema.tailscaleTailnet).where(eq(schema.tailscaleTailnet.id, params.tailnetId));
+      if (!row) throw new ApiError(404, "Tailnet not found");
+      await unwrap(
+        tailscale.updateTailnet(row.id, {
+          name: body.name ?? row.name,
+          tailnet: body.tailnet ?? row.tailnet,
+          authType: body.authType ?? row.authType,
+          clientId: body.clientId ?? row.clientId ?? undefined,
+          secret: body.secret ?? "",
+          tag: body.tag ?? row.tag,
+        }),
+      );
+      return { ok: true };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/tailscale/tailnets/{tailnetId}",
+    tag: "Tailscale",
+    summary: "Disconnect a tailnet",
+    description: "Servers keep running: one with another way in goes back to it; one added through Tailscale shows as unreachable.",
+    needs: ["instance"],
+    handler: async ({ params }) => {
+      const [row] = await db.select({ id: schema.tailscaleTailnet.id }).from(schema.tailscaleTailnet).where(eq(schema.tailscaleTailnet.id, params.tailnetId));
+      if (!row) throw new ApiError(404, "Tailnet not found");
+      await unwrap(tailscale.removeTailnet(row.id));
+      return { deleted: true };
+    },
+  }),
+  route({
     method: "GET",
     path: "/servers/{serverId}/tailscale",
     tag: "Tailscale",

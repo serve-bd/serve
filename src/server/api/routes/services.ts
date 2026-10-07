@@ -13,6 +13,7 @@ import { saveComposeMounts } from "@/server/actions/compose-storage";
 import { savePreviewDatabase } from "@/server/actions/environments";
 import * as monitoring from "@/server/actions/monitoring";
 import { setMainServer } from "@/server/actions/main-server";
+import * as integrations from "@/server/actions/integrations";
 import { balancingOf, type ProxyInput, proxyFormInitial, proxyInputSchema, type ServiceProxyConfig } from "@/server/services/proxy-config";
 import { readComposeMounts } from "@/lib/compose-mounts";
 import { deploymentView, domainView, loadDomain, loadService, page, projectFilter, serviceView } from "../data";
@@ -436,6 +437,31 @@ export const serviceRoutes: ApiRoute[] = [
     handler: async ({ auth, params }) => {
       await loadService(auth, params.serviceId);
       return (await unwrap(savePreviewDatabase(params.serviceId, null))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/repo-webhook",
+    tag: "Services",
+    summary: "Register the push webhook on the repository",
+    description:
+      "Through the provider API with the service's Git connection, so pushes deploy at once. An earlier hook Serve made is replaced. Answers the hook (provider, its id there, url).",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      return { webhook: await unwrap(integrations.registerServiceWebhook(params.serviceId)) };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/services/{serviceId}/repo-webhook",
+    tag: "Services",
+    summary: "Remove the push webhook from the repository",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      await unwrap(integrations.removeServiceWebhook(params.serviceId));
+      return { deleted: true };
     },
   }),
   route({

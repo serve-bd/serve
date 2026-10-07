@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   records: [] as { id: string; type: string; name: string; content: string; comment?: string }[],
   upserts: [] as unknown[][],
   upsertError: null as Error | null,
+  admin: true,
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/server/db", () => ({
@@ -20,7 +21,7 @@ vi.mock("@/server/db", () => ({
   schema: new Proxy({}, { get: () => new Proxy({}, { get: () => ({}) }) }),
 }));
 vi.mock("@/server/db/schema", () => ({ LOCAL_SERVER_ID: "local" }));
-vi.mock("@/server/auth", () => ({ requirePermission: async () => ({ org: { id: "org" }, user: { id: "u" }, projectIds: null }) }));
+vi.mock("@/server/auth", () => ({ requirePermission: async () => ({ org: { id: "org" }, user: { id: "u" }, projectIds: null, isAdmin: state.admin }) }));
 vi.mock("@/server/activity", () => ({ logActivity: async () => {} }));
 vi.mock("@/server/queue", () => ({ enqueue: vi.fn() }));
 vi.mock("@/server/settings", () => ({ getSettings: async () => ({ serverIp: state.serverIp }) }));
@@ -55,6 +56,13 @@ describe("a status page's A record", () => {
     state.records = [];
     state.upserts = [];
     state.upsertError = null;
+    state.admin = true;
+  });
+
+  it("is made by organization admins only, as for app domains", async () => {
+    state.admin = false;
+    expect(await createStatusRecord("pg")).toEqual({ ok: false, error: expect.stringContaining("admins") });
+    expect(state.upserts).toEqual([]);
   });
 
   it("is created DNS only, pointing at the address the page shows", async () => {

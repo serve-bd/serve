@@ -117,6 +117,12 @@ describe("editing a domain's DNS record", () => {
     expect(state.upserts).toEqual([]);
   });
 
+  it("never turns the primary domain into a redirect", async () => {
+    state.domain.primary = true;
+    expect(await updateDomain("d1", { redirectTo: "https://elsewhere.example.com" })).toEqual({ ok: false, error: expect.stringContaining("primary domain") });
+    expect(state.saved).toEqual({});
+  });
+
   it("leaves a tunnel domain's record to the route setting", async () => {
     state.domain.tunnelId = "t1";
     expect((await updateDomain("d1", dns(true, true))).ok).toBe(true);

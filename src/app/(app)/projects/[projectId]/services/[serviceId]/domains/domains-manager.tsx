@@ -976,7 +976,13 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
                   key={m}
                   type="button"
                   onClick={() => setMode(m)}
-                  className={cn("h-8 rounded-lg text-[13px] font-medium transition-all", mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
+                  // The primary domain is where the service lives (SERVE_PUBLIC_URL): it cannot redirect away.
+                  disabled={m === "redirect" && domain.primary}
+                  title={m === "redirect" && domain.primary ? "Make another domain primary first." : undefined}
+                  className={cn(
+                    "h-8 rounded-lg text-[13px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50",
+                    mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg",
+                  )}
                 >
                   {m === "route" ? "Route to this service" : "Redirect to a URL"}
                 </button>

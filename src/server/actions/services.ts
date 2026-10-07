@@ -2016,6 +2016,7 @@ export async function updateDomain(domainId: string, input: z.input<typeof domai
     const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
     const { dns, ...data } = domainUpdateSchema.parse(input);
     if (data.redirectTo !== undefined) data.redirectTo = safeRedirectUrl(data.redirectTo);
+    if (domain.primary && data.redirectTo) throw new UserError("The primary domain cannot become a redirect. Make another domain primary first.");
     if (data.certificateId) await certificateOnServer(data.certificateId, ctx.org.id, service.serverId);
     // Tunnel domains get HTTPS from Cloudflare; a certificate at the proxy is never needed.
     if (domain.tunnelId) {
@@ -2089,6 +2090,8 @@ export async function replaceDomain(domainId: string, input: z.input<typeof doma
     const [old] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!old) throw new UserError("Domain not found.");
     await serviceInOrg(old.serviceId, ctx.org.id);
+    // Checked before anything changes: the primary domain's place cannot go to a redirect.
+    if (old.primary && input.redirectTo?.trim()) throw new UserError("The primary domain cannot become a redirect. Make another domain primary first.");
     const added = await addDomain(old.serviceId, input);
     if (!added.ok) throw new UserError(added.error);
     const warnings = [added.data.warning];

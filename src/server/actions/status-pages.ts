@@ -304,6 +304,8 @@ export async function setStatusDomain(pageId: string, input: { domain: string; h
     }
     // Through a tunnel: one of the organization's on the server the dashboard runs on. Serve points
     // the name at it in Cloudflare; Cloudflare serves HTTPS, so no certificate here.
+    // DNS records in Cloudflare are changed by organization admins only, as for app domains.
+    if (tunnelId && (tunnelId !== page.tunnelId || domain !== page.domain) && !ctx.isAdmin) throw new UserError("Only organization admins can route a domain through a tunnel.");
     const tunnel = tunnelId ? await localTunnel(tunnelId, ctx.org.id) : null;
     // A chosen certificate: the organization's, on the server the dashboard runs on, covering the name.
     const certificateId = domain && https && !tunnel ? (z.string().nullish().parse(input.certificateId) ?? null) : null;
@@ -328,11 +330,11 @@ export async function setStatusDomain(pageId: string, input: { domain: string; h
     const warnings: string[] = [];
     // Public IP route: the record a connected Cloudflare account can hold is made or set right on
     // every save (also when coming off a tunnel: Serve's CNAME to it is replaced). The old name's goes.
-    if (domain && !tunnel) {
+    if (domain && !tunnel && ctx.isAdmin) {
       const w = await pointStatusDomain(ctx.org.id, domain);
       if (w) warnings.push(w);
     }
-    if (page.domain && !page.tunnelId && (page.domain !== domain || tunnel)) {
+    if (page.domain && !page.tunnelId && (page.domain !== domain || tunnel) && ctx.isAdmin) {
       const w = await dropStatusARecord(ctx.org.id, page.domain);
       if (w) warnings.push(w);
     }
@@ -470,7 +472,7 @@ export async function checkStatusDomain(pageId: string) {
     }));
     // Serve can set the record itself: a public IP route, a name a connected Cloudflare account manages.
     const canCreate =
-      !page.tunnelId && !!expected && dns.status !== "ok" && dns.status !== "proxied" && !!(await cloudflareAccountFor([page.domain], ctx.org.id).catch(() => null));
+      ctx.isAdmin && !page.tunnelId && !!expected && dns.status !== "ok" && dns.status !== "proxied" && !!(await cloudflareAccountFor([page.domain], ctx.org.id).catch(() => null));
     return { status: dns.status, records: dns.records, expected, canCreate };
   });
 }
@@ -480,6 +482,7 @@ export async function createStatusRecord(pageId: string) {
   return act(async () => {
     const ctx = await requireStatusManager();
     const page = await pageInOrg(pageId, ctx.org.id);
+    if (!ctx.isAdmin) throw new UserError("Only organization admins can create DNS records.");
     if (!page.domain || page.tunnelId) throw new UserError("Only a domain on the public IP route has an A record.");
     if (!(await cloudflareAccountFor([page.domain], ctx.org.id).catch(() => null)))
       throw new UserError(`No connected Cloudflare account manages ${page.domain}. Add the A record where its DNS is.`);

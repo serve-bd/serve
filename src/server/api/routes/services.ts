@@ -1296,12 +1296,12 @@ export const serviceRoutes: ApiRoute[] = [
     tag: "Backups",
     summary: "Set up or change a backup of a compose stack",
     description:
-      "key: db:<service>, volume:<name> or dir:<path> (URL-encoded). Adds it when missing. Body: schedule (cron or null), retention, retentionS3, s3DestinationId, copyDestinationIds, local, timeoutMinutes, lowPriority, passphrase (null stops encrypting; left out keeps it).",
+      "key: db:<service>, volume:<name> or dir:<path>, URL-encoded once. Adds it when missing. Body: schedule (cron or null), retention, retentionS3, s3DestinationId, copyDestinationIds, local, timeoutMinutes, lowPriority, passphrase (null stops encrypting; left out keeps it).",
     needs: ["databases.backups"],
     body: z.looseObject({}),
     handler: async ({ auth, params, body }) => {
       const { service } = await loadService(auth, params.serviceId);
-      const key = decodeURIComponent(params.key);
+      const key = params.key;
       const { addComposeBackup, saveComposeBackup } = await import("@/server/actions/compose-backups");
       if (!service.composeBackups?.[key]) await unwrap(addComposeBackup(params.serviceId, key));
       const fresh = (await loadService(auth, params.serviceId)).service.composeBackups?.[key];
@@ -1320,7 +1320,7 @@ export const serviceRoutes: ApiRoute[] = [
     handler: async ({ auth, params }) => {
       await loadService(auth, params.serviceId);
       const { removeComposeBackup } = await import("@/server/actions/compose-backups");
-      await unwrap(removeComposeBackup(params.serviceId, decodeURIComponent(params.key)));
+      await unwrap(removeComposeBackup(params.serviceId, params.key));
       return { ok: true };
     },
   }),

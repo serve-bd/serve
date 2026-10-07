@@ -432,7 +432,7 @@ func TestComposeBackups(t *testing.T) {
 		t.Fatalf("json: %+v", r)
 	}
 
-	dirKey := "PUT /services/c1/compose-backups/dir:%25252Fsrv%25252Fdata"
+	dirKey := "PUT /services/c1/compose-backups/dir:%2Fsrv%2Fdata"
 	f.on(dirKey, 200, map[string]any{"ok": true})
 	f.on("PUT /services/c1/compose-backups/db:postgres", 200, map[string]any{"ok": true})
 	mustRun(t, "compose-backups", "set", "dir:/srv/data", "-s", "stack", "--schedule", "0 4 * * *", "--retention", "5", "--bucket", "acme", "--local=false", "--timeout", "0")

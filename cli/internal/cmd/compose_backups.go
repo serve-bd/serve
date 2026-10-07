@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -26,16 +25,10 @@ type composeBackup struct {
 	CopyDestinationIDs []string `json:"copyDestinationIds"`
 }
 
-// composeBackupPath is the URL of one backup. The key goes through three decodings on the way
-// (the dashboard's route parameters, the API router, the handler): a key with "/" or "%" (a
-// directory) is encoded three times so that no "/" splits the path. Other keys are encoded once,
-// which any number of decodings leaves as it is.
+// composeBackupPath is the URL of one backup. The key is one path segment, encoded once: a
+// directory's "/" becomes %2F, which the API decodes back.
 func composeBackupPath(serviceID, key string) string {
-	k := api.P(key)
-	if strings.ContainsAny(key, "/%") {
-		k = url.PathEscape(url.PathEscape(url.PathEscape(key)))
-	}
-	return "/services/" + api.P(serviceID) + "/compose-backups/" + k
+	return "/services/" + api.P(serviceID) + "/compose-backups/" + api.P(key)
 }
 
 func checkBackupKey(key string) error {

@@ -5,7 +5,7 @@ export function explainCertError(error: string, ctx: { serverIp?: string | null;
   if (notLoaded)
     return {
       title: "Not loaded everywhere",
-      hint: `The certificate is valid, but these could not load it yet: ${notLoaded[1]}. Fix the cause (often a proxy config error or a server that does not answer), then retry.`,
+      hint: `The certificate is valid, but these could not load it yet: ${notLoaded[1].replace(/\.? The log says why\.$/, "")}. The log says why (often a proxy config error or a server that does not answer); fix it, then retry.`,
     };
   const e = error.toLowerCase();
   const domains = [...new Set([...error.matchAll(/(?:for|looking up (?:a|aaaa|txt|caa) for) ([a-z0-9*._-]+\.[a-z]{2,})/gi)].map((m) => m[1].replace(/^_acme-challenge\./, "")))];

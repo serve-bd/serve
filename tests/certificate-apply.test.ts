@@ -46,16 +46,18 @@ describe("applying a certificate", () => {
   });
 
   it("returns nothing and records nothing when every proxy took it", async () => {
-    expect(await applyCertificate(cert)).toEqual([]);
+    expect(await applyCertificate(cert)).toBeNull();
     expect(state.updates).toEqual([]);
   });
 
-  it("names what did not take it, in the result and on the certificate", async () => {
+  it("counts what did not take it where everyone sees it, and names it only in the log", async () => {
     syncServiceProxy.mockRejectedValue(new Error("nginx: [emerg] bad config"));
     reloadProxy.mockRejectedValue(new Error("server unreachable"));
-    const problems = await applyCertificate(cert);
-    expect(problems).toEqual(["shop: nginx: [emerg] bad config", "Proxy reload: server unreachable"]);
-    expect(state.updates.at(-1)?.lastError).toMatch(/^Not loaded everywhere yet: shop: nginx.*Proxy reload: server unreachable$/);
-    expect(state.logs).toContain("Not loaded everywhere yet");
+    const summary = await applyCertificate(cert);
+    expect(summary).toBe("Not loaded everywhere yet: 1 site, the proxy reload. The log says why.");
+    expect(state.updates.at(-1)?.lastError).toBe(summary);
+    expect(summary).not.toContain("shop");
+    expect(state.logs).toContain("shop: nginx: [emerg] bad config");
+    expect(state.logs).toContain("The proxy reload: server unreachable");
   });
 });

@@ -324,9 +324,9 @@ describe("explainCertError", () => {
   it("detects rate limits and unreachable servers", () => {
     expect(explainCertError("too many certificates already issued", { provider: "letsencrypt-http" }).title).toMatch(/rate limit/);
     expect(explainCertError("Timeout during connect (likely firewall problem)", { provider: "letsencrypt-http" }).title).toMatch(/could not reach/);
-    const notLoaded = explainCertError("Not loaded everywhere yet: shop: nginx: [emerg] bad config", { provider: "letsencrypt-http" });
+    const notLoaded = explainCertError("Not loaded everywhere yet: 2 sites, the proxy reload. The log says why.", { provider: "letsencrypt-http" });
     expect(notLoaded.title).toBe("Not loaded everywhere");
-    expect(notLoaded.hint).toContain("shop: nginx: [emerg] bad config");
+    expect(notLoaded.hint).toContain("could not load it yet: 2 sites, the proxy reload. The log says why");
   });
   it("falls back to a generic message", () => {
     expect(explainCertError("something odd", { provider: "custom" }).title).toBe("The certificate could not be issued");

@@ -962,7 +962,8 @@ async function main() {
   every(3600_000, "monitoring-prune", pruneMonitoring);
   every(30 * 60_000, "org-disk", measureOrgDisk, true);
   // Sizes shown on the canvas: not urgent, so not in the busy first minutes after a start.
-  every(6 * 3600_000, "volume-sizes", async () => (await import("@/server/docker/volume-sizes")).measureVolumeSizes(), 2 * 60_000);
+  // Every minute; a slow check (big volumes) makes the next ones skip until it ends.
+  every(60_000, "volume-sizes", async () => (await import("@/server/docker/volume-sizes")).measureVolumeSizes(), 30_000);
   every(5 * 60_000, "org-limits", checkLimitNotices);
   // Quiet-hours summaries, lost retries and old delivery history.
   every(60_000, "notifications", async () => {

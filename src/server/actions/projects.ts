@@ -179,7 +179,19 @@ export async function saveCanvasPositions(environmentId: string, positions: Reco
     const [env] = await db.select().from(schema.environment).where(eq(schema.environment.id, environmentId));
     if (!env) throw new UserError("Environment not found.");
     await projectInOrg(env.projectId, ctx.org.id);
-    const ids = new Set((await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.environmentId, environmentId))).map((s) => s.id));
+    // Services, and data their deleted ones left here (kept:<database|volume>:<id>).
+    const [services, keptDbs, keptVols] = await Promise.all([
+      db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.environmentId, environmentId)),
+      db
+        .select({ id: schema.keptDatabase.id })
+        .from(schema.keptDatabase)
+        .where(and(eq(schema.keptDatabase.environmentId, environmentId), eq(schema.keptDatabase.organizationId, ctx.org.id))),
+      db
+        .select({ id: schema.keptVolume.id })
+        .from(schema.keptVolume)
+        .where(and(eq(schema.keptVolume.environmentId, environmentId), eq(schema.keptVolume.organizationId, ctx.org.id))),
+    ]);
+    const ids = new Set([...services.map((s) => s.id), ...keptDbs.map((k) => `kept:database:${k.id}`), ...keptVols.map((k) => `kept:volume:${k.id}`)]);
     const moved: Record<string, { x: number; y: number }> = {};
     for (const [id, p] of Object.entries(parsed)) if (ids.has(id)) moved[id] = { x: Math.round(p.x), y: Math.round(p.y) };
     if (!Object.keys(moved).length) return null;

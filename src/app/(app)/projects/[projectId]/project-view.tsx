@@ -21,6 +21,7 @@ import type { ServiceCardData } from "@/server/project-data";
 import type { KeptData } from "@/server/services/kept-data";
 import { CloneEnvironmentDialog } from "./clone-environment";
 import { ProjectCanvas } from "./project-canvas";
+import { KeptList, useKeptActions } from "./kept-data";
 import { WaitingMark } from "./waiting-mark";
 import { ViewToggle } from "@/components/view-toggle";
 import { cn } from "@/lib/utils";
@@ -254,6 +255,7 @@ export function ProjectView({ project, environments, environment, initialService
   const services = data?.services ?? initialServices;
   const kept = data?.kept ?? initialKept;
   const newHref = `/projects/${project.id}/new?env=${environment.name}`;
+  const { actions: keptActions, dialog: keptDialog } = useKeptActions(project.id, environment.name, can("services.manage"), () => void mutate());
   const groups = project.groupServices ? groupServices(services) : [{ key: "all", label: "", services }];
 
   return (
@@ -315,7 +317,7 @@ export function ProjectView({ project, environments, environment, initialService
         </div>
       ) : (
         <PageBody>
-          {services.length ? (
+          {services.length || kept.length ? (
             <div className="flex flex-col gap-8">
               {groups.map((g) => {
                 return (
@@ -342,6 +344,8 @@ export function ProjectView({ project, environments, environment, initialService
                   </section>
                 );
               })}
+              <KeptList kept={kept} actions={keptActions} />
+              {keptDialog}
             </div>
           ) : (
             <Card>

@@ -22,6 +22,7 @@ describe("volumes on canvas cards", () => {
   it("lists an app's named volumes, outside ones by their own name, and folders without a size", () => {
     const app = {
       type: "app",
+      name: "web",
       slug: "web-x1",
       serverId: "s1",
       database: null,
@@ -36,17 +37,18 @@ describe("volumes on canvas cards", () => {
       },
     };
     expect(cardVolumes(app, sizes)).toEqual([
-      { name: "serve-web-x1-uploads", mountPath: "/app/uploads", bytes: 2_400_000_000, bind: false },
+      { name: "serve-web-x1-uploads", label: "web-uploads", mountPath: "/app/uploads", bytes: 2_400_000_000, bind: false },
       // Measured on another server only: not this one's size.
-      { name: "serve-web-x1-cache", mountPath: "/cache", bytes: null, bind: false },
-      { name: "theirs", mountPath: "/theirs", bytes: null, bind: false },
-      { name: "/srv/web", mountPath: "/srv", bytes: null, bind: true },
+      { name: "serve-web-x1-cache", label: "web-cache", mountPath: "/cache", bytes: null, bind: false },
+      { name: "theirs", label: "theirs", mountPath: "/theirs", bytes: null, bind: false },
+      { name: "/srv/web", label: "/srv/web", mountPath: "/srv", bytes: null, bind: true },
     ]);
   });
 
   it("shows a database's own data volume at the engine's data path, then added volumes", () => {
     const db = {
       type: "database",
+      name: "pg",
       slug: "db-x1",
       serverId: "s1",
       database: { engine: "postgres" } as never,
@@ -58,26 +60,26 @@ describe("volumes on canvas cards", () => {
       },
     };
     expect(cardVolumes(db, sizes)).toEqual([
-      { name: "serve-db-x1-data", mountPath: "/var/lib/postgresql/data", bytes: 900, bind: false },
-      { name: "serve-db-x1-wal", mountPath: "/wal", bytes: null, bind: false },
+      { name: "serve-db-x1-data", label: "pg-data", mountPath: "/var/lib/postgresql/data", bytes: 900, bind: false },
+      { name: "serve-db-x1-wal", label: "pg-wal", mountPath: "/wal", bytes: null, bind: false },
     ]);
   });
 
   it("shows the data volume a database was started on, or its folder", () => {
-    const base = { type: "database", slug: "db-x1", serverId: "s1", runtime: { volumes: [] } };
+    const base = { type: "database", name: "pg", slug: "db-x1", serverId: "s1", runtime: { volumes: [] } };
     expect(cardVolumes({ ...base, database: { engine: "postgres", dataVolume: "legacy-pg", dataMountPath: "/data" } as never }, sizes)).toEqual([
-      { name: "legacy-pg", mountPath: "/data", bytes: 70, bind: false },
+      { name: "legacy-pg", label: "legacy-pg", mountPath: "/data", bytes: 70, bind: false },
     ]);
     expect(cardVolumes({ ...base, database: { engine: "postgres", dataVolume: "/srv/pg" } as never }, sizes)).toEqual([
-      { name: "/srv/pg", mountPath: "/var/lib/postgresql/data", bytes: null, bind: true },
+      { name: "/srv/pg", label: "/srv/pg", mountPath: "/var/lib/postgresql/data", bytes: null, bind: true },
     ]);
   });
 
   it("lists a stack's volumes by its compose project on its server, by name", () => {
-    const stack = { type: "compose", slug: "shop-x1", serverId: "s1", database: null, runtime: { volumes: [] } };
+    const stack = { type: "compose", name: "shop", slug: "shop-x1", serverId: "s1", database: null, runtime: { volumes: [] } };
     expect(cardVolumes(stack, sizes)).toEqual([
-      { name: "shop-x1_cache", mountPath: null, bytes: 0, bind: false },
-      { name: "shop-x1_db", mountPath: null, bytes: 300, bind: false },
+      { name: "shop-x1_cache", label: "shop-cache", mountPath: null, bytes: 0, bind: false },
+      { name: "shop-x1_db", label: "shop-db", mountPath: null, bytes: 300, bind: false },
     ]);
   });
 });

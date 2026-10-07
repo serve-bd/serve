@@ -1182,8 +1182,12 @@ export async function rollbackTo(deploymentId: string) {
     const [dep] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
     if (!dep) throw new UserError("Deployment not found.");
     const { service } = await serviceInOrg(dep.serviceId, ctx.org.id);
-    if (service.type !== "app") throw new UserError("Rollbacks are available for apps.");
-    if (dep.status !== "success" || !dep.image) throw new UserError("Only successful deployments can be restored.");
+    if (service.type === "compose") {
+      const { composeRollbackProblem } = await import("@/server/deploy/compose");
+      const problem = composeRollbackProblem(dep);
+      if (problem) throw new UserError(problem);
+    } else if (service.type !== "app") throw new UserError("Rollbacks are available for apps and compose stacks.");
+    else if (dep.status !== "success" || !dep.image) throw new UserError("Only successful deployments can be restored.");
     const id = await queueDeployment(dep.serviceId, "rollback", { userId: ctx.user.id, rollbackOf: dep.id });
     await logActivity({
       userId: ctx.user.id,

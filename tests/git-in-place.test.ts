@@ -164,6 +164,14 @@ describe("compose repositories updated in place", () => {
     expect(again.commitSha).toBe(second.commitSha);
     expect(fs.readFileSync(path.join(dir, "data", "db.txt"), "utf8")).toBe("keep me\n");
     expect(fs.readFileSync(path.join(dir, "lib/sub/s.txt"), "utf8")).toBe("sub\n");
+
+    // A compose rollback checks out the commit it ran, not the branch's latest; data stays.
+    const back = await cloneRepository(source, dir, () => {}, undefined, null, { inPlace: true, commit: first.commitSha });
+    expect(back.commitSha).toBe(first.commitSha);
+    expect(fs.readFileSync(path.join(dir, "a.txt"), "utf8")).toBe("one\n");
+    expect(fs.readFileSync(path.join(dir, "gone.txt"), "utf8")).toBe("removed later\n");
+    expect(fs.readFileSync(path.join(dir, "data", "db.txt"), "utf8")).toBe("keep me\n");
+    await expect(cloneRepository(source, dir, () => {}, undefined, null, { inPlace: true, commit: "0".repeat(40) })).rejects.toThrow();
   });
 
   it("never deletes through a symlink planted in the remote copy", async () => {

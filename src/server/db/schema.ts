@@ -721,6 +721,31 @@ export type DeploymentUpload = {
   dirty: boolean;
 };
 
+/**
+ * What a compose deployment ran, so a rollback can run it again: the compose file as it was (not
+ * yet changed by Serve), and the image each compose service's containers ran. The commit of a file
+ * from git is the deployment's commitSha.
+ */
+export type ComposeSnapshot = {
+  mode: "inline" | "git";
+  content: string;
+  /** From git: the compose file's path in the repository. */
+  file?: string;
+  /** By compose service name. */
+  images: Record<string, ComposeSnapshotImage>;
+};
+
+export type ComposeSnapshotImage = {
+  /** The image the compose file named (or compose built). */
+  ref: string;
+  /** The image id (sha256:…) the containers ran. */
+  id: string;
+  /** A pullable repo@sha256:… of a pulled image; null for images built on the server. */
+  digest: string | null;
+  /** Serve's local tag on that image (serve/compose/<slug>:…), kept for rollbacks like an app's images. */
+  tag: string;
+};
+
 export const deployment = pgTable(
   "deployment",
   {
@@ -757,6 +782,8 @@ export const deployment = pgTable(
     upload: jsonb("upload").$type<DeploymentUpload>(),
     /** Fingerprint of the settings this deployment ran with: a different one now means a redeploy would apply changes. */
     configHash: text("config_hash"),
+    /** Compose stacks: the file and images it ran. Deployments from before it was recorded cannot be rolled back. */
+    composeSnapshot: jsonb("compose_snapshot").$type<ComposeSnapshot>(),
     /** Who let a deployment that waited for approval go ahead, and when. */
     approvedBy: text("approved_by").references(() => user.id, { onDelete: "set null" }),
     approvedAt: timestamp("approved_at", { withTimezone: true }),

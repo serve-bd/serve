@@ -1,5 +1,5 @@
 import { redeployNeeded } from "@/server/services/fingerprint";
-import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { listServiceContainers, LABEL } from "@/server/docker/client";
 import { getServer, getServerRow, serverOf } from "@/server/servers/context";
@@ -45,6 +45,8 @@ export async function serviceLive(serviceId: string) {
         commitAuthor: schema.deployment.commitAuthor,
         branch: schema.deployment.branch,
         image: schema.deployment.image,
+        /** A compose deployment recorded what it ran: it can be rolled back to. */
+        snapshot: sql<boolean>`${schema.deployment.composeSnapshot} is not null`,
         error: schema.deployment.error,
         createdAt: schema.deployment.createdAt,
         startedAt: schema.deployment.startedAt,

@@ -288,7 +288,8 @@ export async function cloneRepository(
   log: (line: string) => void,
   signal?: AbortSignal,
   organizationId?: string | null,
-  opts: { submodules?: boolean; inPlace?: boolean } = {},
+  /** commit: with inPlace, check out this commit instead of the branch's latest (a compose rollback). */
+  opts: { submodules?: boolean; inPlace?: boolean; commit?: string } = {},
 ): Promise<CloneResult> {
   if (opts.inPlace) return updateInPlace(source, dir, log, signal, organizationId, opts);
   const parent = path.dirname(dir);
@@ -349,7 +350,7 @@ async function updateInPlace(
   log: (line: string) => void,
   signal: AbortSignal | undefined,
   organizationId: string | null | undefined,
-  opts: { submodules?: boolean },
+  opts: { submodules?: boolean; commit?: string },
 ): Promise<CloneResult> {
   const gitDir = `${dir}.git`;
   await fs.mkdir(dir, { recursive: true });
@@ -370,7 +371,7 @@ async function updateInPlace(
     if (!(await fs.stat(path.join(gitDir, "HEAD")).catch(() => null))) await git(["init", "--quiet"]);
     // Relative submodule URLs resolve against origin. The URL holds no credentials; those come from the environment.
     await git(["config", "remote.origin.url", access.cloneUrl]);
-    await git(["fetch", "--depth", "1", "--no-tags", "--", access.cloneUrl, source.branch], options);
+    await git(["fetch", "--depth", "1", "--no-tags", "--", access.cloneUrl, opts.commit ?? source.branch], options);
     // Tracked files take the new commit's content and files removed from git go; untracked files stay.
     await git(["reset", "--quiet", "--hard", "FETCH_HEAD"], options);
     if (opts.submodules !== false) {
@@ -394,13 +395,16 @@ async function updateInPlace(
   };
 
   try {
-    log(`Fetching ${access.url} (branch ${source.branch})`);
+    log(`Fetching ${access.url} (${opts.commit ? `commit ${opts.commit.slice(0, 7)}` : `branch ${source.branch}`})`);
     try {
       await withRetry(update, { what: "Fetching", log, signal });
     } catch (error) {
       // Unreachable repository or branch: a new git directory would not help.
       const output = `${(error as Error).message}\n${(error as { output?: string }).output ?? ""}`;
-      if (signal?.aborted || /could not read|authentication failed|not found|couldn't find remote ref|could not resolve host|unable to access|private network/i.test(output))
+      if (
+        signal?.aborted ||
+        /could not read|authentication failed|not found|couldn't find remote ref|could not resolve host|unable to access|private network|not our ref/i.test(output)
+      )
         throw error;
       // A damaged git directory: start it again. Only git's own files, never the work tree and its data.
       log(`Git update failed (${(error as Error).message}); fetching again into a new git directory`);
@@ -412,7 +416,9 @@ async function updateInPlace(
   }
 
   const files = (await git(["ls-files", "-z", ...(opts.submodules === false ? [] : ["--recurse-submodules"])])).split("\0").filter(Boolean);
-  return { ...checkedOut(dir, await git(["log", "-1", "--format=%H%x1f%an%x1f%s"]), log), files };
+  const result = { ...checkedOut(dir, await git(["log", "-1", "--format=%H%x1f%an%x1f%s"]), log), files };
+  if (opts.commit && result.commitSha !== opts.commit) throw new Error(`Checked out ${result.commitSha} instead of commit ${opts.commit}.`);
+  return result;
 }
 
 /**

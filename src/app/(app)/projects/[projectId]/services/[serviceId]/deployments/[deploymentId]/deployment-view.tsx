@@ -27,6 +27,8 @@ type Dep = {
   commitAuthor: string | null;
   branch: string | null;
   image: string | null;
+  /** A compose deployment recorded its file and images (it can be rolled back to). */
+  snapshot: boolean;
   /** Files uploaded from the CLI that this deployment builds. */
   upload: { files: number; size: number; dirty: boolean } | null;
   createdAt: string;
@@ -244,11 +246,20 @@ export function DeploymentView({
                 </>
               ) : (
                 <>
-                  {serviceType === "app" && state.status === "success" && !isCurrent && deployment.image && (
+                  {state.status === "success" && !isCurrent && (serviceType === "app" ? !!deployment.image : serviceType === "compose" && deployment.snapshot) && (
                     <Button
                       size="sm"
                       onClick={async () => {
-                        if (await confirm({ title: "Roll back to this deployment?", description: "Its image starts again without rebuilding.", confirmLabel: "Roll back" }))
+                        if (
+                          await confirm({
+                            title: "Roll back to this deployment?",
+                            description:
+                              serviceType === "compose"
+                                ? "Its compose file and images start again without rebuilding. Current variables are used; volumes are kept."
+                                : "Its image starts again without rebuilding.",
+                            confirmLabel: "Roll back",
+                          })
+                        )
                           rollback.run();
                       }}
                       loading={rollback.pending}

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -20,6 +20,7 @@ export default async function DeploymentPage(props: PageProps<"/projects/[projec
       commitAuthor: schema.deployment.commitAuthor,
       branch: schema.deployment.branch,
       image: schema.deployment.image,
+      snapshot: sql<boolean>`${schema.deployment.composeSnapshot} is not null`,
       upload: schema.deployment.upload,
       createdAt: schema.deployment.createdAt,
       userName: schema.user.name,

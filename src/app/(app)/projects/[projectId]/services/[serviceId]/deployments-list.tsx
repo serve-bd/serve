@@ -38,7 +38,7 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
   const deployments = [
     ...data.deployments.map((d) => ({ ...d, preview: null })),
     ...previews.flatMap((p) =>
-      p.deployments.map((d) => ({ ...d, image: null, error: null, userName: null, preview: { id: p.id, pr: p.pr, current: d.id === p.currentDeploymentId } })),
+      p.deployments.map((d) => ({ ...d, image: null, snapshot: false, error: null, userName: null, preview: { id: p.id, pr: p.pr, current: d.id === p.currentDeploymentId } })),
     ),
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -119,13 +119,16 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                           </MenuItem>
                         ) : (
                           <>
-                            {type === "app" && !d.preview && d.status === "success" && !current && d.image && (
+                            {!d.preview && d.status === "success" && !current && (type === "app" ? !!d.image : type === "compose" && d.snapshot) && (
                               <MenuItem
                                 onClick={async () => {
                                   if (
                                     await confirm({
                                       title: "Roll back to this deployment?",
-                                      description: "The image from this deployment is started again without rebuilding. Current variables are used.",
+                                      description:
+                                        type === "compose"
+                                          ? "The compose file and images from this deployment start again without rebuilding. Current variables are used; volumes are kept."
+                                          : "The image from this deployment is started again without rebuilding. Current variables are used.",
                                       confirmLabel: "Roll back",
                                     })
                                   ) {

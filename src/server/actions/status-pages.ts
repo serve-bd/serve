@@ -116,12 +116,13 @@ export async function deleteStatusPage(pageId: string) {
       await dropTunnelRecord(page.tunnelId, page.domain);
       await syncTunnelIngress(page.tunnelId).catch(() => {});
     }
+    const warning = page.domain && !page.tunnelId ? await dropStatusARecord(ctx.org.id, page.domain) : null;
     if (page.domain) {
       await retireCertificateFor(page.domain, LOCAL_SERVER_ID, ctx.org.id);
       await enqueue("proxy.sync", {});
     }
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "status-page.delete", message: `Deleted the status page ${page.name}` });
-    return null;
+    return warning ? { warning } : null;
   });
 }
 
@@ -324,6 +325,17 @@ export async function setStatusDomain(pageId: string, input: { domain: string; h
         throw new UserError(`Could not point ${domain} at the tunnel: ${(e as Error).message}`);
       }
     }
+    const warnings: string[] = [];
+    // Public IP route: the record a connected Cloudflare account can hold is made or set right on
+    // every save (also when coming off a tunnel: Serve's CNAME to it is replaced). The old name's goes.
+    if (domain && !tunnel) {
+      const w = await pointStatusDomain(ctx.org.id, domain);
+      if (w) warnings.push(w);
+    }
+    if (page.domain && !page.tunnelId && (page.domain !== domain || tunnel)) {
+      const w = await dropStatusARecord(ctx.org.id, page.domain);
+      if (w) warnings.push(w);
+    }
     if (page.domain && page.domain !== domain) await retireCertificateFor(page.domain, LOCAL_SERVER_ID, ctx.org.id);
     // Off the tunnel, or to another name: the record Serve made for the old route goes.
     if (page.tunnelId && page.domain && (page.tunnelId !== tunnelId || page.domain !== domain)) await dropTunnelRecord(page.tunnelId, page.domain);
@@ -344,7 +356,7 @@ export async function setStatusDomain(pageId: string, input: { domain: string; h
       targetType: "status-page",
       targetId: pageId,
     });
-    return null;
+    return warnings.length ? { warning: warnings.join(" ") } : null;
   });
 }
 
@@ -369,6 +381,42 @@ async function dropTunnelRecord(tunnelId: string, hostname: string) {
     for (const r of await cf.dnsRecords(zone.id, { name: hostname }))
       if (r.type === "CNAME" && r.content === `${tunnel.cfTunnelId}.cfargotunnel.com` && r.comment === "Managed by Serve") await cf.deleteDnsRecord(zone.id, r.id);
   })().catch(() => {});
+}
+
+/**
+ * On the public IP route, the A record of a name a connected Cloudflare account of the organization
+ * manages: Serve makes it (DNS only, so this server's certificate answers), as for app domains.
+ * Records someone else made are never changed. Returns why it could not, or null.
+ */
+async function pointStatusDomain(organizationId: string, hostname: string): Promise<string | null> {
+  const accountId = await cloudflareAccountFor([hostname], organizationId).catch(() => null);
+  if (!accountId) return null;
+  // The address the DNS check expects, the one the page tells to use.
+  const ip = (await getSettings()).serverIp;
+  if (!ip) return `Serve did not create the A record for ${hostname}: set this server's public IP in Server settings.`;
+  try {
+    const cf = await Cloudflare.forAccount(accountId);
+    const zone = await cf.zoneFor(hostname);
+    if (zone) await cf.upsertARecord(zone.id, hostname, ip, false);
+    return null;
+  } catch (e) {
+    return `Serve could not create the A record for ${hostname}: ${(e as Error).message}`;
+  }
+}
+
+/** Remove the A record Serve made for a status page's name (marked by its comment). Returns why it could not, or null. */
+async function dropStatusARecord(organizationId: string, hostname: string): Promise<string | null> {
+  const accountId = await cloudflareAccountFor([hostname], organizationId).catch(() => null);
+  if (!accountId) return null;
+  try {
+    const cf = await Cloudflare.forAccount(accountId);
+    const zone = await cf.zoneFor(hostname);
+    if (!zone) return null;
+    for (const r of await cf.dnsRecords(zone.id, { name: hostname })) if (r.type === "A" && r.comment === "Managed by Serve") await cf.removeDnsRecord(zone.id, r.id);
+    return null;
+  } catch (e) {
+    return `The A record Serve made for ${hostname} was not removed: ${(e as Error).message}. Remove it in Cloudflare.`;
+  }
 }
 
 /** A Let's Encrypt certificate for the page's domain on the local proxy, unless one covers it or the proxy gets its own. */
@@ -420,7 +468,32 @@ export async function checkStatusDomain(pageId: string) {
       status: "unknown" as const,
       records: [] as string[],
     }));
-    return { status: dns.status, records: dns.records, expected };
+    // Serve can set the record itself: a public IP route, a name a connected Cloudflare account manages.
+    const canCreate =
+      !page.tunnelId && !!expected && dns.status !== "ok" && dns.status !== "proxied" && !!(await cloudflareAccountFor([page.domain], ctx.org.id).catch(() => null));
+    return { status: dns.status, records: dns.records, expected, canCreate };
+  });
+}
+
+/** Create or set right the A record of the page's domain in Cloudflare (see pointStatusDomain). */
+export async function createStatusRecord(pageId: string) {
+  return act(async () => {
+    const ctx = await requireStatusManager();
+    const page = await pageInOrg(pageId, ctx.org.id);
+    if (!page.domain || page.tunnelId) throw new UserError("Only a domain on the public IP route has an A record.");
+    if (!(await cloudflareAccountFor([page.domain], ctx.org.id).catch(() => null)))
+      throw new UserError(`No connected Cloudflare account manages ${page.domain}. Add the A record where its DNS is.`);
+    const problem = await pointStatusDomain(ctx.org.id, page.domain);
+    if (problem) throw new UserError(problem);
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      action: "status-page.domain",
+      message: `Created the A record of ${page.domain} for the status page ${page.name}`,
+      targetType: "status-page",
+      targetId: pageId,
+    });
+    return null;
   });
 }
 

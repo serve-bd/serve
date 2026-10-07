@@ -385,7 +385,7 @@ export const statusPageRoutes: ApiRoute[] = [
     tag: "Status pages",
     summary: "Set a status page's own domain",
     description:
-      "domain null (or empty) takes the page off its domain. The domain must be verified for the organization. https: true gets a Let's Encrypt certificate unless certificateId names one of the organization's on the dashboard's server. tunnelId serves it through a Cloudflare Tunnel on the dashboard's server instead.",
+      "domain null (or empty) takes the page off its domain. The domain must be verified for the organization. https: true gets a Let's Encrypt certificate unless certificateId names one of the organization's on the dashboard's server. tunnelId serves it through a Cloudflare Tunnel on the dashboard's server instead. Without a tunnel, Serve creates the A record when a connected Cloudflare account manages the name; warning says why it could not.",
     needs: ["status-pages.manage"],
     body: z.object({
       domain: z.string().nullable(),
@@ -396,10 +396,11 @@ export const statusPageRoutes: ApiRoute[] = [
     handler: async ({ auth, params, body }) => {
       allProjects(auth);
       await pageOf(params.pageId, auth.organizationId);
-      await unwrap(
+      const done = await unwrap(
         actions.setStatusDomain(params.pageId, { domain: body.domain ?? "", https: body.https, tunnelId: body.tunnelId ?? null, certificateId: body.certificateId ?? null }),
       );
-      return { statusPage: await pageView(params.pageId, auth.organizationId) };
+      // A DNS record a connected Cloudflare account could not take is said, not hidden.
+      return { statusPage: await pageView(params.pageId, auth.organizationId), ...(done ?? {}) };
     },
   }),
   route({

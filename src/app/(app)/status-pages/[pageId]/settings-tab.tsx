@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "@/components/ui/toast";
 import * as React from "react";
 import { CircleCheck, CircleX, Eye, Globe, Lock, Trash2, TriangleAlert, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { Card, CardHeader, CopyField } from "@/components/ui/misc";
 import { Select } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
-import { checkStatusDomain, deleteStatusPage, saveStatusPage, setStatusDomain, setStatusVisibility } from "@/server/actions/status-pages";
+import { checkStatusDomain, createStatusRecord, deleteStatusPage, saveStatusPage, setStatusDomain, setStatusVisibility } from "@/server/actions/status-pages";
 import type { EditorData } from "@/server/status-pages/admin";
 import type { StatusVisibility } from "@/lib/status-page";
 import { certificateCovers } from "@/server/ssl/match";
@@ -134,7 +135,7 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
   const [route, setRoute] = React.useState(data.page.tunnelId ?? PUBLIC);
   const [https, setHttps] = React.useState(data.page.https);
   const [certificateId, setCertificateId] = React.useState(data.page.certificateId ?? AUTO);
-  const [dns, setDns] = React.useState<{ status: string; records: string[]; expected: string | null } | null>(null);
+  const [dns, setDns] = React.useState<{ status: string; records: string[]; expected: string | null; canCreate?: boolean } | null>(null);
   React.useEffect(() => {
     setDomain(data.page.domain ?? "");
     setRoute(data.page.tunnelId ?? PUBLIC);
@@ -147,10 +148,16 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
   const host = domain.trim().toLowerCase();
   const usable = data.domain.certificates.filter((c) => host && certificateCovers(c.domains, host));
   const cert = certificateId === AUTO ? null : certificateId;
-  const save = useAction(() =>
-    setStatusDomain(data.page.id, { domain, https: tunnel ? true : https, tunnelId: tunnel?.id ?? null, certificateId: tunnel || !https ? null : cert }),
-  );
   const check = useAction(() => checkStatusDomain(data.page.id), { refresh: false, onSuccess: setDns });
+  const save = useAction(
+    () => setStatusDomain(data.page.id, { domain, https: tunnel ? true : https, tunnelId: tunnel?.id ?? null, certificateId: tunnel || !https ? null : cert }),
+    {
+      onSuccess: (d) => {
+        if (d?.warning) toast.warning("Domain saved", d.warning);
+      },
+    },
+  );
+  const createRecord = useAction(() => createStatusRecord(data.page.id), { onSuccess: () => check.run() });
   const dirty =
     host !== (data.page.domain ?? "") ||
     (tunnel?.id ?? null) !== data.page.tunnelId ||
@@ -174,8 +181,8 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
                 tunnel
                   ? `Serve points ${host} at the tunnel in Cloudflare. Cloudflare serves HTTPS; no public IP or open port is needed.`
                   : data.domain.tunnels.length
-                    ? `Point an A record for ${host} to ${ip ?? "this server's public IP"}.`
-                    : `Point an A record for ${host} to ${ip ?? "this server's public IP"}. No public IP? Create a Cloudflare Tunnel for this server in Integrations → Cloudflare.`
+                    ? `Point an A record for ${host} to ${ip ?? "this server's public IP"}. When a connected Cloudflare account manages it, Serve does it when you save.`
+                    : `Point an A record for ${host} to ${ip ?? "this server's public IP"}. When a connected Cloudflare account manages it, Serve does it when you save. No public IP? Create a Cloudflare Tunnel for this server in Integrations → Cloudflare.`
               }
             >
               <Select
@@ -232,9 +239,16 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
           <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface-2 px-4 py-3 text-[13px]">
             <div className="flex flex-wrap items-center gap-2">
               {dns ? <DnsResult domain={data.page.domain} dns={dns} /> : <span className="text-muted">Check that the record is in place.</span>}
-              <Button size="xs" className="ml-auto" loading={check.pending} onClick={() => check.run()}>
-                Check DNS
-              </Button>
+              <div className="ml-auto flex gap-2">
+                {canManage && dns?.canCreate && (
+                  <Button size="xs" variant="primary" loading={createRecord.pending} onClick={() => createRecord.run()}>
+                    Create A record
+                  </Button>
+                )}
+                <Button size="xs" loading={check.pending} onClick={() => check.run()}>
+                  Check DNS
+                </Button>
+              </div>
             </div>
             {data.page.https && !data.page.tunnelId && (data.domain.proxy === "nginx" || data.page.certificateId) && (
               <p className={cn("text-xs", saved?.status === "failed" ? "text-bad" : "text-muted")}>

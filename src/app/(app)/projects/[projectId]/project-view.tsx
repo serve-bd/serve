@@ -18,6 +18,7 @@ import { projectColor } from "@/components/shell/project-color";
 import { useAction } from "@/hooks/use-action";
 import { createEnvironment } from "@/server/actions/projects";
 import type { ServiceCardData } from "@/server/project-data";
+import type { KeptData } from "@/server/services/kept-data";
 import { CloneEnvironmentDialog } from "./clone-environment";
 import { ProjectCanvas } from "./project-canvas";
 import { WaitingMark } from "./waiting-mark";
@@ -30,6 +31,8 @@ type Props = {
   environments: { id: string; name: string }[];
   environment: { id: string; name: string };
   initialServices: ServiceCardData[];
+  /** Data deleted services left behind, shown on the canvas. */
+  initialKept: KeptData[];
   view: "grid" | "list" | "canvas";
   /** Saved canvas positions of this environment. */
   positions: Record<string, { x: number; y: number }>;
@@ -232,7 +235,7 @@ function groupServices(services: ServiceCardData[]) {
 /** Remembers the chosen view; the page reads it on the server, so the first paint is already right. */
 const VIEW_COOKIE = "serve-project-view";
 
-export function ProjectView({ project, environments, environment, initialServices, view, positions }: Props) {
+export function ProjectView({ project, environments, environment, initialServices, initialKept, view, positions }: Props) {
   const can = useCan();
   const router = useRouter();
   const setView = React.useCallback(
@@ -243,12 +246,13 @@ export function ProjectView({ project, environments, environment, initialService
     },
     [router, project.id, environment.name],
   );
-  const { data } = useSWR<{ services: ServiceCardData[] }>(`/api/projects/${project.id}/services?env=${environment.id}`, {
-    fallbackData: { services: initialServices },
+  const { data, mutate } = useSWR<{ services: ServiceCardData[]; kept: KeptData[] }>(`/api/projects/${project.id}/services?env=${environment.id}`, {
+    fallbackData: { services: initialServices, kept: initialKept },
     // Status changes arrive as live events; this only catches containers changing on their own.
     refreshInterval: 15_000,
   });
   const services = data?.services ?? initialServices;
+  const kept = data?.kept ?? initialKept;
   const newHref = `/projects/${project.id}/new?env=${environment.name}`;
   const groups = project.groupServices ? groupServices(services) : [{ key: "all", label: "", services }];
 
@@ -293,10 +297,20 @@ export function ProjectView({ project, environments, environment, initialService
           </>
         }
       />
-      {view === "canvas" && services.length > 0 ? (
+      {view === "canvas" && (services.length > 0 || kept.length > 0) ? (
         <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-8 sm:px-8">
           <div className="h-[70dvh] min-h-[380px] overflow-hidden rounded-2xl border border-line bg-sunken sm:h-[calc(100dvh-16rem)] sm:min-h-[460px]">
-            <ProjectCanvas key={environment.id} projectId={project.id} environmentId={environment.id} services={services} saved={positions} canManage={can("services.manage")} />
+            <ProjectCanvas
+              key={environment.id}
+              projectId={project.id}
+              environmentId={environment.id}
+              environmentName={environment.name}
+              services={services}
+              kept={kept}
+              onKeptChange={() => void mutate()}
+              saved={positions}
+              canManage={can("services.manage")}
+            />
           </div>
         </div>
       ) : (

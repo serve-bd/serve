@@ -68,7 +68,7 @@ vi.mock("@/server/api-auth", () => ({
   authenticateToken: async () => (state.auth ? { auth: state.auth } : { error: Response.json({ error: "Invalid or missing API token" }, { status: 401 }) }),
 }));
 vi.mock("@/server/auth", () => ({ ForbiddenError: class extends Error {}, isInstanceAdmin: async () => state.instanceAdmin }));
-vi.mock("@/server/settings", () => ({ getSettings: async () => ({ apiEnabled: true, apiRateLimit: 0 }), getSetting: async () => null }));
+vi.mock("@/server/settings", () => ({ getSettings: async () => ({ apiEnabled: true, apiRateLimit: 0, proxyCustomConfig: "gzip_comp_level 5;" }), getSetting: async () => null }));
 vi.mock("@/server/status-pages/urls", () => ({ pageUrl: async (p: { slug: string }) => `https://serve.example.com/status/${p.slug}` }));
 
 // The loaders scope records to the token's organization and projects.
@@ -146,13 +146,32 @@ vi.mock("@/server/actions/compose-storage", (actual) => partly("saveComposeMount
 vi.mock("@/server/actions/environments", (actual) => partly("savePreviewDatabase")(actual));
 vi.mock("@/server/actions/monitoring", (actual) => partly("saveRequestLog", "deleteRequestLog")(actual));
 vi.mock("@/server/actions/services", (actual) => partly("pointDomainAtMain")(actual));
+vi.mock("@/server/actions/shared-vars", (actual) => partly("saveServerVars", "saveOrgSharedVars", "saveProjectSharedVars", "redeployReferencing")(actual));
+vi.mock("@/server/actions/servers", (actual) => partly("checkOsUpdatesAction", "installOsUpdatesAction", "makeDefaultServer")(actual));
+vi.mock("@/server/actions/server-proxy", (actual) => partly("saveProxyCustomConfig")(actual));
+vi.mock("@/server/actions/main-server", (actual) => partly("setMainServer")(actual));
+vi.mock("@/server/crypto", async (actual) => ({ ...(await actual<Record<string, unknown>>()), decryptOrNull: (v: string) => `plain:${v}` }));
+// Admins of the organization that owns a server manage it.
+vi.mock("@/server/servers/access", async (actual) => ({
+  ...(await actual<Record<string, unknown>>()),
+  requireServerAdmin: async (id: string) => {
+    const { ForbiddenError } = await import("@/server/auth");
+    const { UserError } = await import("@/server/action");
+    const row = (state.tables.server ?? []).find((s) => s.id === id);
+    if (!row) throw new UserError("Server not found.");
+    if (!state.auth?.admin || row.ownerOrganizationId !== state.auth.organizationId)
+      throw new ForbiddenError("Only admins of the organization that owns this server, or Root admins, can change it.");
+    return { row };
+  },
+}));
 
 const { createRouter } = await import("@/server/api/router");
 const { statusPageRoutes } = await import("@/server/api/routes/status-pages");
 const { databaseRoutes } = await import("@/server/api/routes/databases");
 const { serviceRoutes } = await import("@/server/api/routes/services");
 const { projectRoutes } = await import("@/server/api/routes/projects");
-const handle = createRouter([...statusPageRoutes, ...databaseRoutes, ...serviceRoutes, ...projectRoutes]);
+const { infraRoutes } = await import("@/server/api/routes/infra");
+const handle = createRouter([...statusPageRoutes, ...databaseRoutes, ...serviceRoutes, ...projectRoutes, ...infraRoutes]);
 
 const call = (method: string, path: string, body?: unknown) =>
   handle(
@@ -233,6 +252,14 @@ beforeEach(() => {
     statusComponent: [
       { id: "c1", pageId: "sp1", name: "API", description: null, group: "Core", serviceId: "s1", position: 0 },
       { id: "c2", pageId: "sp2", name: "Theirs", description: null, group: null, serviceId: null, position: 0 },
+    ],
+    server: [
+      { id: "srv1", name: "web", ownerOrganizationId: "o1", osUpdates: { packages: [{ name: "openssl" }] } },
+      { id: "srv-other", name: "theirs", ownerOrganizationId: "o2", osUpdates: null },
+    ],
+    serverVar: [
+      { id: "v1", serverId: "srv1", organizationId: "o1", key: "REGION", value: "enc1" },
+      { id: "v2", serverId: "srv1", organizationId: "o2", key: "THEIRS", value: "enc2" },
     ],
     domain: [
       { id: "d1", serviceId: "s1", hostname: "shop.example.com" },
@@ -542,5 +569,90 @@ describe("compose storage, request log, preview databases and DNS", () => {
     expect((await call("POST", "/domains/d-other/point-at-main")).status).toBe(404);
     expect((await call("POST", "/domains/d1/point-at-main")).status).toBe(200);
     expect(called("pointDomainAtMain")).toEqual([["pointDomainAtMain", "d1"]]);
+  });
+});
+
+describe("server variables", () => {
+  it("list the organization's own variables of a server, values only with variables.view-secrets", async () => {
+    token(["projects.view"]);
+    expect((await (await call("GET", "/servers/srv1/variables")).json()).variables).toEqual([{ key: "REGION" }]);
+    token(["projects.view", "variables.view-secrets"]);
+    expect((await (await call("GET", "/servers/srv1/variables")).json()).variables).toEqual([{ key: "REGION", value: "plain:enc1" }]);
+    expect((await call("GET", "/servers/srv-other/variables")).status).toBe(404);
+  });
+
+  it("are replaced by admins, and redeploy what uses them only with services.deploy", async () => {
+    const variables = [{ key: "REGION", value: "eu" }];
+    token(["variables.edit", "variables.view-secrets", "services.deploy"]);
+    expect((await call("PUT", "/servers/srv1/variables", { variables })).status).toBe(403);
+    token(["variables.edit"], { admin: true });
+    expect((await call("PUT", "/servers/srv-other/variables", { variables })).status).toBe(404);
+    expect((await call("PUT", "/servers/srv1/variables", { variables, redeploy: true })).status).toBe(403);
+    expect(state.calls).toHaveLength(0);
+    token(["services.deploy"], { admin: true });
+    state.results.redeployReferencing = { ok: true, data: { count: 2 } };
+    expect(await (await call("PUT", "/servers/srv1/variables", { variables, redeploy: true })).json()).toEqual({ ok: true, redeployed: 2 });
+    expect(state.calls).toEqual([
+      ["saveServerVars", "srv1", variables],
+      ["redeployReferencing", { serverId: "srv1" }],
+    ]);
+  });
+
+  it("redeploy after organization and project variables too", async () => {
+    token(["services.deploy"], { admin: true });
+    state.results.redeployReferencing = { ok: true, data: { count: 1 } };
+    expect(await (await call("PUT", "/variables", { variables: [], redeploy: true })).json()).toEqual({ ok: true, redeployed: 1 });
+    expect(called("redeployReferencing")).toEqual([["redeployReferencing", "org"]]);
+    token(["variables.edit", "variables.view-secrets"]);
+    expect(await (await call("PUT", "/projects/p1/variables", { variables: [] })).json()).toEqual({ ok: true, redeployed: 0 });
+    expect((await call("PUT", "/projects/p1/variables", { variables: [], redeploy: true })).status).toBe(403);
+    expect(called("saveProjectSharedVars")).toHaveLength(1);
+  });
+});
+
+describe("servers", () => {
+  it("show and run OS updates for admins who manage the server", async () => {
+    token(["projects.view"]);
+    expect((await call("POST", "/servers/srv1/os-updates/check")).status).toBe(403);
+    token([], { admin: true });
+    expect((await (await call("GET", "/servers/srv1/os-updates")).json()).osUpdates).toEqual({ packages: [{ name: "openssl" }] });
+    expect((await call("GET", "/servers/srv-other/os-updates")).status).toBe(403);
+    expect((await call("GET", "/servers/nope/os-updates")).status).toBe(404);
+    expect((await call("POST", "/servers/srv1/os-updates/check")).status).toBe(202);
+    expect((await call("POST", "/servers/srv1/os-updates/install", { packages: "some" })).status).toBe(400);
+    expect((await call("POST", "/servers/srv1/os-updates/install", { packages: ["openssl"] })).status).toBe(202);
+    expect(state.calls).toEqual([
+      ["checkOsUpdatesAction", "srv1"],
+      ["installOsUpdatesAction", "srv1", ["openssl"]],
+    ]);
+  });
+
+  it("make a default server for admins only", async () => {
+    token(["projects.view", "services.manage"]);
+    expect((await call("POST", "/servers/srv1/default")).status).toBe(403);
+    token([], { admin: true });
+    state.results.makeDefaultServer = { ok: false, error: "This organization cannot deploy to that server." };
+    expect((await call("POST", "/servers/srv-other/default")).status).toBe(400);
+    expect(called("makeDefaultServer")).toEqual([["makeDefaultServer", "srv-other"]]);
+  });
+
+  it("keep the instance's proxy configuration to Root admins", async () => {
+    token([], { admin: true });
+    expect((await call("GET", "/proxy/custom-config")).status).toBe(403);
+    expect((await call("PUT", "/proxy/custom-config", { config: "" })).status).toBe(403);
+    state.instanceAdmin = true;
+    expect(await (await call("GET", "/proxy/custom-config")).json()).toEqual({ config: "gzip_comp_level 5;" });
+    expect((await call("PUT", "/proxy/custom-config", { config: "gzip_comp_level 6;" })).status).toBe(200);
+    expect(called("saveProxyCustomConfig")).toEqual([["saveProxyCustomConfig", "gzip_comp_level 6;"]]);
+  });
+
+  it("switch an app's main server within the organization", async () => {
+    token(["services.deploy"]);
+    expect((await call("PUT", "/services/s1/main-server", { serverId: "srv1" })).status).toBe(403);
+    token(["services.manage"]);
+    expect((await call("PUT", "/services/other/main-server", { serverId: "srv1" })).status).toBe(404);
+    state.results.setMainServer = { ok: true, data: { manual: [], warnings: [] } };
+    expect(await (await call("PUT", "/services/s1/main-server", { serverId: "srv1" })).json()).toEqual({ manual: [], warnings: [] });
+    expect(called("setMainServer")).toEqual([["setMainServer", "s1", "srv1"]]);
   });
 });

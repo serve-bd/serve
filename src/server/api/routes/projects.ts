@@ -10,7 +10,7 @@ import * as sharedVars from "@/server/actions/shared-vars";
 import * as move from "@/server/actions/move";
 import { approveDeployment, rejectDeployment, saveDeployRules } from "@/server/actions/deploy-rules";
 import type { DeployRules } from "@/lib/deploy-rules";
-import { deploymentView, environmentView, loadDeployment, loadEnvironment, loadProject, projectFilter, projectView, serviceView } from "../data";
+import { deploymentView, environmentView, loadDeployment, loadEnvironment, loadProject, loadServer, projectFilter, projectView, serviceView } from "../data";
 import { ApiError, type ApiRoute, assertCan, route, unwrap } from "../router";
 
 /** A deployment that no longer waits, or a freeze, is a conflict with its state, not a bad request. */
@@ -137,11 +137,14 @@ export const projectRoutes: ApiRoute[] = [
     path: "/projects/{projectId}/variables",
     tag: "Variables",
     summary: "Replace the project's shared variables",
+    description: "redeploy: true then redeploys the running services that use ${{project.…}} (needs services.deploy too).",
     needs: ["variables.edit", "variables.view-secrets"],
-    body: z.object({ variables: sharedVarList }),
+    body: z.object({ variables: sharedVarList, redeploy: z.boolean().default(false) }),
     handler: async ({ auth, params, body }) => {
+      if (body.redeploy) assertCan(auth, "services.deploy");
       await loadProject(auth, params.projectId);
-      return (await unwrap(sharedVars.saveProjectSharedVars(params.projectId, body.variables))) ?? { ok: true };
+      await unwrap(sharedVars.saveProjectSharedVars(params.projectId, body.variables));
+      return { ok: true, redeployed: body.redeploy ? (await unwrap(sharedVars.redeployReferencing({ projectId: params.projectId }))).count : 0 };
     },
   }),
 
@@ -331,9 +334,47 @@ export const projectRoutes: ApiRoute[] = [
     path: "/variables",
     tag: "Variables",
     summary: "Replace the organization's shared variables",
+    description: "redeploy: true then redeploys the running services that use ${{org.…}} (needs services.deploy too).",
     needs: ["admin"],
-    body: z.object({ variables: sharedVarList }),
-    handler: async ({ body }) => (await unwrap(sharedVars.saveOrgSharedVars(body.variables))) ?? { ok: true },
+    body: z.object({ variables: sharedVarList, redeploy: z.boolean().default(false) }),
+    handler: async ({ auth, body }) => {
+      if (body.redeploy) assertCan(auth, "services.deploy");
+      await unwrap(sharedVars.saveOrgSharedVars(body.variables));
+      return { ok: true, redeployed: body.redeploy ? (await unwrap(sharedVars.redeployReferencing("org"))).count : 0 };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/servers/{serverId}/variables",
+    tag: "Variables",
+    summary: "List the organization's variables of a server",
+    description: "Values need variables.view-secrets. The organization's services on that server use them as ${{server.KEY}}.",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      await loadServer(auth, params.serverId);
+      const rows = await db
+        .select()
+        .from(schema.serverVar)
+        .where(and(eq(schema.serverVar.serverId, params.serverId), eq(schema.serverVar.organizationId, auth.organizationId)))
+        .orderBy(asc(schema.serverVar.key));
+      const values = auth.can("variables.view-secrets");
+      return { variables: rows.map((r) => ({ key: r.key, ...(values ? { value: decryptOrNull(r.value) ?? "" } : {}) })) };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/servers/{serverId}/variables",
+    tag: "Variables",
+    summary: "Replace the organization's variables of a server",
+    description: "redeploy: true then redeploys the organization's running services on the server that use ${{server.…}} (needs services.deploy too).",
+    needs: ["admin"],
+    body: z.object({ variables: sharedVarList, redeploy: z.boolean().default(false) }),
+    handler: async ({ auth, params, body }) => {
+      if (body.redeploy) assertCan(auth, "services.deploy");
+      await loadServer(auth, params.serverId);
+      await unwrap(sharedVars.saveServerVars(params.serverId, body.variables));
+      return { ok: true, redeployed: body.redeploy ? (await unwrap(sharedVars.redeployReferencing({ serverId: params.serverId }))).count : 0 };
+    },
   }),
 
   // Deployments

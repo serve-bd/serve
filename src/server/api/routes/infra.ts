@@ -150,6 +150,70 @@ export const infraRoutes: ApiRoute[] = [
     handler: async ({ params }) => (await unwrap(runCleanup(params.serverId))) ?? { ok: true },
   }),
   route({
+    method: "GET",
+    path: "/servers/{serverId}/os-updates",
+    tag: "Servers",
+    summary: "Operating system updates of a server",
+    description:
+      "The packages that can be updated as of the last check, and the last install with its log (run.state running while it installs). For admins who manage the server.",
+    needs: ["admin"],
+    handler: async ({ params }) => {
+      const { requireServerAdmin } = await import("@/server/servers/access");
+      const { row } = await requireServerAdmin(params.serverId);
+      return { osUpdates: row.osUpdates ?? null };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/servers/{serverId}/os-updates/check",
+    tag: "Servers",
+    summary: "Check a server for operating system updates",
+    description: "Runs in the background and installs nothing: GET /servers/{serverId}/os-updates shows the result.",
+    needs: ["admin"],
+    status: 202,
+    handler: async ({ params }) => (await unwrap(servers.checkOsUpdatesAction(params.serverId))) ?? { ok: true },
+  }),
+  route({
+    method: "POST",
+    path: "/servers/{serverId}/os-updates/install",
+    tag: "Servers",
+    summary: "Install operating system updates on a server",
+    description:
+      'packages: "all" (everything but Docker\'s packages) or the names of packages to update. Runs in the background: follow it with GET /servers/{serverId}/os-updates.',
+    needs: ["admin"],
+    status: 202,
+    body: z.object({ packages: z.union([z.literal("all"), z.array(z.string().max(128)).min(1).max(2000)]) }),
+    handler: async ({ params, body }) => (await unwrap(servers.installOsUpdatesAction(params.serverId, body.packages))) ?? { ok: true },
+  }),
+  route({
+    method: "POST",
+    path: "/servers/{serverId}/default",
+    tag: "Servers",
+    summary: "Make a server the organization's default",
+    description: "New services go to it unless another server is chosen. It must be ready.",
+    needs: ["admin"],
+    handler: async ({ params }) => (await unwrap(servers.makeDefaultServer(params.serverId))) ?? { ok: true },
+  }),
+  route({
+    method: "GET",
+    path: "/proxy/custom-config",
+    tag: "Servers",
+    summary: "Custom nginx configuration of the instance's proxies",
+    needs: ["instance"],
+    handler: async () => ({ config: (await getSettings()).proxyCustomConfig ?? "" }),
+  }),
+  route({
+    method: "PUT",
+    path: "/proxy/custom-config",
+    tag: "Servers",
+    summary: "Set the custom nginx configuration of the instance's proxies",
+    description:
+      "Directives added to the http block of every nginx proxy on the instance's own servers (not those an organization owns). nginx tests it first; a refused configuration changes nothing. Empty removes it.",
+    needs: ["instance"],
+    body: z.object({ config: z.string().max(20_000) }),
+    handler: async ({ body }) => (await unwrap(serverProxy.saveProxyCustomConfig(body.config))) ?? { ok: true },
+  }),
+  route({
     method: "PUT",
     path: "/servers/{serverId}/alerts",
     tag: "Servers",

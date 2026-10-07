@@ -12,6 +12,7 @@ import * as serviceProxy from "@/server/actions/service-proxy";
 import { saveComposeMounts } from "@/server/actions/compose-storage";
 import { savePreviewDatabase } from "@/server/actions/environments";
 import * as monitoring from "@/server/actions/monitoring";
+import { setMainServer } from "@/server/actions/main-server";
 import { balancingOf, type ProxyInput, proxyFormInitial, proxyInputSchema, type ServiceProxyConfig } from "@/server/services/proxy-config";
 import { readComposeMounts } from "@/lib/compose-mounts";
 import { deploymentView, domainView, loadDomain, loadService, page, projectFilter, serviceView } from "../data";
@@ -435,6 +436,20 @@ export const serviceRoutes: ApiRoute[] = [
     handler: async ({ auth, params }) => {
       await loadService(auth, params.serviceId);
       return (await unwrap(savePreviewDatabase(params.serviceId, null))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/main-server",
+    tag: "Services",
+    summary: "Make one of an app's extra servers its main one",
+    description:
+      "Visitors enter through it from now on; nothing is redeployed and the old main server becomes an extra one. Serve moves the DNS records and tunnel routes it manages: manual lists the names to point at the new IP yourself.",
+    needs: ["services.manage"],
+    body: z.object({ serverId: id }),
+    handler: async ({ auth, params, body }) => {
+      await loadService(auth, params.serviceId);
+      return unwrap(setMainServer(params.serviceId, body.serverId));
     },
   }),
   route({

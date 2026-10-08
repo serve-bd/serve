@@ -24,7 +24,7 @@ import {
   useReactFlow,
   ViewportPortal,
 } from "@xyflow/react";
-import { AlertTriangle, ArrowUpRight, Folder, HardDrive, LayoutGrid, Maximize2, Minimize2, Minus, Plus, Scan, Server as ServerIcon } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Captions, CaptionsOff, Folder, HardDrive, LayoutGrid, Maximize2, Minimize2, Minus, Plus, Scan, Server as ServerIcon } from "lucide-react";
 import { useRouter } from "@/hooks/use-router";
 import { engineColors, ServiceIcon } from "@/components/service-icon";
 import { StatusLabel } from "@/components/ui/status";
@@ -40,6 +40,7 @@ import { useCanvasFullscreen } from "@/hooks/use-canvas-fullscreen";
 import { autoLayout, CARD_H, CARD_W, cardHeight, FRAME_PAD, FRAME_TOP, keptLayout, type Pos, VOLUME_LINE_H, VOLUME_LINES } from "@/lib/canvas-layout";
 import { TimeAgo } from "@/components/ui/misc";
 import { KeptIcon, KeptMenu, keptLabel, useKeptActions } from "./kept-data";
+import { useCollapsed } from "./services/[serviceId]/variables/replica-vars";
 
 type ServiceNode = Node<{ s: ServiceCardData; projectId: string }, "service">;
 /** Data a deleted service left behind: placed automatically, never dragged or saved. */
@@ -259,7 +260,7 @@ function KeptCardNode({ data }: NodeProps<KeptNode>) {
 
 const nodeTypes: NodeTypes = { service: ServiceCardNode, kept: KeptCardNode };
 
-type UseEdge = Edge<{ variables: string[]; kind: "local" | "private" | "broken"; color: string }, "uses">;
+type UseEdge = Edge<{ variables: string[]; kind: "local" | "private" | "broken"; color: string; hideLabel: boolean }, "uses">;
 
 /** Colors for lines to services without an engine color, picked by the service so a line keeps its color. */
 const LINE_PALETTE = ["#0ea5e9", "#a855f7", "#f59e0b", "#14b8a6", "#ec4899", "#84cc16", "#6366f1", "#f97316"];
@@ -275,6 +276,8 @@ function UseEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const vars = data?.variables ?? [];
   const text = vars.length > 2 ? `${vars.slice(0, 2).join(", ")} +${vars.length - 2}` : vars.join(", ");
+  // Hidden names: a broken line still says why it is broken.
+  if (data?.hideLabel && data.kind !== "broken") return <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />;
   return (
     <>
       <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
@@ -304,7 +307,7 @@ function UseEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
 
 const edgeTypes: EdgeTypes = { uses: UseEdgeView };
 
-function edgesOf(services: ServiceCardData[]): UseEdge[] {
+function edgesOf(services: ServiceCardData[], hideLabel: boolean): UseEdge[] {
   const byId = new Map(services.map((s) => [s.id, s]));
   const edges: UseEdge[] = [];
   for (const s of services)
@@ -319,7 +322,7 @@ function edgesOf(services: ServiceCardData[]): UseEdge[] {
         source: s.id,
         target: u.id,
         animated: kind === "private",
-        data: { variables: u.variables, kind, color },
+        data: { variables: u.variables, kind, color, hideLabel },
         style: { stroke: color, strokeWidth: 1.5, strokeDasharray: kind === "broken" ? "5 4" : undefined },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
       });
@@ -367,7 +370,9 @@ function Canvas({ projectId, environmentId, environmentName, services, kept, onK
   React.useEffect(() => {
     setNodes((prev) => build(prev));
   }, [build, setNodes]);
-  const edges = React.useMemo(() => edgesOf(services), [services]);
+  // Variable names on the lines, hidden or shown in this browser.
+  const [hideLabels, toggleLabels] = useCollapsed("serve.canvas.hideLabels");
+  const edges = React.useMemo(() => edgesOf(services, hideLabels), [services, hideLabels]);
 
   const { actions: keptActions, dialog: keptDialog } = useKeptActions(projectId, environmentName, canManage, onKeptChange);
   // Kept data sits where it was dragged or saved; else once under the services as laid out (saved
@@ -451,6 +456,9 @@ function Canvas({ projectId, environmentId, environmentName, services, kept, onK
         </ToolButton>
         <ToolButton label="Fit to screen" onClick={() => void flow.fitView({ padding: 0.2, duration: 300, maxZoom: 1 })}>
           <Scan />
+        </ToolButton>
+        <ToolButton label={hideLabels ? "Show variable names" : "Hide variable names"} onClick={toggleLabels}>
+          {hideLabels ? <Captions /> : <CaptionsOff />}
         </ToolButton>
         <ToolButton label={fs.full ? "Exit full screen" : "Full screen"} onClick={fs.toggle}>
           {fs.full ? <Minimize2 /> : <Maximize2 />}

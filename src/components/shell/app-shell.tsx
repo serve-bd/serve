@@ -74,7 +74,14 @@ type ShellProps = {
   children: React.ReactNode;
 };
 
-type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean };
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  exact?: boolean;
+  /** Lit for every page under this path (href is its first page). */
+  section?: string;
+};
 
 const mainNav: NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutGrid, exact: true },
@@ -106,11 +113,12 @@ const orgNav: NavItem[] = [
   { href: "/shared-variables", label: "Shared variables", icon: Variable },
   { href: "/tags", label: "Tags", icon: Tag },
   { href: "/templates", label: "Templates", icon: LayoutTemplate },
-  { href: "/keys", label: "Keys & tokens", icon: KeyRound },
+  { href: "/keys/api-tokens", section: "/keys", label: "Keys & tokens", icon: KeyRound },
 ];
 
 function isActive(pathname: string, item: NavItem) {
-  return item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const base = item.section ?? item.href;
+  return item.exact ? pathname === base : pathname === base || pathname.startsWith(`${base}/`);
 }
 
 function NavLink({ item, pathname, onNavigate }: { item: NavItem; pathname: string; onNavigate?: () => void }) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closestServerPlan } from "@/server/services/closest-server";
+import { closestServerPlan, restorePlan } from "@/server/services/closest-server";
 
 // Which of an app's domains can go through its shared tunnel: names in the chosen account's zones.
 
@@ -29,5 +29,54 @@ describe("closestServerPlan", () => {
       ["o", "not in a zone of this Cloudflare account"],
       ["x", "not in a zone of this Cloudflare account"],
     ]);
+  });
+});
+
+describe("restorePlan", () => {
+  const was = (over: Partial<import("@/server/services/closest-server").DomainBefore>) => ({
+    record: "a" as const,
+    tunnelId: null,
+    proxied: false,
+    https: true,
+    forceHttps: true,
+    certificateId: "cert1",
+    wantsTunnel: false,
+    ...over,
+  });
+  const main = { name: "hetzner", publicIp: "2.29.57.162", tunnelIds: ["t-own"] };
+
+  it("puts each domain back as it was: its tunnel, its A record (now to the main server) or no record", () => {
+    const r = restorePlan(
+      [d("a", "a.example.com"), d("t", "t.example.com"), d("n", "n.example.com")],
+      {
+        loadBalance: true,
+        domains: {
+          a: was({ proxied: false }),
+          t: was({ record: "tunnel", tunnelId: "t-own", https: false, forceHttps: false }),
+          n: was({ record: "none" }),
+        },
+      },
+      main,
+    );
+    expect(r.blockers).toEqual([]);
+    expect(r.fallback).toEqual([]);
+    expect(r.moves.map((m) => [m.id, m.kind, "ip" in m ? m.ip : "tunnelId" in m ? m.tunnelId : null, m.before.proxied])).toEqual([
+      ["a", "a", "2.29.57.162", false],
+      ["t", "tunnel", "t-own", false],
+      ["n", "none", null, false],
+    ]);
+  });
+
+  it("routes the usual way what has nothing to go back to: added later, or its tunnel is gone", () => {
+    const r = restorePlan([d("new", "new.example.com"), d("t", "t.example.com")], { loadBalance: null, domains: { t: was({ record: "tunnel", tunnelId: "t-gone" }) } }, main);
+    expect(r.moves).toEqual([]);
+    expect(r.fallback).toEqual(["new", "t"]);
+    // Shared tunnels from before the setup was kept: everything the usual way.
+    expect(restorePlan([d("x", "x.example.com")], null, main).fallback).toEqual(["x"]);
+  });
+
+  it("refuses to bring back an A record when the main server has no public IP", () => {
+    const r = restorePlan([d("a", "a.example.com")], { loadBalance: null, domains: { a: was({}) } }, { ...main, publicIp: null });
+    expect(r.blockers[0]).toMatch(/a\.example\.com had an A record, and hetzner has no public IP/);
   });
 });

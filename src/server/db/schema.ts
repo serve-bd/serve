@@ -1069,6 +1069,8 @@ export const cloudflareTunnel = pgTable(
      * Null for a server's own tunnel, which carries any domain of that server.
      */
     serviceId: text("service_id").references(() => service.id, { onDelete: "cascade" }),
+    /** An app's shared tunnel: how its domains and load balancing were set before, to go back to. */
+    restore: jsonb("restore").$type<import("@/server/services/closest-server").ClosestRestore>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

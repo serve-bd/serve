@@ -10,7 +10,7 @@ import { normalizeDistribution } from "@/server/deploy/distribution";
 import { syncServiceProxy } from "@/server/proxy/nginx";
 import { getServer } from "@/server/servers/context";
 import { serviceInOrg } from "@/server/services/access";
-import { closestServerPlan } from "@/server/services/closest-server";
+import { type ClosestRestore, closestServerPlan, type DomainBefore, restorePlan } from "@/server/services/closest-server";
 import { entryPlan, entryProblem } from "@/server/services/entry-plan";
 import { entryDomains, entryServers } from "@/server/services/entry-servers";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
@@ -85,10 +85,23 @@ export async function enableClosestServer(serviceId: string, accountId: string) 
     const moved: string[] = [];
     const failed: string[] = [];
     const previousTunnels = new Set<string>();
+    // How each domain was reached, so turning Closest server off goes back to exactly that.
+    const before: ClosestRestore = { loadBalance: typeof service.distribution?.loadBalance === "boolean" ? service.distribution.loadBalance : null, domains: {} };
     for (const m of plan.move) {
       const d = domains.find((x) => x.id === m.id)!;
       try {
+        const a = d.tunnelId ? undefined : (await cf.dnsRecords(m.zoneId, { name: d.hostname })).find((x) => x.type === "A");
+        const was: DomainBefore = {
+          record: d.tunnelId ? "tunnel" : a ? "a" : "none",
+          tunnelId: d.tunnelId,
+          proxied: a?.proxied ?? true,
+          https: d.https,
+          forceHttps: d.forceHttps,
+          certificateId: d.certificateId,
+          wantsTunnel: d.wantsTunnel,
+        };
         const record = await cf.upsertTunnelRecord(m.zoneId, d.hostname, tunnel.cfTunnelId);
+        before.domains[d.id] = was;
         if (d.tunnelId) previousTunnels.add(d.tunnelId);
         // Cloudflare ends HTTPS; the tunnel reaches each server's proxy over plain HTTP.
         await db
@@ -114,6 +127,7 @@ export async function enableClosestServer(serviceId: string, accountId: string) 
       throw new UserError(`No domain moved to the shared tunnel. ${failed.join(" ")}`);
     }
 
+    await db.update(schema.cloudflareTunnel).set({ restore: before }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
     // Each server serves its own visitors now: the main server stops sending them to the others.
     await db
       .update(schema.service)
@@ -139,9 +153,11 @@ export async function enableClosestServer(serviceId: string, accountId: string) 
 }
 
 /**
- * Turn Closest server off: the domains go back to the main server, through its own tunnel of the
- * same account or an A record to its public IP, and the shared tunnel is deleted. Refused up front
- * when a domain would have nowhere to go; a domain that fails to move keeps the tunnel running.
+ * Turn Closest server off: every domain goes back to how it was reached before it was turned on
+ * (its server tunnel, its A record, now to the main server's IP, or no record), and load balancing
+ * to what it was. A domain added meanwhile, or whose tunnel is gone, goes to the main server the
+ * usual way: its own tunnel of the account, or its public IP. Refused up front when a domain would
+ * have nowhere to go; one that fails to move keeps the shared tunnel running.
  */
 export async function disableClosestServer(serviceId: string) {
   return act(async () => {
@@ -154,45 +170,79 @@ export async function disableClosestServer(serviceId: string) {
     const main = servers.find((s) => s.main);
     if (!main) throw new UserError("Main server not found.");
     const onTunnel = (await entryDomains(serviceId)).filter((d) => d.tunnelId === shared.id);
-    // Planned as if moving to the main server: through its tunnel of the account, or its public IP.
+    const restore = restorePlan(onTunnel, shared.restore ?? null, { name: main.name, publicIp: main.publicIp, tunnelIds: main.tunnels.map((t) => t.id) });
+    // The rest as if moving to the main server: through its tunnel of the account, or its public IP.
     const plan = entryPlan(
       main,
-      onTunnel.map((d) => ({ ...d, sharedTunnel: false })),
+      onTunnel.filter((d) => restore.fallback.includes(d.id)).map((d) => ({ ...d, sharedTunnel: false })),
     );
-    if (plan.blockers.length) throw new UserError(plan.blockers.join(" "));
+    const blockers = [...restore.blockers, ...plan.blockers];
+    if (blockers.length) throw new UserError(blockers.join(" "));
 
     const { deleteTunnel, syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
     const rows = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
     const failed: string[] = [];
-    const touched = new Set<string>();
+    const toTunnel = async (d: (typeof rows)[number], tunnelId: string, set: Partial<typeof schema.domain.$inferInsert> = {}) => {
+      const [target] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
+      if (!target) throw new Error("the main server's tunnel is gone");
+      // The route first, then the name: no moment where the name leads to a tunnel without it.
+      await db.update(schema.domain).set({ tunnelId: target.id, cloudflareAccountId: target.cloudflareAccountId }).where(eq(schema.domain.id, d.id));
+      await syncTunnelIngress(target.id);
+      const cf = await Cloudflare.forAccount(target.cloudflareAccountId);
+      const record = await cf.upsertTunnelRecord(d.cloudflareZoneId!, d.hostname, target.cfTunnelId).catch(async (e) => {
+        await db.update(schema.domain).set({ tunnelId: shared.id, cloudflareAccountId: d.cloudflareAccountId }).where(eq(schema.domain.id, d.id));
+        throw e;
+      });
+      await db
+        .update(schema.domain)
+        .set({ ...set, wantsTunnel: true, tunnelError: null, https: false, forceHttps: false, cloudflareRecordId: record.id })
+        .where(eq(schema.domain.id, d.id));
+    };
+    const toRecord = async (d: (typeof rows)[number], ip: string, proxied: boolean, set: Partial<typeof schema.domain.$inferInsert>) => {
+      const cf = await Cloudflare.forAccount(d.cloudflareAccountId!);
+      // Serve's CNAME to the shared tunnel goes in upsertARecord, which replaces its own records.
+      const record = await cf.upsertARecord(d.cloudflareZoneId!, d.hostname, ip, proxied);
+      const [updated] = await db
+        .update(schema.domain)
+        .set({ ...set, tunnelId: null, wantsTunnel: false, tunnelError: null, cloudflareRecordId: record?.id ?? null })
+        .where(eq(schema.domain.id, d.id))
+        .returning();
+      if (updated?.https) await ensureCertificateFor(updated, ctx.org.id, { requestNow: true }).catch(() => null);
+    };
+    for (const move of restore.moves) {
+      const d = rows.find((r) => r.id === move.id);
+      if (!d?.cloudflareZoneId || !d.cloudflareAccountId) continue;
+      const b = move.before;
+      try {
+        if (move.kind === "tunnel") await toTunnel(d, move.tunnelId, { certificateId: b.certificateId });
+        else if (move.kind === "a") await toRecord(d, move.ip, b.proxied, { https: b.https, forceHttps: b.forceHttps, certificateId: b.certificateId });
+        else {
+          // It had no record: Serve's CNAME to the shared tunnel goes, and the name leads nowhere again.
+          const cf = await Cloudflare.forAccount(d.cloudflareAccountId);
+          if (d.cloudflareRecordId) await cf.removeDnsRecord(d.cloudflareZoneId, d.cloudflareRecordId);
+          await db
+            .update(schema.domain)
+            .set({
+              tunnelId: null,
+              wantsTunnel: b.wantsTunnel,
+              tunnelError: null,
+              https: b.https,
+              forceHttps: b.forceHttps,
+              certificateId: b.certificateId,
+              cloudflareRecordId: null,
+            })
+            .where(eq(schema.domain.id, d.id));
+        }
+      } catch (e) {
+        failed.push(`${d.hostname}: ${(e as Error).message}`);
+      }
+    }
     for (const move of plan.moves) {
       const d = rows.find((r) => r.id === move.domainId);
       if (!d?.cloudflareZoneId) continue;
       try {
-        if (move.kind === "tunnel") {
-          const [target] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, move.tunnelId));
-          if (!target) throw new Error("the main server's tunnel is gone");
-          // The route first, then the name: no moment where the name leads to a tunnel without it.
-          await db.update(schema.domain).set({ tunnelId: target.id, cloudflareAccountId: target.cloudflareAccountId }).where(eq(schema.domain.id, d.id));
-          await syncTunnelIngress(target.id);
-          touched.add(target.id);
-          const cf = await Cloudflare.forAccount(target.cloudflareAccountId);
-          const record = await cf.upsertTunnelRecord(d.cloudflareZoneId, d.hostname, target.cfTunnelId).catch(async (e) => {
-            await db.update(schema.domain).set({ tunnelId: shared.id, cloudflareAccountId: d.cloudflareAccountId }).where(eq(schema.domain.id, d.id));
-            throw e;
-          });
-          await db.update(schema.domain).set({ cloudflareRecordId: record.id }).where(eq(schema.domain.id, d.id));
-        } else if (move.kind === "untunnel" && d.cloudflareAccountId) {
-          const cf = await Cloudflare.forAccount(d.cloudflareAccountId);
-          // Serve's CNAME to the shared tunnel goes in upsertARecord, which replaces its own records.
-          const record = await cf.upsertARecord(d.cloudflareZoneId, d.hostname, move.ip, true);
-          const [updated] = await db
-            .update(schema.domain)
-            .set({ tunnelId: null, wantsTunnel: false, tunnelError: null, https: true, forceHttps: true, cloudflareRecordId: record?.id ?? null })
-            .where(eq(schema.domain.id, d.id))
-            .returning();
-          if (updated) await ensureCertificateFor(updated, ctx.org.id, { requestNow: true }).catch(() => null);
-        }
+        if (move.kind === "tunnel") await toTunnel(d, move.tunnelId);
+        else if (move.kind === "untunnel" && d.cloudflareAccountId) await toRecord(d, move.ip, true, { https: true, forceHttps: true });
       } catch (e) {
         failed.push(`${d.hostname}: ${(e as Error).message}`);
       }
@@ -201,6 +251,15 @@ export async function disableClosestServer(serviceId: string) {
     if (failed.length) {
       await syncTunnelIngress(shared.id).catch(() => {});
       throw new UserError(`Closest server stays on until every domain has moved back. ${failed.join(" ")}`);
+    }
+    // Load balancing as it was before.
+    if (shared.restore && shared.restore.loadBalance !== null) {
+      const [now] = await db.select({ distribution: schema.service.distribution }).from(schema.service).where(eq(schema.service.id, serviceId));
+      await db
+        .update(schema.service)
+        .set({ distribution: { ...(now?.distribution ?? {}), loadBalance: shared.restore.loadBalance } })
+        .where(eq(schema.service.id, serviceId));
+      await syncServiceProxy(serviceId).catch(() => {});
     }
     // Off means gone: its connectors and the tunnel on Cloudflare go now.
     await deleteTunnel(shared.id);

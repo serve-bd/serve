@@ -1,0 +1,1 @@
+ALTER TABLE "cloudflare_tunnel" ADD COLUMN "restore" jsonb;

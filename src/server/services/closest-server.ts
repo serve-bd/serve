@@ -39,3 +39,53 @@ export function closestServerPlan(domains: ClosestDomain[], zones: { id: string;
   }
   return plan;
 }
+
+/** How a domain was reached before Closest server took it over, to go back to on turning it off. */
+export type DomainBefore = {
+  /** A server tunnel, an A record to the main server's IP, or no DNS record at all. */
+  record: "tunnel" | "a" | "none";
+  tunnelId: string | null;
+  /** The A record's Cloudflare proxy (orange cloud). */
+  proxied: boolean;
+  https: boolean;
+  forceHttps: boolean;
+  certificateId: string | null;
+  wantsTunnel: boolean;
+};
+
+/** The setup before Closest server, kept on its shared tunnel. */
+export type ClosestRestore = { loadBalance: boolean | null; domains: Record<string, DomainBefore> };
+
+export type RestoreMove =
+  | { id: string; hostname: string; kind: "tunnel"; tunnelId: string; before: DomainBefore }
+  | { id: string; hostname: string; kind: "a"; ip: string; before: DomainBefore }
+  | { id: string; hostname: string; kind: "none"; before: DomainBefore };
+
+/**
+ * How each domain goes back to its setup from before Closest server: its tunnel (when the main
+ * server still has it), its A record (to the main server's IP now) or no record. `fallback`:
+ * domains with nothing to go back to (added later, or their tunnel is gone): routed the usual way.
+ */
+export function restorePlan(
+  domains: { id: string; hostname: string }[],
+  before: ClosestRestore | null,
+  main: { name: string; publicIp: string | null; tunnelIds: string[] },
+): { moves: RestoreMove[]; fallback: string[]; blockers: string[] } {
+  const out: ReturnType<typeof restorePlan> = { moves: [], fallback: [], blockers: [] };
+  for (const d of domains) {
+    const b = before?.domains[d.id];
+    if (!b) {
+      out.fallback.push(d.id);
+      continue;
+    }
+    const base = { id: d.id, hostname: d.hostname, before: b };
+    if (b.record === "tunnel") {
+      if (b.tunnelId && main.tunnelIds.includes(b.tunnelId)) out.moves.push({ ...base, kind: "tunnel", tunnelId: b.tunnelId });
+      else out.fallback.push(d.id);
+    } else if (b.record === "a") {
+      if (main.publicIp) out.moves.push({ ...base, kind: "a", ip: main.publicIp });
+      else out.blockers.push(`${d.hostname} had an A record, and ${main.name} has no public IP to point it at.`);
+    } else out.moves.push({ ...base, kind: "none" });
+  }
+  return out;
+}

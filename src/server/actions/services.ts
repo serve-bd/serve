@@ -1796,7 +1796,12 @@ async function certificateOnServer(certificateId: string, orgId: string, serverI
   try {
     return (await copyCertificate(cert, serverId)).id;
   } catch (e) {
-    throw new UserError(`Could not copy the certificate to this server: ${(e as Error).message}`);
+    const missing = (e as { code?: string }).code === "ENOENT";
+    throw new UserError(
+      missing
+        ? `The files of ${cert.name} are missing on the server it is stored on, so it cannot be copied. Upload it again in Certificates.`
+        : `Could not copy the certificate to this server: ${(e as Error).message}`,
+    );
   }
 }
 

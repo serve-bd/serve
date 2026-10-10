@@ -24,22 +24,7 @@ import {
   useReactFlow,
   ViewportPortal,
 } from "@xyflow/react";
-import {
-  AlertTriangle,
-  ArrowUpRight,
-  Captions,
-  CaptionsOff,
-  Cloud,
-  Folder,
-  HardDrive,
-  LayoutGrid,
-  Maximize2,
-  Minimize2,
-  Minus,
-  Plus,
-  Scan,
-  Server as ServerIcon,
-} from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Captions, CaptionsOff, Folder, HardDrive, LayoutGrid, Maximize2, Minimize2, Minus, Plus, Scan, Server as ServerIcon } from "lucide-react";
 import { useRouter } from "@/hooks/use-router";
 import { engineColors, ServiceIcon } from "@/components/service-icon";
 import { StatusLabel } from "@/components/ui/status";
@@ -60,14 +45,45 @@ import { useCollapsed } from "./services/[serviceId]/variables/replica-vars";
 
 /** A service's card, or (copy) the same app on another of its servers. */
 type ServiceNode = Node<{ s: ServiceCardData; projectId: string; copy?: CardCopy }, "service" | "copy">;
-/** Cloudflare above an app's servers when Closest server is on. */
-type CloudNode = Node<{ status: string | null }, "cloud">;
 
 const copyNodeId = (serviceId: string, serverId: string) => `copy:${serviceId}:${serverId}`;
 /** Data a deleted service left behind: placed automatically, never dragged or saved. */
 type KeptNode = Node<{ k: KeptData; onStart: ((k: KeptData) => void) | null; onDelete: ((k: KeptData) => void) | null }, "kept">;
 
 const heightOf = (s: ServiceCardData) => cardHeight(s.volumes.length);
+/**
+ * Where a new copy card goes in its server's box: beside a row (either end), or in a new row above
+ * or under the box, whichever is nearest to the app's own card and clear of every card and of the
+ * other servers' boxes. Null when its server has no card yet.
+ */
+function copySpot(there: (Pos & { h: number })[], others: (Pos & { h: number })[], near: Pos): Pos | null {
+  if (!there.length) return null;
+  const GAP = 32;
+  const xs = [...new Set(there.map((t) => t.x))];
+  const rows = [...new Set(there.map((t) => t.y))];
+  const top = Math.min(...there.map((t) => t.y)) - CARD_H - GAP;
+  const bottom = Math.max(...there.map((t) => t.y + t.h)) + GAP;
+  const candidates: Pos[] = [
+    ...rows.flatMap((y) => {
+      const row = there.filter((t) => t.y === y).map((t) => t.x);
+      return [
+        { x: Math.max(...row) + CARD_W + GAP, y },
+        { x: Math.min(...row) - CARD_W - GAP, y },
+      ];
+    }),
+    ...xs.flatMap((x) => [
+      { x, y: bottom },
+      { x, y: top },
+    ]),
+  ];
+  const overlaps = (c: Pos, t: Pos & { h: number }, m: number, mTop: number) =>
+    c.x < t.x + CARD_W + m && t.x < c.x + CARD_W + m && c.y < t.y + t.h + m && t.y - mTop < c.y + CARD_H + m;
+  // Another server's box reaches FRAME_PAD around its cards and FRAME_TOP above them, and so does this one's.
+  const clear = (c: Pos) => !there.some((t) => overlaps(c, t, GAP, 0)) && !others.some((t) => overlaps(c, t, GAP + FRAME_PAD * 2, FRAME_TOP));
+  const far = (c: Pos) => Math.hypot(c.x - near.x, c.y - near.y);
+  return candidates.filter(clear).sort((a, b) => far(a) - far(b))[0] ?? null;
+}
+
 const nodeHeight = (n: ServiceNode) => (n.data.copy ? CARD_H : heightOf(n.data.s));
 const serverOf = (n: ServiceNode) => n.data.copy?.serverId ?? n.data.s.serverId;
 
@@ -179,7 +195,6 @@ function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
       )}
     >
       <Handle type="target" position={Position.Left} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
-      <Handle type="target" id="top" position={Position.Top} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
       <div className="flex items-start gap-3 px-3.5 pt-3">
         <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind(s)} size="sm" />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -319,7 +334,6 @@ function CopyCardNode({ data, selected }: NodeProps<ServiceNode>) {
       )}
     >
       <Handle type="target" position={Position.Left} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
-      <Handle type="target" id="top" position={Position.Top} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
       <div className="flex items-start gap-3 px-3.5 pt-3">
         <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind(s)} size="sm" className="opacity-80" />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -341,25 +355,7 @@ function CopyCardNode({ data, selected }: NodeProps<ServiceNode>) {
   );
 }
 
-const CLOUD_W = 260;
-const TUNNEL_STATE: Record<string, string> = { healthy: "Connected", degraded: "Degraded", down: "Down", error: "Error", pending: "Starting" };
-
-/** Cloudflare above an app's servers (Closest server): it sends each visitor to the nearest one. */
-function CloudNodeView({ data }: NodeProps<CloudNode>) {
-  return (
-    <div
-      style={{ width: CLOUD_W, height: 36 }}
-      className="flex items-center justify-center gap-2 rounded-xl border border-[#f38020]/40 bg-[color-mix(in_oklab,#f38020_10%,var(--surface))] px-3.5 py-2 text-[12px] whitespace-nowrap shadow-sm"
-    >
-      <Cloud className="size-4 text-[#f38020]" />
-      <span className="font-medium text-fg">Cloudflare</span>
-      <span className="text-muted">· nearest server · {TUNNEL_STATE[data.status ?? ""] ?? "Starting"}</span>
-      <Handle type="source" position={Position.Bottom} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
-    </div>
-  );
-}
-
-const nodeTypes: NodeTypes = { service: ServiceCardNode, copy: CopyCardNode, cloud: CloudNodeView, kept: KeptCardNode };
+const nodeTypes: NodeTypes = { service: ServiceCardNode, copy: CopyCardNode, kept: KeptCardNode };
 
 type UseEdge = Edge<{ variables: string[]; kind: "local" | "private" | "broken"; color: string; hideLabel: boolean }, "uses">;
 
@@ -406,81 +402,7 @@ function UseEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
   );
 }
 
-type SpreadEdge = Edge<{ label: string; color: string; hideLabel: boolean }, "spread">;
-
-/** How an app reaches its other servers: load balancing to a copy, or Cloudflare's tunnel to each server. */
-function SpreadEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd, style }: EdgeProps<SpreadEdge>) {
-  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
-  return (
-    <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
-      {data && !data.hideLabel && (
-        <EdgeLabelRenderer>
-          <div
-            style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              color: data.color,
-              borderColor: `color-mix(in oklab, ${data.color} 45%, transparent)`,
-            }}
-            className="nodrag nopan pointer-events-auto absolute rounded-full border bg-surface px-2 py-0.5 text-[10.5px] leading-4 font-medium whitespace-nowrap shadow-sm"
-          >
-            {data.label}
-          </div>
-        </EdgeLabelRenderer>
-      )}
-    </>
-  );
-}
-
-const SPREAD_LABEL: Partial<Record<CardCopy["state"], string>> = {
-  standby: "Standby",
-  down: "Not answering",
-  network: "No private network",
-  address: "Joining",
-  deploy: "Not deployed",
-};
-
-/** The lines between an app's cards on its servers: load balancing, a copy without visitors, or Cloudflare's tunnel. */
-function spreadEdgesOf(services: ServiceCardData[], hideLabel: boolean): SpreadEdge[] {
-  const edges: SpreadEdge[] = [];
-  for (const s of services) {
-    const spread = s.spread;
-    if (!spread) continue;
-    if (spread.mode === "closest") {
-      const color = "#f38020";
-      for (const target of [s.id, ...spread.copies.map((c) => copyNodeId(s.id, c.serverId))])
-        edges.push({
-          id: `spread:${target}`,
-          type: "spread",
-          source: `cloud:${s.id}`,
-          target,
-          targetHandle: "top",
-          data: { label: "Tunnel", color, hideLabel },
-          style: { stroke: color, strokeWidth: 1.6 },
-          markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
-        });
-      continue;
-    }
-    for (const c of spread.copies) {
-      const balance = spread.mode === "balance";
-      const ok = balance && c.state === "traffic";
-      const color = !balance ? "var(--muted)" : ok ? "var(--accent)" : c.state === "standby" || c.state === "address" ? "var(--info)" : "var(--bad)";
-      edges.push({
-        id: `spread:${copyNodeId(s.id, c.serverId)}`,
-        type: "spread",
-        source: s.id,
-        target: copyNodeId(s.id, c.serverId),
-        animated: ok,
-        data: { label: !balance ? "Copy · no visitors" : ok ? `Load balanced · ${c.share ?? 0}%` : (SPREAD_LABEL[c.state] ?? "No traffic"), color, hideLabel },
-        style: { stroke: color, strokeWidth: 1.6, strokeDasharray: "6 5" },
-        markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
-      });
-    }
-  }
-  return edges;
-}
-
-const edgeTypes: EdgeTypes = { uses: UseEdgeView, spread: SpreadEdgeView };
+const edgeTypes: EdgeTypes = { uses: UseEdgeView };
 
 function edgesOf(services: ServiceCardData[], hideLabel: boolean): UseEdge[] {
   const byId = new Map(services.map((s) => [s.id, s]));
@@ -539,16 +461,25 @@ function Canvas({ projectId, environmentId, environmentName, services, kept, onK
         const old = prev.find((n) => n.id === s.id);
         return { ...old, id: s.id, type: "service", position: place(s.id, old?.position), data: { s, projectId }, draggable: canManage };
       });
-      // A copy never placed: at the end of its server's first row, so it never lands on a card.
-      const taken = cards.map((n) => ({ serverId: n.data.s.serverId, ...n.position }));
+      // A copy never placed: the free spot of its server's box nearest to the app's own card, so the
+      // line between them stays short and never lands on another card.
+      const taken = cards.map((n) => ({ serverId: n.data.s.serverId, h: heightOf(n.data.s), ...n.position }));
       const copies = services.flatMap((s) =>
         (s.spread?.copies ?? []).map((copy): ServiceNode => {
           const id = copyNodeId(s.id, copy.serverId);
           const was = prev.find((n) => n.id === id);
-          const there = taken.filter((t) => t.serverId === copy.serverId);
-          const free = there.length ? { x: Math.max(...there.map((t) => t.x)) + CARD_W + 32, y: Math.min(...there.map((t) => t.y)) } : undefined;
-          const position = was?.position ?? stored[id] ?? free ?? place(id);
-          taken.push({ serverId: copy.serverId, ...position });
+          const main = cards.find((n) => n.id === s.id)?.position;
+          const position =
+            was?.position ??
+            stored[id] ??
+            (main &&
+              copySpot(
+                taken.filter((t) => t.serverId === copy.serverId),
+                taken.filter((t) => t.serverId !== copy.serverId),
+                main,
+              )) ??
+            place(id);
+          taken.push({ serverId: copy.serverId, h: CARD_H, ...position });
           return { ...was, id, type: "copy", position, data: { s, projectId, copy }, draggable: canManage };
         }),
       );
@@ -563,34 +494,7 @@ function Canvas({ projectId, environmentId, environmentName, services, kept, onK
   }, [build, setNodes]);
   // Variable names on the lines, hidden or shown in this browser.
   const [hideLabels, toggleLabels] = useCollapsed("serve.canvas.hideLabels");
-  const edges = React.useMemo(() => [...edgesOf(services, hideLabels), ...spreadEdgesOf(services, hideLabels)], [services, hideLabels]);
-  // Cloudflare floats above the cards of each app with Closest server on, wherever they are dragged.
-  const cloudNodes = React.useMemo(
-    (): CloudNode[] =>
-      services.flatMap((s) => {
-        if (s.spread?.mode !== "closest") return [];
-        const cards = nodes.filter((n) => n.data.s.id === s.id);
-        if (!cards.length) return [];
-        const x = cards.reduce((sum, n) => sum + n.position.x, 0) / cards.length;
-        const y = Math.min(...cards.map((n) => n.position.y)) - FRAME_TOP - 110;
-        // Sized up front: not in the nodes state that takes React Flow's measurements.
-        return [
-          {
-            id: `cloud:${s.id}`,
-            type: "cloud",
-            position: { x: x + CARD_W / 2 - CLOUD_W / 2, y },
-            width: CLOUD_W,
-            height: 36,
-            // Its handle up front too: React Flow only measures the nodes in its state, and draws no line without one.
-            handles: [{ type: "source", position: Position.Bottom, x: CLOUD_W / 2 - 4, y: 32, width: 8, height: 8 }],
-            data: { status: s.spread.tunnelStatus },
-            draggable: false,
-            selectable: false,
-          },
-        ];
-      }),
-    [services, nodes],
-  );
+  const edges = React.useMemo(() => edgesOf(services, hideLabels), [services, hideLabels]);
 
   const { actions: keptActions, dialog: keptDialog } = useKeptActions(projectId, environmentName, canManage, onKeptChange);
   // Kept data sits where it was dragged or saved; else once under the services as laid out (saved
@@ -617,7 +521,7 @@ function Canvas({ projectId, environmentId, environmentName, services, kept, onK
       };
     });
   }, [kept, baseKey, stored, keptMoved, keptActions, canManage]);
-  const allNodes = React.useMemo(() => [...nodes, ...cloudNodes, ...keptNodes], [nodes, cloudNodes, keptNodes]);
+  const allNodes = React.useMemo(() => [...nodes, ...keptNodes], [nodes, keptNodes]);
 
   // Refreshed after saving, so the page cache (used by Back) knows the new places.
   const save = useAction((positions: Record<string, Pos>) => saveCanvasPositions(environmentId, positions));
@@ -632,7 +536,7 @@ function Canvas({ projectId, environmentId, environmentName, services, kept, onK
 
   return (
     <div ref={fs.ref} className={cn("serve-canvas", fs.className)}>
-      <ReactFlow<ServiceNode | KeptNode | CloudNode>
+      <ReactFlow<ServiceNode | KeptNode>
         nodes={allNodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -642,10 +546,10 @@ function Canvas({ projectId, environmentId, environmentName, services, kept, onK
           // Kept cards are not in the nodes state: only where they are dragged is kept.
           const keptPlaces = changes.filter((c) => c.type === "position" && c.id.startsWith("kept:") && c.position);
           if (keptPlaces.length) setKeptMoved((prev) => ({ ...prev, ...Object.fromEntries(keptPlaces.map((c) => [(c as { id: string }).id, (c as { position: Pos }).position])) }));
-          onNodesChange(changes.filter((c) => !("id" in c) || !(c.id.startsWith("kept:") || c.id.startsWith("cloud:"))) as NodeChange<ServiceNode>[]);
+          onNodesChange(changes.filter((c) => !("id" in c) || !c.id.startsWith("kept:")) as NodeChange<ServiceNode>[]);
         }}
         onNodeClick={(_e, node) => {
-          if (node.type === "kept" || node.type === "cloud") return;
+          if (node.type === "kept") return;
           // A copy opens its app.
           router.push(`/projects/${projectId}/services/${(node as ServiceNode).data.s.id}`);
         }}

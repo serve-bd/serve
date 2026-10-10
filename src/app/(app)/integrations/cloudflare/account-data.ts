@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { serversForOrg } from "@/server/servers/access";
 import { db, schema } from "@/server/db";
 import { Cloudflare } from "@/server/cloudflare/api";
@@ -32,7 +32,8 @@ export async function accountPageData(organizationId: string, row: Row, summary:
         updatedAt: schema.cloudflareTunnel.updatedAt,
       })
       .from(schema.cloudflareTunnel)
-      .where(and(eq(schema.cloudflareTunnel.organizationId, organizationId), eq(schema.cloudflareTunnel.cloudflareAccountId, row.id))),
+      // One per server: apps' shared tunnels (Closest server) show in their app's settings.
+      .where(and(eq(schema.cloudflareTunnel.organizationId, organizationId), eq(schema.cloudflareTunnel.cloudflareAccountId, row.id), isNull(schema.cloudflareTunnel.serviceId))),
     getSettings(),
   ]);
   // Domains routed through each tunnel, with the service they belong to.

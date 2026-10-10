@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, ne, sql, isNull } from "drizzle-orm";
 import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -97,7 +97,9 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       [tunnel] = await db
         .select()
         .from(schema.cloudflareTunnel)
-        .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareTunnel.cloudflareAccountId, tunnelAccount)));
+        .where(
+          and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareTunnel.cloudflareAccountId, tunnelAccount), isNull(schema.cloudflareTunnel.serviceId)),
+        );
       if (!tunnel) throw new UserError("This server has no Cloudflare Tunnel for that account. Create one in Integrations → Cloudflare first.");
     }
 

@@ -112,7 +112,8 @@ type Props = {
   serverIp: string | null;
   canGenerate: boolean;
   /** Tunnels from this service's server (one per Cloudflare account). */
-  tunnels: { id: string; accountId: string; accountName: string; status: string; statusMessage: string | null }[];
+  /** `shared`: the app's own tunnel on all its servers (Closest server). */
+  tunnels: { id: string; accountId: string; accountName: string; status: string; statusMessage: string | null; shared?: boolean }[];
   /** Routing a domain through a tunnel is for organization admins only. */
   isAdmin: boolean;
   /** Name of the service's server, for messages. */
@@ -156,7 +157,7 @@ function TunnelBadge({ d, tunnels }: { d: DomainRow; tunnels: TunnelInfo[] }) {
     );
   const state =
     t.status === "healthy"
-      ? { tone: "warn" as const, label: "Tunnel" }
+      ? { tone: "warn" as const, label: t.shared ? "Closest server" : "Tunnel" }
       : t.status === "degraded"
         ? { tone: "warn" as const, label: "Tunnel degraded" }
         : t.status === "pending"

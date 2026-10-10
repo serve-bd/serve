@@ -189,6 +189,10 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     if (dist.tag) renderTag(dist.tag, { commit: "0000000000000", deployment: "abcdefgh", branch: "main", service: service.slug });
     const problem = distributionProblem(dist, service.source?.type);
     if (problem) throw new UserError(problem);
+    // Closest server already spreads the visitors: each server serves its own, the main server none of the others'.
+    const [shared] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serviceId, serviceId));
+    if (shared && balances(service.serverId, dist))
+      throw new UserError("Closest server is on: Cloudflare already sends each visitor to the nearest server. Turn it off to load balance instead.");
     // Load balancing reaches other servers only through a private network: refused without one.
     if (balances(service.serverId, dist)) {
       // Only servers added now: one that left the network later keeps running (Domains warns about it).
@@ -215,6 +219,11 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     await syncServiceProxy(serviceId, service.serverId).catch(() => {});
     const { syncMesh } = await import("@/server/mesh");
     void syncMesh().catch(() => {});
+    // The shared tunnel leaves the servers taken off now; added ones get a connector once the app runs there.
+    if (shared) {
+      const { ensureConnectors } = await import("@/server/cloudflare/tunnels");
+      void ensureConnectors(shared).catch(() => {});
+    }
 
     for (const serverId of removed) {
       // The cleanup there (its proxy site first, then the containers) runs in the background, in its

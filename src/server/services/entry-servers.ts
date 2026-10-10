@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { balances, runServerIds } from "@/server/deploy/distribution";
 import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
@@ -9,7 +9,7 @@ type ServiceRow = Pick<typeof schema.service.$inferSelect, "id" | "type" | "serv
 /** Every server an app runs on, main first, with what visitors need to enter through it. */
 export async function entryServers(service: ServiceRow, organizationId: string): Promise<EntryServer[]> {
   const ids = service.type === "app" ? runServerIds(service.serverId, service.distribution) : [service.serverId];
-  const [servers, tunnels, deployment] = await Promise.all([
+  const [servers, tunnels, deployment, shared] = await Promise.all([
     db
       .select({
         id: schema.server.id,
@@ -35,7 +35,7 @@ export async function entryServers(service: ServiceRow, organizationId: string):
       })
       .from(schema.cloudflareTunnel)
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
-      .where(and(eq(schema.cloudflareTunnel.organizationId, organizationId), inArray(schema.cloudflareTunnel.serverId, ids))),
+      .where(and(eq(schema.cloudflareTunnel.organizationId, organizationId), inArray(schema.cloudflareTunnel.serverId, ids), isNull(schema.cloudflareTunnel.serviceId))),
     service.currentDeploymentId
       ? db
           .select({ targets: schema.deployment.targets })
@@ -43,6 +43,11 @@ export async function entryServers(service: ServiceRow, organizationId: string):
           .where(eq(schema.deployment.id, service.currentDeploymentId))
           .then((r) => r[0] ?? null)
       : null,
+    db
+      .select({ id: schema.cloudflareTunnel.id })
+      .from(schema.cloudflareTunnel)
+      .where(eq(schema.cloudflareTunnel.serviceId, service.id))
+      .then((r) => r.length > 0),
   ]);
   // With load balancing, the main server reaches the others only through a private network.
   const members = balances(service.serverId, service.distribution) ? await meshMemberIds() : null;
@@ -61,6 +66,7 @@ export async function entryServers(service: ServiceRow, organizationId: string):
         proxyStopped: s.proxyStopped,
         publicIp: s.publicIp,
         tunnels: tunnels.filter((t) => t.serverId === id).map(({ serverId: _, ...t }) => t),
+        ...(shared ? { sharedTunnel: true } : {}),
         // Before any deploy (or one without targets) the main server is all there is.
         deployed: main || target?.status === "success",
         ...(members ? { apartFrom: ids.filter((o) => o !== id && !privatelyConnected(members, id, o)) } : {}),
@@ -74,11 +80,11 @@ export async function entryServers(service: ServiceRow, organizationId: string):
 /** The service's domains as entryPlan reads them. */
 export async function entryDomains(serviceId: string): Promise<EntryDomain[]> {
   const rows = await db
-    .select({ domain: schema.domain, tunnelAccountId: schema.cloudflareTunnel.cloudflareAccountId })
+    .select({ domain: schema.domain, tunnelAccountId: schema.cloudflareTunnel.cloudflareAccountId, tunnelServiceId: schema.cloudflareTunnel.serviceId })
     .from(schema.domain)
     .leftJoin(schema.cloudflareTunnel, eq(schema.domain.tunnelId, schema.cloudflareTunnel.id))
     .where(eq(schema.domain.serviceId, serviceId));
-  return rows.map(({ domain: d, tunnelAccountId }) => ({
+  return rows.map(({ domain: d, tunnelAccountId, tunnelServiceId }) => ({
     id: d.id,
     hostname: d.hostname,
     generated: d.generated,
@@ -86,6 +92,7 @@ export async function entryDomains(serviceId: string): Promise<EntryDomain[]> {
     tunnelId: d.tunnelId,
     wantsTunnel: d.wantsTunnel,
     tunnelAccountId,
+    sharedTunnel: !!tunnelServiceId,
     cloudflareAccountId: d.cloudflareAccountId,
     cloudflareZoneId: d.cloudflareZoneId,
     managedRecord: !!d.cloudflareRecordId,

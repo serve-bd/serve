@@ -1,7 +1,7 @@
 "use server";
 
 import { ALL_DATABASES, SKIP_PREFIX } from "@/lib/backup-databases";
-import { and, asc, isNotNull, eq, inArray, lt, ne, or, sql as dsql } from "drizzle-orm";
+import { and, asc, isNotNull, isNull, eq, inArray, lt, ne, or, sql as dsql } from "drizzle-orm";
 import { runServerIds } from "@/server/deploy/distribution";
 import { z } from "zod";
 import { PASSWORD_PATTERN } from "@/server/databases/password";
@@ -1491,11 +1491,20 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
       if (!taken) await db.update(schema.domain).set({ hostname: next.hostname, https: next.https, forceHttps: next.https }).where(eq(schema.domain.id, d.id));
     }
 
+    // The app's shared tunnel follows it: its connectors move to the servers the app runs on now.
+    const [shared] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serviceId, serviceId));
+    if (shared) {
+      await db.update(schema.cloudflareTunnel).set({ serverId: target.id }).where(eq(schema.cloudflareTunnel.id, shared.id));
+      const { ensureConnectors } = await import("@/server/cloudflare/tunnels");
+      void ensureConnectors({ ...shared, serverId: target.id }).catch(() => {});
+    }
     // Tunnel domains follow the service when the new server has a tunnel to the same Cloudflare account.
-    const tunneled = await db
-      .select()
-      .from(schema.domain)
-      .where(and(eq(schema.domain.serviceId, serviceId), isNotNull(schema.domain.tunnelId)));
+    const tunneled = (
+      await db
+        .select()
+        .from(schema.domain)
+        .where(and(eq(schema.domain.serviceId, serviceId), isNotNull(schema.domain.tunnelId)))
+    ).filter((d) => d.tunnelId !== shared?.id);
     if (tunneled.length) {
       const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
       const touched = new Set<string>();
@@ -1505,7 +1514,13 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
           ? await db
               .select()
               .from(schema.cloudflareTunnel)
-              .where(and(eq(schema.cloudflareTunnel.serverId, target.id), eq(schema.cloudflareTunnel.cloudflareAccountId, old.cloudflareAccountId)))
+              .where(
+                and(
+                  eq(schema.cloudflareTunnel.serverId, target.id),
+                  eq(schema.cloudflareTunnel.cloudflareAccountId, old.cloudflareAccountId),
+                  isNull(schema.cloudflareTunnel.serviceId),
+                ),
+              )
           : [];
         if (old) touched.add(old.id);
         if (next && d.cloudflareZoneId) {
@@ -1794,7 +1809,8 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
         .select()
         .from(schema.cloudflareTunnel)
         .where(and(eq(schema.cloudflareTunnel.id, data.tunnelId), eq(schema.cloudflareTunnel.organizationId, ctx.org.id)));
-      if (!tunnel) throw new UserError("Tunnel not found.");
+      // Another app's shared tunnel sends visitors to that app's servers only.
+      if (!tunnel || (tunnel.serviceId && tunnel.serviceId !== serviceId)) throw new UserError("Tunnel not found.");
       if (tunnel.serverId !== service.serverId) throw new UserError("That tunnel belongs to another server than this service.");
       if (data.hostname.startsWith("*.")) throw new UserError("Wildcard domains cannot route through a tunnel. Add each hostname.");
       const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
@@ -1910,7 +1926,7 @@ export async function setDomainRoute(domainId: string, tunnelId: string | null) 
         .select()
         .from(schema.cloudflareTunnel)
         .where(and(eq(schema.cloudflareTunnel.id, tunnelId), eq(schema.cloudflareTunnel.organizationId, ctx.org.id)));
-      if (!tunnel) throw new UserError("Tunnel not found.");
+      if (!tunnel || (tunnel.serviceId && tunnel.serviceId !== domain.serviceId)) throw new UserError("Tunnel not found.");
       if (tunnel.serverId !== service.serverId) throw new UserError("That tunnel belongs to another server than this service.");
       if (domain.hostname.startsWith("*.")) throw new UserError("Wildcard domains cannot route through a tunnel.");
       const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { instanceAdminPage } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
@@ -18,7 +18,13 @@ export default async function SettingsPage() {
       .from(schema.cloudflareTunnel)
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
       // Only the Root organization's tunnels may carry the dashboard (saving checks it too).
-      .where(and(eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID), eq(schema.cloudflareTunnel.organizationId, s.rootOrganizationId ?? ""))),
+      .where(
+        and(
+          eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID),
+          eq(schema.cloudflareTunnel.organizationId, s.rootOrganizationId ?? ""),
+          isNull(schema.cloudflareTunnel.serviceId),
+        ),
+      ),
     // The dashboard can use the Root organization's own certificates on this server.
     db
       .select({

@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import { engines } from "@/server/databases/engines";
@@ -50,7 +50,7 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
     .select({ id: schema.cloudflareTunnel.id, account: schema.cloudflareAccount.name })
     .from(schema.cloudflareTunnel)
     .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
-    .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareAccount.organizationId, org.id)));
+    .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareAccount.organizationId, org.id), isNull(schema.cloudflareTunnel.serviceId)));
   const localPort = tunnelTargetPort(cfg.engine, engine.port);
   const direct = !!hostname && !cfg.domainTunnelId;
   const publicIp = await serverPublicIp(service.serverId).catch(() => null);

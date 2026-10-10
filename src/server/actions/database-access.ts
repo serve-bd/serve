@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { engines } from "@/server/databases/engines";
 import { act, UserError } from "@/server/action";
@@ -118,7 +118,7 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
         const [tunnel] = await db
           .select({ id: schema.cloudflareTunnel.id })
           .from(schema.cloudflareTunnel)
-          .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareTunnel.cloudflareAccountId, account)));
+          .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareTunnel.cloudflareAccountId, account), isNull(schema.cloudflareTunnel.serviceId)));
         if (!tunnel) throw new UserError("This server has no Cloudflare Tunnel for that account. Create one in Integrations → Cloudflare first.");
         tunnelId = tunnel.id;
       }

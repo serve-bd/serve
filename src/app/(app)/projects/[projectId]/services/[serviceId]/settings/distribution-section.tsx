@@ -13,6 +13,9 @@ import { SwitchRow } from "@/components/ui/switch";
 import { useAction } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
 import { saveDistribution } from "@/server/actions/registries";
+import { disableClosestServer, enableClosestServer } from "@/server/actions/closest-server";
+import { useConfirm } from "@/components/ui/confirm";
+import { toast } from "@/components/ui/toast";
 import { DEFAULT_TAG, defaultRepository, renderTag } from "@/server/registries/refs";
 import type { Distribution } from "@/server/deploy/distribution";
 import type { DeploymentTarget } from "@/server/services/types";
@@ -54,6 +57,8 @@ export function DistributionSection(props: {
   /** Every server the app runs on, for Make main server. */
   entryServers?: EntryServer[];
   entryDomains?: EntryDomain[];
+  /** Closest server: the app's shared tunnel, if on, and the Cloudflare accounts one can be made in. */
+  closest?: ClosestProps;
   canEdit: boolean;
 }) {
   const [makeMain, setMakeMain] = React.useState<string | null>(null);
@@ -146,14 +151,18 @@ export function DistributionSection(props: {
               <SwitchRow
                 title="Load balance visitors across these servers"
                 description={
-                  <>
-                    {props.primary.name} sends visitors to the replicas on every server here, through the private network. Off: the extra servers run the app, but only{" "}
-                    {props.primary.name} serves its domains.
-                  </>
+                  props.closest?.tunnel ? (
+                    <>Closest server is on: Cloudflare sends each visitor to the nearest server, so {props.primary.name} does not spread them.</>
+                  ) : (
+                    <>
+                      {props.primary.name} sends visitors to the replicas on every server here, through the private network. Off: the extra servers run the app, but only{" "}
+                      {props.primary.name} serves its domains.
+                    </>
+                  )
                 }
-                checked={!!value.loadBalance}
+                checked={!!value.loadBalance && !props.closest?.tunnel}
                 onCheckedChange={(c) => set({ loadBalance: c })}
-                disabled={!props.canEdit}
+                disabled={!props.canEdit || !!props.closest?.tunnel}
               />
             </div>
           )}
@@ -192,6 +201,10 @@ export function DistributionSection(props: {
           )}
         </CardBody>
       </Card>
+
+      {props.closest && (props.closest.tunnel || props.initial.extraServerIds.length > 0) && (
+        <ClosestServerCard serviceId={props.serviceId} primaryName={props.primary.name} closest={props.closest} canEdit={props.canEdit} />
+      )}
 
       {props.gitSource && (
         <Card>
@@ -445,5 +458,106 @@ function ServerRow({
       </label>
       {action}
     </div>
+  );
+}
+
+type ClosestProps = {
+  tunnel: { id: string; status: string; statusMessage: string | null; accountName: string; hostnames: string[] } | null;
+  accounts: { id: string; name: string }[];
+};
+
+const tunnelTone: Record<string, "ok" | "warn" | "bad" | "neutral"> = { healthy: "ok", degraded: "warn", down: "bad", error: "bad" };
+const tunnelLabel: Record<string, string> = { healthy: "Connected", degraded: "Degraded", down: "Down", error: "Error", pending: "Starting" };
+
+/** Closest server: one Cloudflare Tunnel on every server of the app, so each visitor reaches the nearest one. */
+function ClosestServerCard({ serviceId, primaryName, closest, canEdit }: { serviceId: string; primaryName: string; closest: ClosestProps; canEdit: boolean }) {
+  const router = useRouter();
+  const confirm = useConfirm();
+  const [accountId, setAccountId] = React.useState(closest.accounts[0]?.id ?? "");
+  const account = closest.accounts.find((a) => a.id === accountId);
+  const enable = useAction(() => enableClosestServer(serviceId, accountId), {
+    onSuccess: (r) => {
+      const notes = [...r.stay, ...r.warnings];
+      if (notes.length) toast.warning(`${r.moved.length} domain${r.moved.length === 1 ? "" : "s"} now reach the closest server`, notes.join(" "), 15_000);
+      router.refresh();
+    },
+  });
+  const disable = useAction(() => disableClosestServer(serviceId), { onSuccess: () => router.refresh() });
+  const tunnel = closest.tunnel;
+  return (
+    <Card>
+      <CardHeader
+        title="Closest server"
+        description="Cloudflare sends each visitor to the nearest server that runs this app, and to another one when a server is down. Free: one Cloudflare Tunnel shared by all the app's servers."
+        actions={tunnel ? <Badge tone={tunnelTone[tunnel.status] ?? "neutral"}>{tunnelLabel[tunnel.status] ?? tunnel.status}</Badge> : undefined}
+      />
+      <CardBody className="flex flex-col gap-4 py-5">
+        {tunnel ? (
+          <>
+            <div className="flex flex-col gap-1.5 text-[13px] text-fg-2">
+              <p>
+                On, through <span className="font-medium text-fg">{tunnel.accountName}</span>
+                {tunnel.statusMessage ? <span className="text-muted"> · {tunnel.statusMessage}</span> : null}.
+              </p>
+              <p className="text-muted">{tunnel.hostnames.length ? `Domains: ${tunnel.hostnames.join(", ")}` : "No domain goes through it."}</p>
+            </div>
+            {canEdit && (
+              <div>
+                <Button
+                  size="sm"
+                  loading={disable.pending}
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: "Turn Closest server off?",
+                        description: `Every visitor enters through ${primaryName} again: its domains move to ${primaryName}'s own tunnel of ${tunnel.accountName}, or to its public IP. The shared tunnel is deleted.`,
+                        confirmLabel: "Turn off",
+                      })
+                    )
+                      void disable.run();
+                  }}
+                >
+                  Turn off
+                </Button>
+              </div>
+            )}
+          </>
+        ) : !closest.accounts.length ? (
+          <p className="text-[13px] text-muted">
+            Connect a Cloudflare account in{" "}
+            <Link href="/integrations/cloudflare" className="text-accent hover:underline">
+              Integrations → Cloudflare
+            </Link>{" "}
+            first. The app's domains must be in its zones.
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-end gap-3">
+            {closest.accounts.length > 1 && (
+              <Field label="Cloudflare account" className="w-full sm:w-64">
+                <Select value={accountId} onValueChange={setAccountId} disabled={!canEdit} options={closest.accounts.map((a) => ({ value: a.id, label: a.name }))} />
+              </Field>
+            )}
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={!canEdit || !account}
+              loading={enable.pending}
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: "Turn Closest server on?",
+                    description: `The app's domains in ${account?.name}'s zones move to a new Cloudflare Tunnel with a connector on every server of the app. Load balancing turns off: each server serves the visitors nearest to it. Databases stay where they are, so a far server reaches them over the private network.`,
+                    confirmLabel: "Turn on",
+                  })
+                )
+                  void enable.run();
+              }}
+            >
+              Turn on
+            </Button>
+          </div>
+        )}
+      </CardBody>
+    </Card>
   );
 }

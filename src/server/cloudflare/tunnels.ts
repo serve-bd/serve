@@ -10,6 +10,7 @@ import { privateHost } from "@/lib/hostname";
 import { tunnelNetworkName } from "@/server/proxy/names";
 import { ensureTunnelNetwork } from "@/server/proxy/tunnel-network";
 import { getServer } from "@/server/servers/context";
+import { runServerIds } from "@/server/deploy/distribution";
 import { Cloudflare } from "./api";
 import { getSetting, getSettings, updateSettings } from "@/server/settings";
 
@@ -58,9 +59,15 @@ function tunnelError(error: unknown) {
   return error instanceof Error ? error : new Error(message);
 }
 
-/** Start (or repair) the cloudflared container for a tunnel on its server. */
-export async function ensureTunnelContainer(tunnel: Tunnel, retry = true): Promise<void> {
-  const ctx = await getServer(tunnel.serverId);
+/**
+ * An app's shared tunnel reaches the proxy of whichever server its connector runs on, so every
+ * connector must find it under one name: the proxy's name on every server Serve sets up.
+ */
+export const APP_TUNNEL_ORIGIN = "http://serve-proxy:80";
+
+/** Start (or repair) the cloudflared container for a tunnel on a server (its own by default). */
+export async function ensureTunnelContainer(tunnel: Tunnel, retry = true, serverId = tunnel.serverId): Promise<void> {
+  const ctx = await getServer(serverId);
   const name = tunnelContainerName(tunnel);
   const container = ctx.docker.getContainer(name);
   const { network, created } = await connectorNetwork(ctx);
@@ -100,8 +107,53 @@ export async function ensureTunnelContainer(tunnel: Tunnel, retry = true): Promi
     if (!retry) throw error;
     // A container that cannot start (its network was removed, say) is made again once.
     await container.remove({ force: true }).catch(() => {});
-    await ensureTunnelContainer(tunnel, false);
+    await ensureTunnelContainer(tunnel, false, serverId);
   }
+}
+
+/**
+ * The servers an app's shared tunnel has a connector on: its main server always (it shows the
+ * stopped and maintenance pages too), and each extra server while the app runs there. Cloudflare
+ * sends a visitor to the nearest connector even when the app there is down or not deployed yet.
+ */
+export async function appTunnelServers(tunnel: Pick<Tunnel, "serviceId" | "serverId">): Promise<string[]> {
+  if (!tunnel.serviceId) return [tunnel.serverId];
+  const [svc] = await db.select().from(schema.service).where(eq(schema.service.id, tunnel.serviceId));
+  if (!svc) return [];
+  const { appTargets } = await import("@/server/proxy/model");
+  const extras = runServerIds(svc.serverId, svc.distribution).slice(1);
+  const running = await Promise.all(
+    extras.map(async (id) => {
+      const ctx = await getServer(id).catch(() => null);
+      // A server that does not answer keeps its connector: it may only be Serve that cannot reach it.
+      if (!ctx) return true;
+      return (await appTargets(ctx, svc).catch(() => null))?.length !== 0;
+    }),
+  );
+  return [svc.serverId, ...extras.filter((_, i) => running[i])];
+}
+
+/**
+ * Keep a tunnel's connectors running: on its server, or for an app's shared tunnel on every server
+ * the app runs on (and on no other: a server the app left stops getting its visitors). Every server
+ * is tried; the failures are reported together.
+ */
+export async function ensureConnectors(tunnel: Tunnel): Promise<void> {
+  if (!tunnel.serviceId) return ensureTunnelContainer(tunnel);
+  const ids = await appTunnelServers(tunnel);
+  const failed: string[] = [];
+  // All at once: one slow or unreachable server must not hold up the others (or the worker's other tunnels).
+  await Promise.all(
+    ids.map((id) =>
+      ensureTunnelContainer(tunnel, true, id).catch(async (error) => {
+        const [row] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, id));
+        failed.push(`${row?.name ?? id}: ${(error as Error).message}`);
+      }),
+    ),
+  );
+  const others = (await db.select({ id: schema.server.id }).from(schema.server)).map((s) => s.id).filter((id) => !ids.includes(id));
+  await Promise.all(others.map((id) => removeTunnelContainerOn(tunnel, id)));
+  if (failed.length) throw new Error(`The tunnel's connector did not start on ${failed.join("; ")}`);
 }
 
 /**
@@ -221,16 +273,23 @@ export async function updateTunnelConnector(tunnel: Tunnel) {
   await db.update(schema.cloudflareTunnel).set({ status: "pending", statusMessage: "Connector updated" }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
 }
 
-async function removeTunnelContainer(tunnel: Tunnel) {
-  // An unreachable server must not hold up deleting the tunnel on Cloudflare, which stops the connector anyway.
+/** Remove a tunnel's connector from one server; an unreachable server gives up after 20 seconds. */
+async function removeTunnelContainerOn(tunnel: Pick<Tunnel, "id">, serverId: string) {
   const remove = async () => {
-    const ctx = await getServer(tunnel.serverId).catch(() => null);
+    const ctx = await getServer(serverId).catch(() => null);
     await ctx?.docker
       .getContainer(tunnelContainerName(tunnel))
       .remove({ force: true })
       .catch(() => {});
   };
   await Promise.race([remove(), new Promise((r) => setTimeout(r, 20_000))]);
+}
+
+async function removeTunnelContainer(tunnel: Tunnel) {
+  // An unreachable server must not hold up deleting the tunnel on Cloudflare, which stops the connector anyway.
+  // An app's shared tunnel may have connectors on any server (the app's servers changed meanwhile).
+  const ids = tunnel.serviceId ? (await db.select({ id: schema.server.id }).from(schema.server)).map((s) => s.id) : [tunnel.serverId];
+  await Promise.all(ids.map((id) => removeTunnelContainerOn(tunnel, id)));
 }
 
 /**
@@ -280,8 +339,9 @@ export async function syncTunnelIngress(tunnelId: string) {
   // Status pages with their own domain on this tunnel: the dashboard's proxy serves them too.
   const pages = await db.select({ hostname: schema.statusPage.domain }).from(schema.statusPage).where(eq(schema.statusPage.tunnelId, tunnelId));
   for (const p of pages) if (p.hostname) domains.push({ hostname: p.hostname });
-  const origin = `http://${ctx.proxyContainer}:80`;
-  const databases = await attachTunnelToDatabases(tunnel);
+  const origin = tunnel.serviceId ? APP_TUNNEL_ORIGIN : `http://${ctx.proxyContainer}:80`;
+  // Databases go through their server's own tunnel only.
+  const databases = tunnel.serviceId ? [] : await attachTunnelToDatabases(tunnel);
   const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
   try {
     await cf.setTunnelIngress(await cfAccountIdOf(tunnel.cloudflareAccountId), tunnel.cfTunnelId, [
@@ -300,7 +360,13 @@ export async function createTunnel(opts: { organizationId: string; cloudflareAcc
   const [existing] = await db
     .select()
     .from(schema.cloudflareTunnel)
-    .where(and(eq(schema.cloudflareTunnel.serverId, opts.serverId), eq(schema.cloudflareTunnel.cloudflareAccountId, opts.cloudflareAccountId)));
+    .where(
+      and(
+        eq(schema.cloudflareTunnel.serverId, opts.serverId),
+        eq(schema.cloudflareTunnel.cloudflareAccountId, opts.cloudflareAccountId),
+        isNull(schema.cloudflareTunnel.serviceId),
+      ),
+    );
   if (existing) {
     if (existing.status !== "error") return existing;
     // A tunnel whose setup failed before: try the setup again instead of reporting success.
@@ -344,7 +410,13 @@ export async function createTunnel(opts: { organizationId: string; cloudflareAcc
     const [theirs] = await db
       .select()
       .from(schema.cloudflareTunnel)
-      .where(and(eq(schema.cloudflareTunnel.serverId, opts.serverId), eq(schema.cloudflareTunnel.cloudflareAccountId, opts.cloudflareAccountId)));
+      .where(
+        and(
+          eq(schema.cloudflareTunnel.serverId, opts.serverId),
+          eq(schema.cloudflareTunnel.cloudflareAccountId, opts.cloudflareAccountId),
+          isNull(schema.cloudflareTunnel.serviceId),
+        ),
+      );
     if (!theirs) throw new Error("The tunnel could not be saved. Try again.");
     return theirs;
   }
@@ -356,6 +428,67 @@ export async function createTunnel(opts: { organizationId: string; cloudflareAcc
       .update(schema.cloudflareTunnel)
       .set({ status: "error", statusMessage: (error as Error).message })
       .where(eq(schema.cloudflareTunnel.id, id));
+    throw error;
+  }
+  return tunnel;
+}
+
+/**
+ * Create an app's shared tunnel ("closest server") with routes for `hostnames`, and start a
+ * connector on every server the app runs on. Returns once Cloudflare sees a connection, so DNS can
+ * move to it without a gap. On failure nothing is left behind: the tunnel is deleted again.
+ */
+export async function createAppTunnel(opts: { organizationId: string; cloudflareAccountId: string; service: { id: string; slug: string; serverId: string }; hostnames: string[] }) {
+  const accountId = await cfAccountIdOf(opts.cloudflareAccountId);
+  const cf = await Cloudflare.forAccount(opts.cloudflareAccountId);
+  const id = newId();
+  const name = `serve-app-${opts.service.slug.slice(0, 30)}-${id.slice(0, 6)}`;
+  let cfTunnel;
+  let token: string;
+  try {
+    cfTunnel = await cf.createTunnel(accountId, name);
+    token = cfTunnel.token ?? (await cf.tunnelToken(accountId, cfTunnel.id));
+  } catch (error) {
+    throw tunnelError(error);
+  }
+  const [tunnel] = await db
+    .insert(schema.cloudflareTunnel)
+    .values({
+      id,
+      organizationId: opts.organizationId,
+      cloudflareAccountId: opts.cloudflareAccountId,
+      serverId: opts.service.serverId,
+      serviceId: opts.service.id,
+      cfTunnelId: cfTunnel.id,
+      name,
+      token: encrypt(token),
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (!tunnel) {
+    await cf.deleteTunnel(accountId, cfTunnel.id).catch(() => {});
+    throw new Error("This app already has a shared tunnel.");
+  }
+  try {
+    // Routes before connectors: a connector that registers serves them at once.
+    await cf
+      .setTunnelIngress(accountId, cfTunnel.id, [...opts.hostnames.map((hostname) => ({ hostname, service: APP_TUNNEL_ORIGIN })), { service: "http_status:404" }])
+      .catch((error) => {
+        throw tunnelError(error);
+      });
+    // The main server's connector must start; another server failing is retried by the worker.
+    await ensureTunnelContainer(tunnel);
+    await ensureConnectors(tunnel).catch(() => {});
+    const deadline = Date.now() + 60_000;
+    for (;;) {
+      const info = await cf.tunnel(accountId, cfTunnel.id).catch(() => null);
+      if (info?.connections?.length) break;
+      if (Date.now() > deadline) throw new Error("The tunnel's connectors did not connect to Cloudflare within a minute.");
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    await refreshTunnelStatus(tunnel);
+  } catch (error) {
+    await deleteTunnel(tunnel.id).catch(() => {});
     throw error;
   }
   return tunnel;
@@ -406,7 +539,7 @@ export async function checkTunnels() {
   const tunnels = await db.select().from(schema.cloudflareTunnel);
   for (const tunnel of tunnels) {
     try {
-      await ensureTunnelContainer(tunnel);
+      await ensureConnectors(tunnel);
     } catch (error) {
       await db
         .update(schema.cloudflareTunnel)
@@ -415,6 +548,8 @@ export async function checkTunnels() {
       continue;
     }
     await refreshTunnelStatus(tunnel);
+    // An app's shared tunnel carries that app's domains only.
+    if (tunnel.serviceId) continue;
     // Domains waiting for a tunnel on this server (its tunnel was removed, or the service moved here).
     // Ones that failed before are left for a manual Reconnect, so a broken record is not retried every minute.
     if (await hasReattachCandidates(tunnel.serverId, tunnel.organizationId)) await reattachTunnelDomains(tunnel, { skipFailed: true }).catch(() => {});
@@ -548,7 +683,10 @@ export async function reattachTunnelDomains(tunnel: Tunnel, opts: { skipFailed?:
 
 /** Try every tunnel of a server (a domain belongs to whichever tunnel's account owns its zone). */
 export async function reattachOnServer(serverId: string, opts: { domainId?: string } = {}) {
-  const tunnels = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serverId, serverId));
+  const tunnels = await db
+    .select()
+    .from(schema.cloudflareTunnel)
+    .where(and(eq(schema.cloudflareTunnel.serverId, serverId), isNull(schema.cloudflareTunnel.serviceId)));
   const total: ReattachResult = { reconnected: [], failed: [], notInAccount: [] };
   for (const t of tunnels) {
     const r = await reattachTunnelDomains(t, opts);
@@ -697,14 +835,16 @@ export async function tunnelDetails(tunnel: Tunnel): Promise<TunnelDetails> {
 
 /** Restart the connector container (or create it again when it is missing). */
 export async function restartTunnelConnector(tunnel: Tunnel) {
-  const ctx = await getServer(tunnel.serverId);
-  const container = ctx.docker.getContainer(tunnelContainerName(tunnel));
-  const exists = await container
-    .inspect()
-    .then(() => true)
-    .catch(() => false);
-  if (exists) await container.restart({ t: 5 });
-  else await ensureTunnelContainer(tunnel);
+  for (const id of await appTunnelServers(tunnel)) {
+    const ctx = await getServer(id);
+    const container = ctx.docker.getContainer(tunnelContainerName(tunnel));
+    const exists = await container
+      .inspect()
+      .then(() => true)
+      .catch(() => false);
+    if (exists) await container.restart({ t: 5 });
+    else await ensureTunnelContainer(tunnel, true, id);
+  }
   await db.update(schema.cloudflareTunnel).set({ status: "pending", statusMessage: "Connector restarted" }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
 }
 

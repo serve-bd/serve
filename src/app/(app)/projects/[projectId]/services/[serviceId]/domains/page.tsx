@@ -1,5 +1,5 @@
 import { proxyFormInitial, wallLabel } from "@/server/services/proxy-config";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { privateHost } from "@/lib/hostname";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { redirect } from "next/navigation";
@@ -50,10 +50,20 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         accountName: schema.cloudflareAccount.name,
         status: schema.cloudflareTunnel.status,
         statusMessage: schema.cloudflareTunnel.statusMessage,
+        shared: sql<boolean>`${schema.cloudflareTunnel.serviceId} is not null`,
       })
       .from(schema.cloudflareTunnel)
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
-      .where(and(eq(schema.cloudflareTunnel.organizationId, ctx.org.id), eq(schema.cloudflareTunnel.serverId, service.serverId))),
+      .where(
+        and(
+          eq(schema.cloudflareTunnel.organizationId, ctx.org.id),
+          eq(schema.cloudflareTunnel.serverId, service.serverId),
+          // The server's own tunnels, and this app's shared one (never another app's).
+          or(isNull(schema.cloudflareTunnel.serviceId), eq(schema.cloudflareTunnel.serviceId, service.id)),
+        ),
+      )
+      // The app's shared tunnel first: a new domain of its account goes to the closest server too.
+      .orderBy(sql`${schema.cloudflareTunnel.serviceId} is null`),
   ]);
   // Never send the password hash to the browser.
   const proxyInitial = proxyFormInitial(service.proxy);

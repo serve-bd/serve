@@ -179,6 +179,8 @@ export async function setMainServer(serviceId: string, serverId: string) {
         })
         .where(eq(schema.service.id, serviceId));
       for (const [domainId, certificateId] of certIds) await tx.update(schema.domain).set({ certificateId }).where(eq(schema.domain.id, domainId));
+      // The app's shared tunnel already reaches every server: it only follows the main server.
+      await tx.update(schema.cloudflareTunnel).set({ serverId }).where(eq(schema.cloudflareTunnel.serviceId, serviceId));
     });
 
     if (wasCurrent) {

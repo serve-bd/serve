@@ -367,7 +367,8 @@ async function localTunnel(tunnelId: string, organizationId: string) {
     .select()
     .from(schema.cloudflareTunnel)
     .where(and(eq(schema.cloudflareTunnel.id, tunnelId), eq(schema.cloudflareTunnel.organizationId, organizationId)));
-  if (!tunnel) throw new UserError("Tunnel not found.");
+  // An app's shared tunnel sends visitors to that app's servers only.
+  if (!tunnel || tunnel.serviceId) throw new UserError("Tunnel not found.");
   if (tunnel.serverId !== LOCAL_SERVER_ID) throw new UserError("Choose a tunnel on the server the dashboard runs on: it serves the status page.");
   return tunnel;
 }

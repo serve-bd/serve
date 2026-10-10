@@ -92,6 +92,23 @@ async function teardown(services: (typeof schema.service.$inferSelect)[], remove
       services.filter((s) => (s.type === "app" || s.type === "compose") && !s.parentServiceId && s.currentDeploymentId),
       leftovers,
     );
+  // Apps' shared tunnels ("closest server"): their connectors and the tunnel on Cloudflare go with them
+  // (deleting the rows below would only forget them). Their domains' records went above.
+  if (!opts.leaveRunning) {
+    const shared = await db
+      .select({ id: schema.cloudflareTunnel.id })
+      .from(schema.cloudflareTunnel)
+      .where(
+        inArray(
+          schema.cloudflareTunnel.serviceId,
+          all.map((s) => s.id),
+        ),
+      );
+    if (shared.length) {
+      const { deleteTunnel } = await import("@/server/cloudflare/tunnels");
+      for (const t of shared) await deleteTunnel(t.id).catch(leftover(leftovers, "Cloudflare Tunnel of the closest server"));
+    }
+  }
   await db.delete(schema.service).where(
     inArray(
       schema.service.id,

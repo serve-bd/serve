@@ -127,12 +127,27 @@ async function distributionProps(service: typeof schema.service.$inferSelect, se
       : Promise.resolve([]),
   ]);
   const multi = service.type === "app" && !service.parentServiceId && normalizeDistribution(service.serverId, service.distribution).extraServerIds.length > 0;
-  const [copies, [primary], domains, entryServerRows, entryDomainRows] = await Promise.all([
+  const [copies, [primary], domains, entryServerRows, entryDomainRows, accounts, [shared]] = await Promise.all([
     appCopies(service),
     db.select({ publicIp: schema.server.publicIp, tunnel: schema.server.tunnel }).from(schema.server).where(eq(schema.server.id, service.serverId)),
     db.select({ tunnelId: schema.domain.tunnelId }).from(schema.domain).where(eq(schema.domain.serviceId, service.id)),
     multi ? entryServers(service, orgId) : undefined,
     multi ? entryDomains(service.id) : undefined,
+    db
+      .select({ id: schema.cloudflareAccount.id, name: schema.cloudflareAccount.name })
+      .from(schema.cloudflareAccount)
+      .where(eq(schema.cloudflareAccount.organizationId, orgId))
+      .orderBy(asc(schema.cloudflareAccount.name)),
+    db
+      .select({
+        id: schema.cloudflareTunnel.id,
+        status: schema.cloudflareTunnel.status,
+        statusMessage: schema.cloudflareTunnel.statusMessage,
+        accountName: schema.cloudflareAccount.name,
+      })
+      .from(schema.cloudflareTunnel)
+      .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
+      .where(eq(schema.cloudflareTunnel.serviceId, service.id)),
   ]);
   // Servers the main server shares no private network with: load balancing cannot reach them.
   const members = await meshMemberIds();
@@ -160,6 +175,13 @@ async function distributionProps(service: typeof schema.service.$inferSelect, se
     initial: normalizeDistribution(service.serverId, service.distribution),
     last: last ?? null,
     canEdit: isAdmin && !service.parentServiceId,
+    // Closest server: the app's shared tunnel, and the accounts one can be made in.
+    closest: {
+      tunnel: shared
+        ? { ...shared, hostnames: (await db.select({ hostname: schema.domain.hostname }).from(schema.domain).where(eq(schema.domain.tunnelId, shared.id))).map((d) => d.hostname) }
+        : null,
+      accounts,
+    },
   };
 }
 

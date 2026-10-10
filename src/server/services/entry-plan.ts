@@ -21,6 +21,8 @@ export type EntryServer = {
   publicIp: string | null;
   /** This organization's Cloudflare Tunnels on the server. */
   tunnels: EntryTunnel[];
+  /** The app has a shared tunnel ("closest server"): visitors reach every one of its servers through it. */
+  sharedTunnel?: boolean;
   /** It runs the app's current deployment (the main server always does once deployed). */
   deployed: boolean;
   /** Host ports of its proxy, and how Traefik validates certificates there (for the domain dialog). */
@@ -41,6 +43,8 @@ export type EntryDomain = {
   wantsTunnel?: boolean;
   /** Account of the tunnel the domain goes through, when it does. */
   tunnelAccountId: string | null;
+  /** It goes through the app's shared tunnel, which reaches every server of the app: nothing to move. */
+  sharedTunnel?: boolean;
   cloudflareAccountId: string | null;
   cloudflareZoneId: string | null;
   /** Serve made the DNS record (an A record, or the CNAME of a tunnel). */
@@ -52,7 +56,8 @@ export function entryProblem(s: EntryServer): string | null {
   if (!s.reachable) return `${s.name} is not reachable. Check it in Servers.`;
   if (s.proxyKind === "none") return `No proxy runs on ${s.name}, so it cannot take visitors. Turn on a proxy in the server's Proxy settings.`;
   if (s.proxyStopped) return `The proxy on ${s.name} is stopped, so it cannot take visitors. Start it in the server's Proxy settings.`;
-  if (!s.publicIp && !s.tunnels.length) return `${s.name} has no public IP and no Cloudflare Tunnel, so visitors cannot reach it. Set its public IP, or add a tunnel to it.`;
+  if (!s.publicIp && !s.tunnels.length && !s.sharedTunnel)
+    return `${s.name} has no public IP and no Cloudflare Tunnel, so visitors cannot reach it. Set its public IP, or add a tunnel to it.`;
   if (!s.deployed) return `${s.name} does not run the current version of this app yet. Deploy it first.`;
   return null;
 }
@@ -88,6 +93,10 @@ export function entryPlan(target: Pick<EntryServer, "name" | "publicIp" | "tunne
     const base = { domainId: d.id, hostname: d.hostname };
     if (d.generated) {
       moves.push({ ...base, kind: "rename" });
+      continue;
+    }
+    if (d.sharedTunnel) {
+      moves.push({ ...base, kind: "keep" });
       continue;
     }
     if (d.tunnelId) {

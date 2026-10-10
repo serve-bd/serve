@@ -678,6 +678,8 @@ export async function disableTunnel(tunnelId: string) {
       .from(schema.cloudflareTunnel)
       .where(and(eq(schema.cloudflareTunnel.id, tunnelId), eq(schema.cloudflareTunnel.organizationId, ctx.org.id)));
     if (!tunnel) throw new UserError("Tunnel not found.");
+    // An app's shared tunnel goes when its app turns Closest server off: that moves its domains back first.
+    if (tunnel.serviceId) throw new UserError("This tunnel sends an app's visitors to its closest server. Turn Closest server off in the app's Servers settings to remove it.");
     const { deleteTunnel } = await import("@/server/cloudflare/tunnels");
     // Domains on it stop working but keep wanting a tunnel: they reconnect when one runs on the server again.
     const routed = await db.select({ serviceId: schema.domain.serviceId }).from(schema.domain).where(eq(schema.domain.tunnelId, tunnelId));

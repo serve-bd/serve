@@ -113,3 +113,21 @@ describe("entryPlan with domains waiting for a tunnel", () => {
     expect(entryPlan(server({ publicIp: null, tunnels: [] }), [waiting])).toEqual({ moves: [{ domainId: "d1", hostname: "app.example.com", kind: "keep" }], blockers: [] });
   });
 });
+
+describe("entryPlan with the app's shared tunnel (Closest server)", () => {
+  it("keeps domains on the shared tunnel: it already reaches every server", () => {
+    const plan = entryPlan(server({ publicIp: null }), [domain({ id: "s", tunnelId: "shared", tunnelAccountId: "acc", sharedTunnel: true, cloudflareZoneId: "z" })]);
+    expect(plan.blockers).toEqual([]);
+    expect(plan.moves).toEqual([{ domainId: "s", hostname: "app.example.com", kind: "keep" }]);
+  });
+  it("accepts a server without a public IP or tunnel of its own when the shared tunnel reaches it", () => {
+    expect(entryProblem(server({ publicIp: null, sharedTunnel: true }))).toBeNull();
+    expect(entryProblem(server({ publicIp: null, sharedTunnel: true, deployed: false }))).toMatch(/Deploy it first/);
+  });
+  it("moves shared-tunnel domains to the main server's own tunnel, or its IP, when planned as a server tunnel", () => {
+    const d = domain({ id: "s", tunnelId: "shared", tunnelAccountId: "acc", cloudflareAccountId: "acc", cloudflareZoneId: "z" });
+    expect(entryPlan(server({ tunnels: [{ id: "own", accountId: "acc" }] }), [d]).moves).toEqual([{ domainId: "s", hostname: "app.example.com", kind: "tunnel", tunnelId: "own" }]);
+    expect(entryPlan(server(), [d]).moves).toEqual([{ domainId: "s", hostname: "app.example.com", kind: "untunnel", ip: "203.0.113.7" }]);
+    expect(entryPlan(server({ publicIp: null }), [d]).blockers[0]).toMatch(/no tunnel of that Cloudflare account and no public IP/);
+  });
+});

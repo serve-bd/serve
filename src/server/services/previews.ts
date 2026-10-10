@@ -1,5 +1,5 @@
 import { withoutHostAccess } from "@/server/services/types";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { requireRoomFor } from "@/server/limits";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
@@ -68,12 +68,26 @@ export async function addPreviewDomain(parent: Service, previewId: string, prNum
   try {
     if (like?.tunnelId) {
       const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, like.tunnelId));
-      if (tunnel && tunnel.serverId === parent.serverId) {
-        const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+      // The app's shared tunnel reaches the app's servers, not the preview's: its server's own tunnel does.
+      const [own] =
+        tunnel?.serviceId && tunnel.serverId === parent.serverId
+          ? await db
+              .select()
+              .from(schema.cloudflareTunnel)
+              .where(
+                and(
+                  eq(schema.cloudflareTunnel.serverId, parent.serverId),
+                  eq(schema.cloudflareTunnel.cloudflareAccountId, tunnel.cloudflareAccountId),
+                  isNull(schema.cloudflareTunnel.serviceId),
+                ),
+              )
+          : [tunnel];
+      if (own && own.serverId === parent.serverId) {
+        const cf = await Cloudflare.forAccount(own.cloudflareAccountId);
         const zone = await cf.zoneFor(hostname);
         if (zone) {
-          const record = await cf.upsertTunnelRecord(zone.id, hostname, tunnel.cfTunnelId);
-          route = { accountId: tunnel.cloudflareAccountId, zoneId: zone.id, recordId: record?.id ?? null, tunnelId: tunnel.id };
+          const record = await cf.upsertTunnelRecord(zone.id, hostname, own.cfTunnelId);
+          route = { accountId: own.cloudflareAccountId, zoneId: zone.id, recordId: record?.id ?? null, tunnelId: own.id };
         }
       }
     } else if (like?.cloudflareAccountId && like.cloudflareRecordId) {

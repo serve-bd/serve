@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
 import { inRanges } from "@/lib/trusted-proxies";
 import { certificateCovers } from "@/server/ssl/match";
@@ -52,7 +52,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
       .select({ id: schema.cloudflareTunnel.id, account: schema.cloudflareAccount.name })
       .from(schema.cloudflareTunnel)
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
-      .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
+      .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareAccount.organizationId, ctx.org.id), isNull(schema.cloudflareTunnel.serviceId)));
     const localPort = tunnelTargetPort(cfg.engine, engine.port);
     const direct = !!hostname && !cfg.domainTunnelId;
     const domain = service.parentServiceId

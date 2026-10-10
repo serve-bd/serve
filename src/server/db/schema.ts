@@ -1063,10 +1063,19 @@ export const cloudflareTunnel = pgTable(
     token: text("token").notNull(),
     status: text("status").$type<TunnelStatus>().notNull().default("pending"),
     statusMessage: text("status_message"),
+    /**
+     * Set for an app's shared tunnel ("closest server"): connectors on every server the app runs on,
+     * so Cloudflare sends each visitor to the nearest one. `serverId` is then the app's main server.
+     * Null for a server's own tunnel, which carries any domain of that server.
+     */
+    serviceId: text("service_id").references(() => service.id, { onDelete: "cascade" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex("cloudflare_tunnel_server_account_idx").on(t.serverId, t.cloudflareAccountId)],
+  (t) => [
+    uniqueIndex("cloudflare_tunnel_server_account_idx").on(t.serverId, t.cloudflareAccountId).where(sql`${t.serviceId} is null`),
+    uniqueIndex("cloudflare_tunnel_service_idx").on(t.serviceId).where(sql`${t.serviceId} is not null`),
+  ],
 );
 
 export type GitProviderType = "github-app" | "github" | "gitlab" | "bitbucket" | "gitea" | "ssh";

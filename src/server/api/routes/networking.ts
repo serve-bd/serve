@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/server/db";
 import type { ServerTailscale } from "@/server/db/schema";
@@ -269,7 +269,13 @@ export const networkingRoutes: ApiRoute[] = [
         .select({ tunnel: schema.cloudflareTunnel, serverName: schema.server.name })
         .from(schema.cloudflareTunnel)
         .innerJoin(schema.server, eq(schema.cloudflareTunnel.serverId, schema.server.id))
-        .where(and(eq(schema.cloudflareTunnel.organizationId, auth.organizationId), eq(schema.cloudflareTunnel.cloudflareAccountId, account.id)))
+        .where(
+          and(
+            eq(schema.cloudflareTunnel.organizationId, auth.organizationId),
+            eq(schema.cloudflareTunnel.cloudflareAccountId, account.id),
+            isNull(schema.cloudflareTunnel.serviceId),
+          ),
+        )
         .orderBy(asc(schema.server.name));
       const routed = rows.length
         ? await db

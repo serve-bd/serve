@@ -102,7 +102,7 @@ export async function editorData(pageId: string, organizationId: string) {
       .select({ id: schema.cloudflareTunnel.id, name: schema.cloudflareTunnel.name, status: schema.cloudflareTunnel.status, account: schema.cloudflareAccount.name })
       .from(schema.cloudflareTunnel)
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
-      .where(and(eq(schema.cloudflareTunnel.organizationId, organizationId), eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID))),
+      .where(and(eq(schema.cloudflareTunnel.organizationId, organizationId), eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID), isNull(schema.cloudflareTunnel.serviceId))),
   ]);
   const certificate = page.domain
     ? (certificates.find((c) => c.id === page.certificateId) ?? bestCertificate(page.domain, certificates) ?? certificates.find((c) => certificateCovers(c.domains, page.domain!)))

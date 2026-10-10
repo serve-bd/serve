@@ -2167,8 +2167,12 @@ export async function removeDomain(domainId: string, deleteDns: boolean) {
     }
     await db.delete(schema.domain).where(eq(schema.domain.id, domainId));
     if (domain.tunnelId) {
-      const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
-      await syncTunnelIngress(domain.tunnelId).catch(leftover(leftovers, "Cloudflare Tunnel routes"));
+      const { deleteTunnel, syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+      const [tunnel] = await db.select({ serviceId: schema.cloudflareTunnel.serviceId }).from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, domain.tunnelId));
+      const [left] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.tunnelId, domain.tunnelId)).limit(1);
+      // The app's last domain on its shared tunnel: Closest server has nothing left to carry, so it goes off.
+      if (tunnel?.serviceId && !left) await deleteTunnel(domain.tunnelId).catch(leftover(leftovers, "Cloudflare Tunnel of the closest server"));
+      else await syncTunnelIngress(domain.tunnelId).catch(leftover(leftovers, "Cloudflare Tunnel routes"));
     }
     await syncServiceProxy(domain.serviceId).catch(leftover(leftovers, `Proxy site of ${service.name}`));
     // The certificate Serve got for this name alone goes too, once nothing else uses it.

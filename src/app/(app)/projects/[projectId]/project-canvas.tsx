@@ -81,7 +81,10 @@ function copySpot(there: (Pos & { h: number })[], others: (Pos & { h: number })[
   // Another server's box reaches FRAME_PAD around its cards and FRAME_TOP above them, and so does this one's.
   const clear = (c: Pos) => !there.some((t) => overlaps(c, t, GAP, 0)) && !others.some((t) => overlaps(c, t, GAP + FRAME_PAD * 2, FRAME_TOP));
   const far = (c: Pos) => Math.hypot(c.x - near.x, c.y - near.y);
-  return candidates.filter(clear).sort((a, b) => far(a) - far(b))[0] ?? null;
+  // Beside the other cards (a row's end) when one is clear; a new row only otherwise.
+  const rowEnds = candidates.slice(0, rows.length * 2).filter(clear);
+  const pool = rowEnds.length ? rowEnds : candidates.filter(clear);
+  return pool.sort((a, b) => far(a) - far(b))[0] ?? null;
 }
 
 const nodeHeight = (n: ServiceNode) => (n.data.copy ? CARD_H : heightOf(n.data.s));
@@ -307,49 +310,50 @@ function KeptCardNode({ data }: NodeProps<KeptNode>) {
   );
 }
 
-const COPY_STATE: Record<CardCopy["state"], { label: string; tone: "ok" | "info" | "warn" | "bad" }> = {
-  traffic: { label: "Gets traffic", tone: "ok" },
-  running: { label: "Running", tone: "ok" },
-  standby: { label: "Standby", tone: "info" },
-  pending: { label: "Deploying", tone: "info" },
-  address: { label: "Joining the network", tone: "info" },
-  deploy: { label: "Not deployed yet", tone: "warn" },
-  network: { label: "No private network", tone: "bad" },
-  down: { label: "Not answering", tone: "bad" },
-  failed: { label: "Deploy failed", tone: "bad" },
+/** A copy's state in the words and colors of a service status. */
+const COPY_STATUS: Record<CardCopy["state"], { status: string; note: string | null }> = {
+  traffic: { status: "running", note: null },
+  running: { status: "running", note: null },
+  standby: { status: "running", note: "Standby" },
+  pending: { status: "deploying", note: null },
+  address: { status: "running", note: "Joining the network" },
+  deploy: { status: "idle", note: null },
+  network: { status: "running", note: "No private network" },
+  down: { status: "crashed", note: "Not answering" },
+  failed: { status: "failed", note: null },
 };
-const TONE_DOT = { ok: "bg-ok", info: "bg-info", warn: "bg-warn", bad: "bg-bad" } as const;
 
-/** The same app on another of its servers: opens the app. */
+/** The same app on another of its servers, like its own card with a dashed edge: opens the app. */
 function CopyCardNode({ data, selected }: NodeProps<ServiceNode>) {
   const { s, copy } = data;
   if (!copy) return null;
-  const state = COPY_STATE[copy.state];
+  const { status, note } = COPY_STATUS[copy.state];
   return (
     <div
       style={{ width: CARD_W, height: CARD_H }}
       className={cn(
-        "flex cursor-pointer flex-col rounded-2xl border border-dashed bg-surface/80 shadow-sm transition-colors",
+        "group flex cursor-pointer flex-col rounded-2xl border border-dashed bg-surface shadow-sm transition-[border-color,box-shadow] duration-150 hover:shadow-md",
         selected ? "border-accent" : "border-line-strong hover:border-fg/30",
       )}
     >
       <Handle type="target" position={Position.Left} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
       <div className="flex items-start gap-3 px-3.5 pt-3">
-        <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind(s)} size="sm" className="opacity-80" />
+        <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind(s)} size="sm" />
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[13px] font-semibold text-fg-2">{s.name}</span>
+            <span className="truncate text-[13px] font-semibold text-fg">{s.name}</span>
             <span className="flex-none rounded-md bg-surface-2 px-1.5 py-px text-[10.5px] font-medium text-muted">Copy</span>
           </span>
           <span className="truncate text-[11px] text-muted">Same app on {copy.serverName}</span>
         </div>
       </div>
-      <div className="mt-auto flex items-center justify-between gap-2 border-t border-dashed border-line px-3.5 py-2 text-[11px]">
-        <span className="flex items-center gap-1.5 text-fg-2">
-          <span className={cn("size-1.5 rounded-full", TONE_DOT[state.tone])} />
-          {state.label}
-        </span>
-        {copy.share !== null && <span className="text-muted tabular-nums">{copy.share}% of visitors</span>}
+      <div className="mt-auto flex items-center justify-between gap-2 border-t border-line px-3.5 py-2">
+        <StatusLabel status={status} className="text-[11px]" />
+        {note ? (
+          <span className={cn("truncate text-[11px]", copy.state === "standby" || copy.state === "address" ? "text-muted" : "text-bad")}>{note}</span>
+        ) : (
+          copy.share !== null && <span className="text-[11px] text-muted tabular-nums">{copy.share}% of visitors</span>
+        )}
       </div>
     </div>
   );

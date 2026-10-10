@@ -131,9 +131,10 @@ export function InputGroup({ prefix, suffix, className, children }: { prefix?: R
         className,
       )}
     >
-      {prefix && <span className="flex items-center border-r border-line bg-surface-2 px-2.5 text-[13px] text-muted">{prefix}</span>}
+      {/* Never squeezed onto two lines by a narrow field. */}
+      {prefix && <span className="flex flex-none items-center whitespace-nowrap border-r border-line bg-surface-2 px-2.5 text-[13px] text-muted">{prefix}</span>}
       {children}
-      {suffix && <span className="flex items-center border-l border-line bg-surface-2 px-2.5 text-[13px] text-muted">{suffix}</span>}
+      {suffix && <span className="flex flex-none items-center whitespace-nowrap border-l border-line bg-surface-2 px-2.5 text-[13px] text-muted">{suffix}</span>}
     </div>
   );
 }

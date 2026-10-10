@@ -65,11 +65,8 @@ export type JobPayloads = {
   /** Report a deployment's state on its commit; `status` is the state it was queued for. */
   "commit.status": { deploymentId: string; status: import("@/server/db/schema").DeploymentStatus };
   "tunnel.sync": Record<string, never>;
-  /**
-   * After names moved between Cloudflare Tunnels: Cloudflare's offices keep sending them to the old
-   * tunnel for a few minutes, so its route goes only now. `remove`: a tunnel no domain uses any more.
-   */
-  "cloudflare-tunnel.settle": { sync: string[]; remove?: string | null };
+  /** After names moved between Cloudflare Tunnels: Cloudflare keeps sending them to the old tunnel for a few minutes, so its route goes only now. */
+  "cloudflare-tunnel.settle": { sync: string[] };
   "service.stop": { serviceId: string };
   "service.start": { serviceId: string };
   "service.restart": { serviceId: string };

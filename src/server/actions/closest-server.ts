@@ -161,7 +161,7 @@ export async function disableClosestServer(serviceId: string) {
     );
     if (plan.blockers.length) throw new UserError(plan.blockers.join(" "));
 
-    const { syncTunnelIngress, TUNNEL_SETTLE_MS } = await import("@/server/cloudflare/tunnels");
+    const { deleteTunnel, syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
     const rows = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
     const failed: string[] = [];
     const touched = new Set<string>();
@@ -202,9 +202,8 @@ export async function disableClosestServer(serviceId: string) {
       await syncTunnelIngress(shared.id).catch(() => {});
       throw new UserError(`Closest server stays on until every domain has moved back. ${failed.join(" ")}`);
     }
-    // The shared tunnel keeps serving a few minutes, while Cloudflare moves the names to their new route.
-    await syncTunnelIngress(shared.id).catch(() => {});
-    await enqueue("cloudflare-tunnel.settle", { sync: [], remove: shared.id }, { runAt: new Date(Date.now() + TUNNEL_SETTLE_MS) });
+    // Off means gone: its connectors and the tunnel on Cloudflare go now.
+    await deleteTunnel(shared.id);
 
     await logActivity({
       userId: ctx.user.id,

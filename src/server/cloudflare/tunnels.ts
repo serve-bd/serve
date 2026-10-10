@@ -497,16 +497,9 @@ export async function createAppTunnel(opts: { organizationId: string; cloudflare
 /** How long Cloudflare may keep sending a moved name to its old tunnel. */
 export const TUNNEL_SETTLE_MS = 5 * 60_000;
 
-/**
- * Finish a move between tunnels once Cloudflare has caught up: the old tunnels' routes are written
- * again (without the names that left), and a tunnel no domain uses any more is deleted.
- */
-export async function settleTunnels({ sync, remove }: { sync: string[]; remove?: string | null }) {
+/** Finish a move between tunnels once Cloudflare has caught up: the old tunnels' routes are written again, without the names that left. */
+export async function settleTunnels({ sync }: { sync: string[] }) {
   for (const id of sync) await syncTunnelIngress(id).catch(() => {});
-  if (!remove) return;
-  // Still in use (turned on again meanwhile): it stays.
-  const [used] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.tunnelId, remove)).limit(1);
-  if (!used) await deleteTunnel(remove);
 }
 
 /** Stop the connector and delete the tunnel on Cloudflare. Domains must be moved off it first. */

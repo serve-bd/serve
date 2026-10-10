@@ -6,7 +6,7 @@
   "color": "#FF3B3B",
   "minVersion": "0.5.3",
   "noDomain": true,
-  "note": "Bots in this project connect to lavalink:2333 with the generated password. For bots elsewhere, add a domain on Domains & ports. Edit /opt/Lavalink/config/application.yml on the Files page to add plugins, then restart.",
+  "note": "Edit application.yml (plugins, sources) in Settings > Persistent storage, then deploy. Other services reach it at <service slug>-lavalink:2333 with the generated password. For bots elsewhere, add a domain on Domains & ports.",
   "expose": {
     "service": "lavalink",
     "port": 2333

@@ -3,6 +3,7 @@ import { PERMISSION_INFO, PERMISSIONS } from "@/lib/permissions";
 import { currentVersion } from "@/server/instance/version";
 import { consoleRoutes } from "./routes/console";
 import { databaseRoutes } from "./routes/databases";
+import { fileRoutes } from "./routes/files";
 import { infraRoutes } from "./routes/infra";
 import { logDrainRoutes } from "./routes/log-drains";
 import { metricsRoutes } from "./routes/metrics";
@@ -18,6 +19,7 @@ export const apiRoutes: ApiRoute[] = [
   ...projectRoutes,
   ...serviceRoutes,
   ...consoleRoutes,
+  ...fileRoutes,
   ...databaseRoutes,
   ...infraRoutes,
   ...networkingRoutes,
@@ -41,6 +43,7 @@ const TAGS = [
   ["Tasks", "Scheduled commands."],
   ["Logs", "Container logs."],
   ["Console", "Commands and shells in containers and on servers."],
+  ["Files", "Files on servers and in service containers: list, upload, download, move, delete."],
   ["Monitoring", "Uptime checks."],
   ["Status pages", "Incidents and maintenance on public status pages, for CI and scripts."],
   ["Metrics", "Resource, request and deployment metrics in the Prometheus text format."],

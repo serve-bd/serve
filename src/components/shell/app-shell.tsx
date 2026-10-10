@@ -17,6 +17,7 @@ import {
   Cloud,
   Container,
   FolderGit2,
+  FolderOpen,
   Gauge,
   Globe,
   HardDriveUpload,
@@ -188,9 +189,12 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
           {mainNav.map((item) => (
             <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
           ))}
-          {/* Consoles need console access; server shells, an admin who manages servers. */}
+          {/* Consoles and a service's files need console access; server shells and files, an admin who manages servers. */}
           {(props.access.permissions.includes("console.access") || props.isInstanceAdmin || props.isOrgAdmin) && (
-            <NavLink item={{ href: "/terminal", label: "Terminal", icon: SquareTerminal }} pathname={pathname} onNavigate={onNavigate} />
+            <>
+              <NavLink item={{ href: "/terminal", label: "Terminal", icon: SquareTerminal }} pathname={pathname} onNavigate={onNavigate} />
+              <NavLink item={{ href: "/files", label: "Files", icon: FolderOpen }} pathname={pathname} onNavigate={onNavigate} />
+            </>
           )}
         </NavGroup>
 

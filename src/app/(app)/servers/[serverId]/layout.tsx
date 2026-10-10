@@ -121,6 +121,7 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
                     title: "Operations",
                     items: [
                       { href: `${base}/terminal`, label: "Terminal", icon: "SquareTerminal" },
+                      { href: `${base}/files`, label: "Files", icon: "FolderOpen" },
                       { href: `${base}/cleanup`, label: "Docker cleanup", icon: "Brush", warn: !!health && health.diskPercent >= settings.cleanupDiskThreshold },
                       { href: `${base}/updates`, label: "OS updates", icon: "Download", warn: row.osUpdates?.run?.state === "failed" },
                       { href: `${base}/metrics`, label: "Metrics", icon: "Activity" },

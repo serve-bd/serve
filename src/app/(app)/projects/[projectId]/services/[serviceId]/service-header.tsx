@@ -105,7 +105,12 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     { href: base, label: "Overview", exact: true },
     { href: `${base}/deployments`, label: "Deployments" },
     ...(can("logs.view") ? [{ href: `${base}/logs`, label: "Logs" }] : []),
-    ...(can("console.access") ? [{ href: `${base}/console`, label: "Console" }] : []),
+    ...(can("console.access")
+      ? [
+          { href: `${base}/console`, label: "Console" },
+          { href: `${base}/files`, label: "Files" },
+        ]
+      : []),
     // Request counts come from the proxy: only a service with a domain has them.
     ...(service.metrics || live.domains.length > 0 ? [{ href: `${base}/metrics`, label: "Metrics" }] : []),
     { href: `${base}/variables`, label: "Variables" },

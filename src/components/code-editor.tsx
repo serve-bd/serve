@@ -25,6 +25,7 @@ export function CodeEditor({
   placeholder,
   minRows = 12,
   maxHeight = "32rem",
+  height,
   readOnly,
   className,
   "aria-label": ariaLabel,
@@ -37,6 +38,8 @@ export function CodeEditor({
   /** Rows shown before it scrolls. */
   minRows?: number;
   maxHeight?: string;
+  /** A fixed height (the editor fills it and scrolls inside), instead of growing with the text. */
+  height?: string;
   readOnly?: boolean;
   className?: string;
   "aria-label"?: string;
@@ -87,8 +90,9 @@ export function CodeEditor({
         readOnly={readOnly}
         theme={theme === "dark" ? "dark" : "light"}
         extensions={extensions}
-        minHeight={`${minRows * LINE_HEIGHT + 20}px`}
-        maxHeight={maxHeight}
+        height={height}
+        minHeight={height ? undefined : `${minRows * LINE_HEIGHT + 20}px`}
+        maxHeight={height ? undefined : maxHeight}
         basicSetup={{
           lineNumbers: true,
           foldGutter: false,

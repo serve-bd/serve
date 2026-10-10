@@ -21,7 +21,7 @@ export async function execTargets(service: Service) {
   const own = (await listServiceContainers(service.id, false, server.docker)).filter(current).map((c) => {
     const name = c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12);
     const composeService = c.Labels["com.docker.compose.service"] ?? null;
-    return { id: c.Id, name, composeService, key: composeService ?? name, server: null as { id: string; name: string } | null, docker: server.docker };
+    return { id: c.Id, name, composeService, key: composeService ?? name, server: null as { id: string; name: string } | null, docker: server.docker, ssh: server.ssh };
   });
   const extras = service.type === "app" ? runServerIds(service.serverId, service.distribution).slice(1) : [];
   const remote = await Promise.all(
@@ -32,7 +32,7 @@ export async function execTargets(service: Service) {
           .filter((c) => current(c) && c.Labels[LABEL.kind] !== "predeploy")
           .map((c) => {
             const name = c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12);
-            return { id: c.Id, name, composeService: null, key: `${id}:${name}`, server: { id, name: ctx.name }, docker: ctx.docker };
+            return { id: c.Id, name, composeService: null, key: `${id}:${name}`, server: { id, name: ctx.name }, docker: ctx.docker, ssh: ctx.ssh };
           });
       } catch {
         // An extra server that cannot be reached offers no containers.

@@ -1,11 +1,29 @@
 "use client";
 
 import type * as React from "react";
+import { ContextMenu as BaseContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { cn } from "@/lib/utils";
 
 export const Menu = BaseMenu.Root;
 export const MenuTrigger = BaseMenu.Trigger;
+
+const popupClass =
+  "min-w-48 origin-[var(--transform-origin)] rounded-xl border border-line bg-surface/95 p-1 shadow-lg backdrop-blur-xl outline-none transition-[transform,opacity] duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
+
+/** A menu opened by right-clicking (or long-pressing) its trigger; holds the same MenuItems. */
+export const ContextMenu = BaseContextMenu.Root;
+export const ContextMenuTrigger = BaseContextMenu.Trigger;
+
+export function ContextMenuContent({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <BaseContextMenu.Portal>
+      <BaseContextMenu.Positioner className="z-50 outline-none">
+        <BaseContextMenu.Popup className={cn(popupClass, className)}>{children}</BaseContextMenu.Popup>
+      </BaseContextMenu.Positioner>
+    </BaseContextMenu.Portal>
+  );
+}
 
 export function MenuContent({
   children,
@@ -23,14 +41,7 @@ export function MenuContent({
   return (
     <BaseMenu.Portal>
       <BaseMenu.Positioner align={align} side={side} sideOffset={sideOffset} className="z-50 outline-none">
-        <BaseMenu.Popup
-          className={cn(
-            "min-w-48 origin-[var(--transform-origin)] rounded-xl border border-line bg-surface/95 p-1 shadow-lg backdrop-blur-xl outline-none transition-[transform,opacity] duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
-            className,
-          )}
-        >
-          {children}
-        </BaseMenu.Popup>
+        <BaseMenu.Popup className={cn(popupClass, className)}>{children}</BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
   );

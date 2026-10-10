@@ -58,8 +58,8 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Backup and CLI uploads skip the proxy: it would buffer (and cut off) large bodies. The routes check the session or token themselves.
+  // Backup, file and CLI uploads skip the proxy: it would buffer (and cut off) large bodies. The routes check the session or token themselves.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/services/[^/]+/backups/import|api/v1/services/[^/]+/deploy/upload|api/v1/services/[^/]+/backups/import|.*\\.(?:svg|png|jpg|ico|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/services/[^/]+/backups/import|api/v1/services/[^/]+/deploy/upload|api/v1/services/[^/]+/backups/import|api/servers/[^/]+/files|api/services/[^/]+/files|api/v1/servers/[^/]+/files/content|api/v1/services/[^/]+/files/content|.*\\.(?:svg|png|jpg|ico|webp)$).*)",
   ],
 };

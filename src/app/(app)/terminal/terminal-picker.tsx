@@ -49,8 +49,9 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-/** Every server and service a shell can open in, searchable by name, project or environment. */
-export function TerminalPicker({ servers, services, canConsole }: { servers: PickServer[]; services: PickService[]; canConsole: boolean }) {
+/** Every server and service a shell (or Files, with `files`) can open in, searchable by name, project or environment. */
+export function TerminalPicker({ servers, services, canConsole, files }: { servers: PickServer[]; services: PickService[]; canConsole: boolean; files?: boolean }) {
+  const base = files ? "/files" : "/terminal";
   const [query, setQuery] = React.useState("");
   const q = query.trim().toLowerCase();
   const hit = (...parts: string[]) => !q || parts.some((p) => p.toLowerCase().includes(q));
@@ -69,7 +70,7 @@ export function TerminalPicker({ servers, services, canConsole }: { servers: Pic
       <Card>
         <EmptyState
           icon={<SquareTerminal />}
-          title="Nothing to open a shell in"
+          title={files ? "No files to open" : "Nothing to open a shell in"}
           description={canConsole ? "Add a service to a project first." : "Your role cannot open consoles. Ask an admin for console access."}
         />
       </Card>
@@ -86,14 +87,14 @@ export function TerminalPicker({ servers, services, canConsole }: { servers: Pic
           {shownServers.map((s) => (
             <Row
               key={s.id}
-              href={`/terminal?server=${s.id}`}
+              href={`${base}?server=${s.id}`}
               icon={
                 <span className="flex size-7 flex-none items-center justify-center rounded-lg border border-line bg-surface-2 text-muted">
                   <Server className="size-3.5" />
                 </span>
               }
               name={s.name}
-              detail={`Shell as ${s.isLocal ? "root" : s.username} on the server`}
+              detail={files ? "The server's whole disk" : `Shell as ${s.isLocal ? "root" : s.username} on the server`}
               status={s.status}
               kind="server"
             />
@@ -105,10 +106,10 @@ export function TerminalPicker({ servers, services, canConsole }: { servers: Pic
           {g.items.map((s) => (
             <Row
               key={s.id}
-              href={`/terminal?service=${s.id}`}
+              href={`${base}?service=${s.id}`}
               icon={<ServiceIcon type={s.type} engine={s.engine} icon={s.icon} size="sm" />}
               name={s.name}
-              detail={`Inside the container · ${s.serverName}`}
+              detail={`${files ? "Files inside the container" : "Inside the container"} · ${s.serverName}`}
               status={s.status}
               kind="service"
             />
@@ -120,8 +121,9 @@ export function TerminalPicker({ servers, services, canConsole }: { servers: Pic
   );
 }
 
-/** The open terminal's name in the breadcrumb, opening every other server and service to switch to. */
-export function TerminalSwitcher({ current, servers, services }: { current: string; servers: PickServer[]; services: PickService[] }) {
+/** The open terminal's (or Files') name in the breadcrumb, opening every other server and service to switch to. */
+export function TerminalSwitcher({ current, servers, services, files }: { current: string; servers: PickServer[]; services: PickService[]; files?: boolean }) {
+  const base = files ? "/files" : "/terminal";
   const name = servers.find((s) => s.id === current)?.name ?? services.find((s) => s.id === current)?.name ?? "";
   const groups = new Map<string, PickService[]>();
   for (const s of services) {
@@ -139,7 +141,7 @@ export function TerminalSwitcher({ current, servers, services }: { current: stri
       <MenuContent align="start" className="max-h-[min(28rem,70vh)] w-72 overflow-y-auto">
         {servers.length > 0 && <MenuLabel>Servers</MenuLabel>}
         {servers.map((s) => (
-          <MenuLinkItem key={s.id} render={<Link href={`/terminal?server=${s.id}`} />} className="gap-2.5">
+          <MenuLinkItem key={s.id} render={<Link href={`${base}?server=${s.id}`} />} className="gap-2.5">
             <span className="flex size-7 flex-none items-center justify-center rounded-lg border border-line bg-surface-2 text-muted">
               <Server className="size-3.5" />
             </span>
@@ -152,7 +154,7 @@ export function TerminalSwitcher({ current, servers, services }: { current: stri
             {(i > 0 || servers.length > 0) && <MenuSeparator />}
             <MenuLabel>{title}</MenuLabel>
             {items.map((s) => (
-              <MenuLinkItem key={s.id} render={<Link href={`/terminal?service=${s.id}`} />} className="gap-2.5">
+              <MenuLinkItem key={s.id} render={<Link href={`${base}?service=${s.id}`} />} className="gap-2.5">
                 <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} size="sm" />
                 <span className="min-w-0 flex-1 truncate">{s.name}</span>
                 {mark(s.id, s.status, "service")}

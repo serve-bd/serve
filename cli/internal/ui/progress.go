@@ -73,6 +73,7 @@ type Progress struct {
 	last    time.Time
 	label   string
 	enabled bool
+	parent  *Progress
 }
 
 func NewProgress(r io.Reader, total int64, label string) *Progress {
@@ -81,12 +82,24 @@ func NewProgress(r io.Reader, total int64, label string) *Progress {
 
 func (p *Progress) Read(b []byte) (int, error) {
 	n, err := p.r.Read(b)
+	if p.parent != nil {
+		p.parent.add(n)
+		return n, err
+	}
 	p.n += int64(n)
 	if p.enabled && (time.Since(p.last) > 100*time.Millisecond || err != nil) {
 		p.last = time.Now()
 		p.draw()
 	}
 	return n, err
+}
+
+func (p *Progress) add(n int) {
+	p.n += int64(n)
+	if p.enabled && time.Since(p.last) > 100*time.Millisecond {
+		p.last = time.Now()
+		p.draw()
+	}
 }
 
 func (p *Progress) draw() {
@@ -106,6 +119,10 @@ func (p *Progress) draw() {
 	}
 	fmt.Fprintf(Err, "\r\033[K%s %s %3.0f%%  %s / %s%s", p.label, bar, frac*100, Bytes(p.n), Bytes(p.total), rate)
 }
+
+// Wrap counts what is read from r on this bar, for a bar made with a nil reader that tracks
+// several files (a folder being packed).
+func (p *Progress) Wrap(r io.Reader) io.Reader { return &Progress{r: r, enabled: false, parent: p} }
 
 // Sent is how many bytes were read so far.
 func (p *Progress) Sent() int64 { return p.n }

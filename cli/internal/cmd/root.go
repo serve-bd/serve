@@ -113,7 +113,7 @@ Commands that work on a service use the one this folder is linked to (serve link
 	add("admin", a.sshKeysCmd(), a.certificatesCmd(), a.instanceCmd())
 	add("admin", a.orgCmd(), a.membersCmd(), a.inviteCmd(), a.invitationsCmd(), a.rolesCmd(), a.tokensCmd(), a.activityCmd(), a.registriesCmd(), a.s3Cmd(), a.notificationsCmd(), a.secretManagersCmd(), a.gitCmd(), a.cloudflareCmd())
 	add("deploy", a.approveCmd(), a.rejectCmd())
-	add("manage", a.execCmd())
+	add("manage", a.execCmd(), a.lsFilesCmd(), a.uploadCmd(), a.downloadCmd())
 	add("admin", a.sshCmd(), a.tailscaleCmd(), a.networksCmd(), a.logDrainsCmd())
 	root.AddCommand(a.versionCmd(), a.upgradeCmd())
 	guardGroups(root)

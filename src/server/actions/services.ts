@@ -1787,7 +1787,7 @@ async function certificateOnServer(certificateId: string, orgId: string, serverI
         eq(schema.certificate.name, cert.name),
         eq(schema.certificate.provider, cert.provider),
         eq(schema.certificate.status, "active"),
-        dsql`${schema.certificate.expiresAt} is not distinct from ${cert.expiresAt}`,
+        cert.expiresAt ? eq(schema.certificate.expiresAt, cert.expiresAt) : isNull(schema.certificate.expiresAt),
       ),
     );
   if (copied && JSON.stringify([...copied.domains].sort()) === JSON.stringify([...cert.domains].sort())) return copied.id;

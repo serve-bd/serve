@@ -30,7 +30,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
 import { useMeshConfirm } from "@/components/mesh-confirm";
 import { useAction, showError } from "@/hooks/use-action";
-import { resetNetworkCanvas, saveNetworkCanvas, setNetworkMember } from "@/server/actions/mesh";
+import { joinIntoNetwork, resetNetworkCanvas, saveNetworkCanvas, setNetworkMember } from "@/server/actions/mesh";
 import type { MeshNetworkView } from "@/server/mesh";
 import { type NetworkLayoutInput, networkLayout, NET_H, NET_W, SERVER_H, SERVER_W } from "@/lib/canvas-layout";
 import { cn } from "@/lib/utils";
@@ -213,6 +213,13 @@ function Canvas({ networks, servers, saved, canArrange }: Props) {
   }, [build, setNodes]);
 
   const member = useAction((networkId: string, serverId: string, on: boolean) => setNetworkMember(networkId, serverId, on));
+  // A server that has not joined the private network joins it straight into the network.
+  const join = useAction((networkId: string, serverId: string) => joinIntoNetwork(networkId, serverId), {
+    onSuccess: (r) => {
+      if (!r.endpoint)
+        toast.info("Joined behind NAT", "It has no public address, so it connects out to the others. Set an address on its Private network page if others should dial it.");
+    },
+  });
   // Refreshed after saving, so the page cache (used by Back) knows the new places.
   const save = useAction((positions: Record<string, Pos>) => saveNetworkCanvas(positions));
   /** Put a server in a network, from a drop or a drawn line. */
@@ -225,7 +232,7 @@ function Canvas({ networks, servers, saved, canArrange }: Props) {
       return;
     }
     if (!server.joined) {
-      showError(`${server.name} has not joined the private network`, "Join it from its Private network page first.");
+      void join.run(networkId, serverId);
       return;
     }
     void member.run(networkId, serverId, true);

@@ -167,6 +167,28 @@ export async function saveMesh(serverId: string, input: z.input<typeof meshInput
   });
 }
 
+/**
+ * Join the private network straight into one network (a line drawn to a server that has not joined
+ * yet). Other servers reach it at its public IP, else its SSH address; without either it connects
+ * out (behind NAT). The address can be changed later on the server's Private network page.
+ */
+export async function joinIntoNetwork(networkId: string, serverId: string) {
+  return act(async () => {
+    await requireServerAdmin(serverId);
+    const [row] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
+    if (!row) throw new UserError("Server not found.");
+    const usable = (a: string | null | undefined) => (a && !meshEndpointProblem(a) ? a : null);
+    const endpoint = usable(row.publicIp) ?? (!row.isLocal && !row.tunnel && !row.tailscale?.only ? usable(row.host) : null);
+    // Joined meanwhile: only the network changes.
+    const r =
+      row.mesh?.enabled && row.meshIndex !== null
+        ? await setNetworkMember(networkId, serverId, true)
+        : await saveMesh(serverId, endpoint ? { enabled: true, endpoint, networks: [networkId] } : { enabled: true, nat: true, networks: [networkId] });
+    if (!r.ok) throw new UserError(r.error);
+    return { endpoint };
+  });
+}
+
 /** Rewrite every server's configuration now (after fixing a firewall, for example). */
 export async function resyncMesh(serverId: string) {
   return act(async () => {

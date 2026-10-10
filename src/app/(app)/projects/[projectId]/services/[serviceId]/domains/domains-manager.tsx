@@ -1193,7 +1193,7 @@ export function DomainsManager(props: Props) {
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-surface-2/60 px-4 py-2.5 text-[13px] sm:px-5">
           <span className="text-muted">Visitors enter through</span>
           <span className="font-medium text-fg">{mainEntry.name}</span>
-          <span className="text-xs text-faint">{entryWays(mainEntry)}</span>
+          <span className="text-xs text-faint">{entryWays(mainEntry, props.entryDomains)}</span>
           {entryProblem(mainEntry) && (
             <Tooltip content={entryProblem(mainEntry)}>
               <Badge tone="bad">Can&apos;t take visitors</Badge>

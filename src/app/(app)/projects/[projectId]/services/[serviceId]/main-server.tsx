@@ -12,14 +12,18 @@ import { cn } from "@/lib/utils";
 import { type MainServerResult, setMainServer } from "@/server/actions/main-server";
 import { type EntryDomain, type EntryPlan, type EntryServer, entryPlan, entryProblem } from "@/server/services/entry-plan";
 
-/** How visitors can reach a server: its public IP, its tunnels, or nothing. */
-export function entryWays(s: EntryServer) {
-  const ways = [s.publicIp ? `Public IP ${s.publicIp}` : null, ...s.tunnels.map((t) => `Tunnel${t.accountName ? ` in ${t.accountName}` : ""}`)].filter(Boolean);
+/**
+ * How visitors can reach a server: its public IP, its tunnels, or nothing. With the app's domains:
+ * the public IP only when a domain would use it (all of them going through tunnels need none).
+ */
+export function entryWays(s: EntryServer, domains?: EntryDomain[]) {
+  const viaTunnels = !!domains?.length && s.tunnels.length > 0 && domains.every((d) => d.tunnelId || d.wantsTunnel || d.sharedTunnel);
+  const ways = [s.publicIp && !viaTunnels ? `Public IP ${s.publicIp}` : null, ...s.tunnels.map((t) => `Tunnel${t.accountName ? ` in ${t.accountName}` : ""}`)].filter(Boolean);
   return ways.length ? ways.join(" · ") : "No public IP or tunnel";
 }
 
 /** One server to pick, with whether visitors can enter through it. */
-export function EntryServerOption({ server, selected, onSelect }: { server: EntryServer; selected: boolean; onSelect: () => void }) {
+export function EntryServerOption({ server, selected, onSelect, domains }: { server: EntryServer; selected: boolean; onSelect: () => void; domains?: EntryDomain[] }) {
   const problem = entryProblem(server);
   return (
     <button
@@ -45,7 +49,7 @@ export function EntryServerOption({ server, selected, onSelect }: { server: Entr
           {server.tunnels.length ? <Waypoints className="mt-0.5 size-3 flex-none text-[#f38020]" /> : <Globe className="mt-0.5 size-3 flex-none" />}
           {/* One run of text, so a long line wraps under itself with the proxy at its end. */}
           <span className="min-w-0">
-            {entryWays(server)}
+            {entryWays(server, domains)}
             {server.proxyKind !== "none" && <span className="text-faint"> · {server.proxyKind}</span>}
           </span>
         </span>
@@ -158,7 +162,7 @@ export function MainServerDialog({
         <DialogBody>
           <div className="flex flex-col gap-2" role="radiogroup" aria-label="Main server">
             {servers.map((s) => (
-              <EntryServerOption key={s.id} server={s} selected={s.id === chosen} onSelect={() => setChosen(s.id)} />
+              <EntryServerOption key={s.id} server={s} selected={s.id === chosen} onSelect={() => setChosen(s.id)} domains={domains} />
             ))}
           </div>
           {server && plan && <EntryPlanNotice server={server} plan={plan} />}

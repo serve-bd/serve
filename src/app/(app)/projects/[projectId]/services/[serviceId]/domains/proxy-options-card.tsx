@@ -122,8 +122,8 @@ export function ProxyOptionsCard({
   across?: { main: string; others: number };
   /** The dashboard has its own domain: visitors (and other servers) reach the sign-in there. */
   dashboardDomain?: boolean;
-  /** Only the access control card (the service's Settings → Access control). */
-  only?: "access";
+  /** Only one group of cards: a section of Domains & ports, or Settings → Access control. */
+  only?: ProxySection;
 }) {
   const [saved, setSaved] = React.useState<Form>(() => toForm(initial));
   const disabled = !isAdmin;
@@ -275,42 +275,45 @@ export function ProxyOptionsCard({
     </>
   );
   if (only === "access") return <div className="flex flex-col gap-6">{access}</div>;
+  const show = (section: ProxySection) => !only || only === section;
   return (
     <>
-      <OptionsCard
-        {...props}
-        title="Limits and timeouts"
-        description="Raise these for large uploads, long requests or streaming."
-        keys={["maxBodySize", "connectTimeout", "readTimeout", "websockets", "buffering"]}
-      >
-        {(form, set) => (
-          <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <Field label="Max request body" optional description="Like 10m or 1g. Server default otherwise.">
-                <Input value={form.maxBodySize} onChange={(e) => set("maxBodySize", e.target.value)} placeholder="100m" className="font-mono" />
-              </Field>
-              <Field label="Connect timeout" optional>
-                <InputGroup suffix="s">
-                  <Input value={form.connectTimeout} onChange={(e) => set("connectTimeout", e.target.value)} placeholder="10" inputMode="numeric" />
-                </InputGroup>
-              </Field>
-              <Field label="Read / send timeout" optional>
-                <InputGroup suffix="s">
-                  <Input value={form.readTimeout} onChange={(e) => set("readTimeout", e.target.value)} placeholder="300" inputMode="numeric" />
-                </InputGroup>
-              </Field>
-            </div>
-            <SwitchRow title="WebSockets" description="Upgrade connections for WebSocket apps." checked={form.websockets} onCheckedChange={(v) => set("websockets", v)} />
-            <SwitchRow
-              title="Response buffering"
-              description="Turn off for server-sent events and streamed responses, so data reaches the browser at once."
-              checked={form.buffering}
-              onCheckedChange={(v) => set("buffering", v)}
-            />
-          </>
-        )}
-      </OptionsCard>
-      {showBalancing && (
+      {show("traffic") && (
+        <OptionsCard
+          {...props}
+          title="Limits and timeouts"
+          description="Raise these for large uploads, long requests or streaming."
+          keys={["maxBodySize", "connectTimeout", "readTimeout", "websockets", "buffering"]}
+        >
+          {(form, set) => (
+            <>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <Field label="Max request body" optional description="Like 10m or 1g. Server default otherwise.">
+                  <Input value={form.maxBodySize} onChange={(e) => set("maxBodySize", e.target.value)} placeholder="100m" className="font-mono" />
+                </Field>
+                <Field label="Connect timeout" optional>
+                  <InputGroup suffix="s">
+                    <Input value={form.connectTimeout} onChange={(e) => set("connectTimeout", e.target.value)} placeholder="10" inputMode="numeric" />
+                  </InputGroup>
+                </Field>
+                <Field label="Read / send timeout" optional>
+                  <InputGroup suffix="s">
+                    <Input value={form.readTimeout} onChange={(e) => set("readTimeout", e.target.value)} placeholder="300" inputMode="numeric" />
+                  </InputGroup>
+                </Field>
+              </div>
+              <SwitchRow title="WebSockets" description="Upgrade connections for WebSocket apps." checked={form.websockets} onCheckedChange={(v) => set("websockets", v)} />
+              <SwitchRow
+                title="Response buffering"
+                description="Turn off for server-sent events and streamed responses, so data reaches the browser at once."
+                checked={form.buffering}
+                onCheckedChange={(v) => set("buffering", v)}
+              />
+            </>
+          )}
+        </OptionsCard>
+      )}
+      {show("traffic") && showBalancing && (
         <OptionsCard {...props} title="Load balancing" description="How visitors are spread over the replicas." keys={["balancing"]}>
           {(form, set) => (
             <Field label="Strategy" description={balancingHelp(form.balancing, proxyKind, across)}>
@@ -331,136 +334,142 @@ export function ProxyOptionsCard({
           )}
         </OptionsCard>
       )}
-      {access}
-      <OptionsCard {...props} title="Headers" description="Response headers added to every request." keys={["securityHeaders", "cors", "headers"]}>
-        {(form, set) => (
-          <>
-            <SwitchRow
-              title="Security headers"
-              description={`Adds X-Content-Type-Options, Referrer-Policy and X-Frame-Options${hasTls ? ", and HSTS with subdomains" : ""}.`}
-              checked={form.securityHeaders}
-              onCheckedChange={(v) => set("securityHeaders", v)}
-            />
-            <Field label="CORS allowed origins" optional description="* or one origin per line, like https://app.example.com. Preflight requests are answered by the proxy.">
+      {show("access") && access}
+      {show("headers") && (
+        <OptionsCard {...props} title="Headers" description="Response headers added to every request." keys={["securityHeaders", "cors", "headers"]}>
+          {(form, set) => (
+            <>
+              <SwitchRow
+                title="Security headers"
+                description={`Adds X-Content-Type-Options, Referrer-Policy and X-Frame-Options${hasTls ? ", and HSTS with subdomains" : ""}.`}
+                checked={form.securityHeaders}
+                onCheckedChange={(v) => set("securityHeaders", v)}
+              />
+              <Field label="CORS allowed origins" optional description="* or one origin per line, like https://app.example.com. Preflight requests are answered by the proxy.">
+                <Textarea
+                  value={form.cors}
+                  onChange={(e) => set("cors", e.target.value)}
+                  placeholder="https://app.example.com"
+                  rows={2}
+                  className="min-h-16 font-mono text-[12.5px]"
+                />
+              </Field>
+              <div className="flex flex-col gap-2">
+                <span className="text-[13px] font-medium text-fg-2">Custom headers</span>
+                {form.headers.map((h, i) => (
+                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_32px] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_32px]">
+                    <Input
+                      value={h.name}
+                      onChange={(e) =>
+                        set(
+                          "headers",
+                          form.headers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
+                        )
+                      }
+                      placeholder="X-Robots-Tag"
+                      aria-label="Header name"
+                      className="h-8 font-mono text-[12.5px]"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="sm:order-3"
+                      onClick={() =>
+                        set(
+                          "headers",
+                          form.headers.filter((_, j) => j !== i),
+                        )
+                      }
+                      aria-label="Remove header"
+                    >
+                      <Trash2 />
+                    </Button>
+                    <Input
+                      value={h.value}
+                      onChange={(e) =>
+                        set(
+                          "headers",
+                          form.headers.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
+                        )
+                      }
+                      placeholder="noindex"
+                      aria-label="Header value"
+                      className="col-span-2 h-8 font-mono text-[12.5px] sm:order-2 sm:col-span-1"
+                    />
+                  </div>
+                ))}
+                <Button size="sm" variant="ghost" className="w-fit" onClick={() => set("headers", [...form.headers, { name: "", value: "" }])}>
+                  <Plus /> Add header
+                </Button>
+              </div>
+            </>
+          )}
+        </OptionsCard>
+      )}
+      {show("performance") && (
+        <OptionsCard {...props} title="Performance and routing" description="Compression, browser caching and the www redirect." keys={["gzip", "cacheStatic", "wwwRedirect"]}>
+          {(form, set) => (
+            <>
+              <SwitchRow title="Compression" description="Gzip text responses." checked={form.gzip} onCheckedChange={(v) => set("gzip", v)} />
+              <SwitchRow
+                title="Cache static files"
+                description="Browsers keep CSS, JS, images and fonts for 7 days."
+                checked={form.cacheStatic}
+                onCheckedChange={(v) => set("cacheStatic", v)}
+              />
+              <Field label="www redirect" description="Works when both example.com and www.example.com are added as domains here.">
+                <Select
+                  value={form.wwwRedirect}
+                  onValueChange={(v) => set("wwwRedirect", v as Form["wwwRedirect"])}
+                  options={[
+                    { value: "none", label: "No redirect" },
+                    { value: "to-apex", label: "www.example.com → example.com" },
+                    { value: "to-www", label: "example.com → www.example.com" },
+                  ]}
+                  className="sm:max-w-sm"
+                />
+              </Field>
+            </>
+          )}
+        </OptionsCard>
+      )}
+      {show("advanced") && (
+        <OptionsCard
+          {...props}
+          title="Advanced"
+          description={
+            proxyKind === "nginx"
+              ? "Raw nginx directives inside this service's location block. Tested before they apply."
+              : proxyKind === "caddy"
+                ? "Raw Caddyfile directives inside this service's route, before the request reaches the app. Tested before they apply."
+                : "Extra Traefik middlewares as YAML (name: definition). They run after the built-in ones. Checked against Traefik before they apply."
+          }
+          keys={["customDirectives", "caddyDirectives", "traefikMiddlewares"]}
+        >
+          {(form, set) => (
+            <>
               <Textarea
-                value={form.cors}
-                onChange={(e) => set("cors", e.target.value)}
-                placeholder="https://app.example.com"
-                rows={2}
-                className="min-h-16 font-mono text-[12.5px]"
+                value={proxyKind === "nginx" ? form.customDirectives : proxyKind === "caddy" ? form.caddyDirectives : form.traefikMiddlewares}
+                onChange={(e) => set(proxyKind === "nginx" ? "customDirectives" : proxyKind === "caddy" ? "caddyDirectives" : "traefikMiddlewares", e.target.value)}
+                disabled={!isInstanceAdmin}
+                placeholder={
+                  !isInstanceAdmin
+                    ? "Only Root organization admins can add custom directives."
+                    : proxyKind === "nginx"
+                      ? "# Example\nproxy_set_header X-Custom value;"
+                      : proxyKind === "caddy"
+                        ? "# Example\nheader_up X-Custom value"
+                        : "ratelimit:\n  rateLimit:\n    average: 100\n    burst: 50"
+                }
+                rows={5}
+                spellCheck={false}
+                className="font-mono text-[12.5px]"
               />
-            </Field>
-            <div className="flex flex-col gap-2">
-              <span className="text-[13px] font-medium text-fg-2">Custom headers</span>
-              {form.headers.map((h, i) => (
-                <div key={i} className="grid grid-cols-[minmax(0,1fr)_32px] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_32px]">
-                  <Input
-                    value={h.name}
-                    onChange={(e) =>
-                      set(
-                        "headers",
-                        form.headers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
-                      )
-                    }
-                    placeholder="X-Robots-Tag"
-                    aria-label="Header name"
-                    className="h-8 font-mono text-[12.5px]"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="sm:order-3"
-                    onClick={() =>
-                      set(
-                        "headers",
-                        form.headers.filter((_, j) => j !== i),
-                      )
-                    }
-                    aria-label="Remove header"
-                  >
-                    <Trash2 />
-                  </Button>
-                  <Input
-                    value={h.value}
-                    onChange={(e) =>
-                      set(
-                        "headers",
-                        form.headers.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
-                      )
-                    }
-                    placeholder="noindex"
-                    aria-label="Header value"
-                    className="col-span-2 h-8 font-mono text-[12.5px] sm:order-2 sm:col-span-1"
-                  />
-                </div>
-              ))}
-              <Button size="sm" variant="ghost" className="w-fit" onClick={() => set("headers", [...form.headers, { name: "", value: "" }])}>
-                <Plus /> Add header
-              </Button>
-            </div>
-          </>
-        )}
-      </OptionsCard>
-      <OptionsCard {...props} title="Performance and routing" description="Compression, browser caching and the www redirect." keys={["gzip", "cacheStatic", "wwwRedirect"]}>
-        {(form, set) => (
-          <>
-            <SwitchRow title="Compression" description="Gzip text responses." checked={form.gzip} onCheckedChange={(v) => set("gzip", v)} />
-            <SwitchRow
-              title="Cache static files"
-              description="Browsers keep CSS, JS, images and fonts for 7 days."
-              checked={form.cacheStatic}
-              onCheckedChange={(v) => set("cacheStatic", v)}
-            />
-            <Field label="www redirect" description="Works when both example.com and www.example.com are added as domains here.">
-              <Select
-                value={form.wwwRedirect}
-                onValueChange={(v) => set("wwwRedirect", v as Form["wwwRedirect"])}
-                options={[
-                  { value: "none", label: "No redirect" },
-                  { value: "to-apex", label: "www.example.com → example.com" },
-                  { value: "to-www", label: "example.com → www.example.com" },
-                ]}
-                className="sm:max-w-sm"
-              />
-            </Field>
-          </>
-        )}
-      </OptionsCard>
-      <OptionsCard
-        {...props}
-        title="Advanced"
-        description={
-          proxyKind === "nginx"
-            ? "Raw nginx directives inside this service's location block. Tested before they apply."
-            : proxyKind === "caddy"
-              ? "Raw Caddyfile directives inside this service's route, before the request reaches the app. Tested before they apply."
-              : "Extra Traefik middlewares as YAML (name: definition). They run after the built-in ones. Checked against Traefik before they apply."
-        }
-        keys={["customDirectives", "caddyDirectives", "traefikMiddlewares"]}
-      >
-        {(form, set) => (
-          <>
-            <Textarea
-              value={proxyKind === "nginx" ? form.customDirectives : proxyKind === "caddy" ? form.caddyDirectives : form.traefikMiddlewares}
-              onChange={(e) => set(proxyKind === "nginx" ? "customDirectives" : proxyKind === "caddy" ? "caddyDirectives" : "traefikMiddlewares", e.target.value)}
-              disabled={!isInstanceAdmin}
-              placeholder={
-                !isInstanceAdmin
-                  ? "Only Root organization admins can add custom directives."
-                  : proxyKind === "nginx"
-                    ? "# Example\nproxy_set_header X-Custom value;"
-                    : proxyKind === "caddy"
-                      ? "# Example\nheader_up X-Custom value"
-                      : "ratelimit:\n  rateLimit:\n    average: 100\n    burst: 50"
-              }
-              rows={5}
-              spellCheck={false}
-              className="font-mono text-[12.5px]"
-            />
-            <p className="text-xs text-muted">Directives for the other proxies are kept and used if this server switches proxy.</p>
-          </>
-        )}
-      </OptionsCard>
+              <p className="text-xs text-muted">Directives for the other proxies are kept and used if this server switches proxy.</p>
+            </>
+          )}
+        </OptionsCard>
+      )}
     </>
   );
 }
@@ -492,6 +501,9 @@ function toInput(form: Form) {
 }
 
 type Set = <K extends keyof Form>(key: K, value: Form[K]) => void;
+
+/** The groups of HTTP options, each a section of Domains & ports. */
+export type ProxySection = "traffic" | "access" | "headers" | "performance" | "advanced";
 
 /** One card of HTTP options with its own Apply: it changes only `keys`, the rest stays as saved. */
 function OptionsCard({

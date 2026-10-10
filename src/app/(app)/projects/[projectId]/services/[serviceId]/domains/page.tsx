@@ -18,7 +18,8 @@ import { balances, runServerIds } from "@/server/deploy/distribution";
 import { entryDomains, entryServers } from "@/server/services/entry-servers";
 import { balanceWarning } from "@/server/services/balance";
 import { PortsCard } from "./ports-card";
-import { ProxyOptionsCard } from "./proxy-options-card";
+import { ProxyOptionsCard, type ProxySection } from "./proxy-options-card";
+import { DomainsSidebar, type DomainsSectionItem } from "./domains-sidebar";
 import { getTemplate } from "@/server/services/templates";
 import { ProxyConfigCard } from "./proxy-config-card";
 import { generatedSite } from "@/server/proxy/nginx";
@@ -118,115 +119,142 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
     service.type === "app" && balances(service.serverId, service.distribution)
       ? await balanceWarning(service.serverId, runServerIds(service.serverId, service.distribution).slice(1)).catch(() => null)
       : null;
+  // One section at a time, picked in the sidebar.
+  const showPorts = service.type === "app" || (service.type === "compose" && composeServices.length > 0);
+  const nav: DomainsSectionItem[] = [
+    { id: "domains", label: "Domains" },
+    ...(showPorts ? [{ id: "ports", label: "Ports" }] : []),
+    ...(kind !== "none"
+      ? [
+          { id: "traffic", label: "Limits & balancing" },
+          { id: "access", label: "Access" },
+          { id: "headers", label: "Headers" },
+          { id: "performance", label: "Performance" },
+          { id: "advanced", label: "Advanced" },
+        ]
+      : []),
+  ];
+  const asked = (await props.searchParams).section;
+  const section = nav.find((n) => n.id === asked)?.id ?? "domains";
   return (
-    <PageBody className="flex flex-col gap-6">
-      <DomainsManager
-        serviceId={service.id}
-        proxyKind={server.proxyKind}
-        proxyState={proxyState}
-        serverId={service.serverId}
-        proxyPorts={serverCtx ? { http: serverCtx.proxyHttpPort, https: serverCtx.proxyHttpsPort } : undefined}
-        acmeChallenge={server.proxyConfig?.traefik?.acmeChallenge ?? "http"}
-        type={service.type}
-        defaultPort={service.runtime.port}
-        composeServices={names}
-        composePorts={composePorts}
-        hasCloudflare={cfAccounts.length > 0}
-        hasAcme={!!settings.acmeEmail}
-        undeployed={!service.currentDeploymentId}
-        wall={wallLabel(service.proxy)}
-        serverIp={addressing.publicIp}
-        tunnels={tunnels}
-        isAdmin={ctx.isAdmin}
-        serverName={server.name}
-        canGenerate={!!addressing.wildcardDomain || (addressing.sslipFallback && !!addressing.publicIp)}
-        certificates={certs.map(({ certificate: c, serverName }) => ({
-          id: c.id,
-          name: c.name,
-          domains: c.domains,
-          status: c.status,
-          provider: c.provider,
-          serverId: c.serverId,
-          serverName,
-          // The proxy only serves certificates stored on its own server.
-          here: c.serverId === service.serverId,
-        }))}
-        entryServers={entries}
-        balanceWarning={apart}
-        entryDomains={entryDomainRows}
-        domains={[...domains]
-          .sort((a, b) => Number(b === primaryDomain) - Number(a === primaryDomain))
-          .map((d) => {
-            const cert = d.https ? (here.find((c) => c.id === d.certificateId) ?? here.find((c) => certificateCovers(c.domains, d.hostname))) : undefined;
-            return {
-              id: d.id,
-              hostname: d.hostname,
-              port: d.port,
-              composeService: d.composeService,
-              https: d.https,
-              forceHttps: d.forceHttps,
-              redirectTo: d.redirectTo,
-              generated: d.generated,
-              primary: d === primaryDomain,
-              cloudflare: !!d.cloudflareZoneId,
-              managedRecord: !!d.cloudflareRecordId,
-              tunnel: !!d.tunnelId,
-              tunnelId: d.tunnelId,
-              wantsTunnel: d.wantsTunnel,
-              tunnelError: d.tunnelError,
-              cloudflareAccountId: d.cloudflareAccountId,
-              certificateId: d.certificateId,
-              certificate: cert ? { id: cert.id, status: cert.status, provider: cert.provider, error: cert.lastError, expiresAt: cert.expiresAt?.toISOString() ?? null } : null,
-            };
-          })}
-      />
-      {(service.type === "app" || (service.type === "compose" && composeServices.length > 0)) && (
-        <PortsCard
-          key={JSON.stringify(service.type === "app" ? service.runtime.ports : (service.compose?.ports ?? []))}
-          serviceId={service.id}
-          kind={service.type === "app" ? "app" : "compose"}
-          composeServices={composeServices}
-          composePorts={composePorts}
-          appPort={service.type === "app" ? service.runtime.port : (composePorts[main ?? ""]?.[0] ?? null)}
-          initial={service.type === "app" ? service.runtime.ports : (service.compose?.ports ?? [])}
-          published={published}
-          isLocalServer={server.isLocal}
-          serverName={server.name}
-          busy={busy}
-          listening={listening}
-        />
-      )}
-      {kind !== "none" && (
-        <ProxyOptionsCard
-          key={JSON.stringify(service.proxy ?? null)}
-          serviceId={service.id}
-          initial={proxyInitial}
-          isAdmin={ctx.isAdmin}
-          isInstanceAdmin={ctx.isInstanceAdmin}
-          hasTls={domains.some((d) => d.https)}
-          proxyKind={server.proxyKind as "nginx" | "caddy" | "traefik"}
-          behindProxy={!!server.trustedProxies && (server.trustedProxies.ranges.length > 0 || server.trustedProxies.cloudflare || !!server.trustedProxies.machine)}
-          replicas={service.type === "app" ? Math.max(1, service.runtime.replicas || 1) : 0}
-          dashboardDomain={!!settings.dashboardDomain}
-          across={
-            service.type === "app" && balances(service.serverId, service.distribution)
-              ? { main: server.name, others: runServerIds(service.serverId, service.distribution).length - 1 }
-              : undefined
-          }
-        />
-      )}
-      {ctx.isInstanceAdmin && kind !== "none" && (
-        <ProxyConfigCard
-          key={`${kind}:${service.proxyCustom?.[kind] ?? ""}:${generated ?? ""}`}
-          serviceId={service.id}
-          kind={kind}
-          generated={generated}
-          custom={service.proxyCustom?.[kind] ?? null}
-          otherCustom={(["nginx", "caddy", "traefik"] as const).filter((k) => k !== kind && !!service.proxyCustom?.[k])}
-          hasDomains={domains.length > 0}
-          alias={appPort ? `${privateHost(service)}:${appPort}` : null}
-        />
-      )}
+    <PageBody>
+      <div className="flex flex-col gap-6 xl:flex-row xl:gap-10">
+        <DomainsSidebar base={`/projects/${projectId}/services/${serviceId}/domains`} nav={nav} current={section} />
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
+          {section === "domains" && (
+            <DomainsManager
+              serviceId={service.id}
+              proxyKind={server.proxyKind}
+              proxyState={proxyState}
+              serverId={service.serverId}
+              proxyPorts={serverCtx ? { http: serverCtx.proxyHttpPort, https: serverCtx.proxyHttpsPort } : undefined}
+              acmeChallenge={server.proxyConfig?.traefik?.acmeChallenge ?? "http"}
+              type={service.type}
+              defaultPort={service.runtime.port}
+              composeServices={names}
+              composePorts={composePorts}
+              hasCloudflare={cfAccounts.length > 0}
+              hasAcme={!!settings.acmeEmail}
+              undeployed={!service.currentDeploymentId}
+              wall={wallLabel(service.proxy)}
+              serverIp={addressing.publicIp}
+              tunnels={tunnels}
+              isAdmin={ctx.isAdmin}
+              serverName={server.name}
+              canGenerate={!!addressing.wildcardDomain || (addressing.sslipFallback && !!addressing.publicIp)}
+              certificates={certs.map(({ certificate: c, serverName }) => ({
+                id: c.id,
+                name: c.name,
+                domains: c.domains,
+                status: c.status,
+                provider: c.provider,
+                serverId: c.serverId,
+                serverName,
+                // The proxy only serves certificates stored on its own server.
+                here: c.serverId === service.serverId,
+              }))}
+              entryServers={entries}
+              balanceWarning={apart}
+              entryDomains={entryDomainRows}
+              domains={[...domains]
+                .sort((a, b) => Number(b === primaryDomain) - Number(a === primaryDomain))
+                .map((d) => {
+                  const cert = d.https ? (here.find((c) => c.id === d.certificateId) ?? here.find((c) => certificateCovers(c.domains, d.hostname))) : undefined;
+                  return {
+                    id: d.id,
+                    hostname: d.hostname,
+                    port: d.port,
+                    composeService: d.composeService,
+                    https: d.https,
+                    forceHttps: d.forceHttps,
+                    redirectTo: d.redirectTo,
+                    generated: d.generated,
+                    primary: d === primaryDomain,
+                    cloudflare: !!d.cloudflareZoneId,
+                    managedRecord: !!d.cloudflareRecordId,
+                    tunnel: !!d.tunnelId,
+                    tunnelId: d.tunnelId,
+                    wantsTunnel: d.wantsTunnel,
+                    tunnelError: d.tunnelError,
+                    cloudflareAccountId: d.cloudflareAccountId,
+                    certificateId: d.certificateId,
+                    certificate: cert
+                      ? { id: cert.id, status: cert.status, provider: cert.provider, error: cert.lastError, expiresAt: cert.expiresAt?.toISOString() ?? null }
+                      : null,
+                  };
+                })}
+            />
+          )}
+          {section === "ports" && showPorts && (
+            <PortsCard
+              key={JSON.stringify(service.type === "app" ? service.runtime.ports : (service.compose?.ports ?? []))}
+              serviceId={service.id}
+              kind={service.type === "app" ? "app" : "compose"}
+              composeServices={composeServices}
+              composePorts={composePorts}
+              appPort={service.type === "app" ? service.runtime.port : (composePorts[main ?? ""]?.[0] ?? null)}
+              initial={service.type === "app" ? service.runtime.ports : (service.compose?.ports ?? [])}
+              published={published}
+              isLocalServer={server.isLocal}
+              serverName={server.name}
+              busy={busy}
+              listening={listening}
+            />
+          )}
+          {kind !== "none" && section !== "domains" && section !== "ports" && (
+            <ProxyOptionsCard
+              only={section as ProxySection}
+              key={JSON.stringify(service.proxy ?? null)}
+              serviceId={service.id}
+              initial={proxyInitial}
+              isAdmin={ctx.isAdmin}
+              isInstanceAdmin={ctx.isInstanceAdmin}
+              hasTls={domains.some((d) => d.https)}
+              proxyKind={server.proxyKind as "nginx" | "caddy" | "traefik"}
+              behindProxy={!!server.trustedProxies && (server.trustedProxies.ranges.length > 0 || server.trustedProxies.cloudflare || !!server.trustedProxies.machine)}
+              replicas={service.type === "app" ? Math.max(1, service.runtime.replicas || 1) : 0}
+              dashboardDomain={!!settings.dashboardDomain}
+              across={
+                service.type === "app" && balances(service.serverId, service.distribution)
+                  ? { main: server.name, others: runServerIds(service.serverId, service.distribution).length - 1 }
+                  : undefined
+              }
+            />
+          )}
+          {section === "advanced" && ctx.isInstanceAdmin && kind !== "none" && (
+            <ProxyConfigCard
+              key={`${kind}:${service.proxyCustom?.[kind] ?? ""}:${generated ?? ""}`}
+              serviceId={service.id}
+              kind={kind}
+              generated={generated}
+              custom={service.proxyCustom?.[kind] ?? null}
+              otherCustom={(["nginx", "caddy", "traefik"] as const).filter((k) => k !== kind && !!service.proxyCustom?.[k])}
+              hasDomains={domains.length > 0}
+              alias={appPort ? `${privateHost(service)}:${appPort}` : null}
+            />
+          )}
+        </div>
+      </div>
     </PageBody>
   );
 }

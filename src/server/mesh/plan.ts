@@ -323,6 +323,24 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
   return { ...config, hash: createHash("sha256").update(JSON.stringify(config)).digest("hex").slice(0, 16) };
 }
 
+/** Services a service uses, as of one of its deployments. */
+export type MeshUses = { deploymentId: string | null; ids: string[] };
+
+const union = (a: string[], b: string[]) => [...new Set([...a, ...b])].sort();
+
+/**
+ * What a service's running containers may use, given what its variables use now (`current`).
+ * Running containers keep the variables they started with, so a use leaves only when a deployment
+ * that went live without it is the current one (`pending`: recorded as its containers started).
+ * Any other change of deployment (a database, a stack, a rollback started elsewhere) keeps them all.
+ */
+export function stickyUses(stored: MeshUses | null, pending: MeshUses | null, current: string[], currentDeploymentId: string | null): MeshUses {
+  if (!stored) return { deploymentId: currentDeploymentId, ids: union([], current) };
+  if (stored.deploymentId === currentDeploymentId) return { deploymentId: currentDeploymentId, ids: union(stored.ids, current) };
+  const fresh = pending && pending.deploymentId === currentDeploymentId;
+  return { deploymentId: currentDeploymentId, ids: union(fresh ? pending.ids : stored.ids, current) };
+}
+
 /** Whether a service of `provider`'s environment running on `serverId` uses it (a database's pooler and replicas go with it). */
 function usedOn(serverId: string, provider: PlanService, services: PlanService[]) {
   const id = provider.container ?? provider.id;

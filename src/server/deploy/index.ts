@@ -867,7 +867,7 @@ async function runOnServer(opts: {
   if (!stillThere) throw new DeployCancelled("The service was deleted");
   const network = await ensureEnvNetwork(service.environmentId, server);
   if (runtime.volumes.some((v) => v.kind !== "volume")) await prepareMounts(server, service.id, runtime.volumes, log.line);
-  await meshBeforeStart(service, server.id, log.line);
+  await meshBeforeStart(service, server.id, log.line, dep.id);
 
   // Backups of the chosen databases come first: what the new version (and its migrations) change can be undone.
   if (runtime.backupBeforeDeploy?.length && !dep.rollbackOf && primary) await backupBeforeDeploy(runtime.backupBeforeDeploy, log);

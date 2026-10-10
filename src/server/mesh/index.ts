@@ -30,6 +30,7 @@ import {
   namesHost,
   peerEndpoint,
   serviceKeys,
+  stickyUses,
 } from "./plan";
 import { loadServiceUses } from "./uses";
 
@@ -116,6 +117,29 @@ function toPlanServices(s: Service): PlanService[] {
   return [main, ...extra];
 }
 
+const aliasesOf = (s: Service) => toPlanServices(s).flatMap((e) => serviceKeys(e).flatMap(({ compose }) => meshAliases(e, compose)));
+
+/**
+ * What each service's running containers may use (stickyUses), saved when it changes. Null when
+ * the variables cannot be read: every service may use every other one then.
+ */
+async function settledUses(services: Service[]): Promise<Map<string, string[]> | null> {
+  const current = await loadServiceUses(services, aliasesOf, namesHost);
+  if (!current) return null;
+  const out = new Map<string, string[]>();
+  for (const s of services) {
+    const next = stickyUses(s.meshUses ?? null, s.meshUsesPending ?? null, [...(current.get(s.id) ?? [])], s.currentDeploymentId);
+    out.set(s.id, next.ids);
+    if (JSON.stringify(next) !== JSON.stringify(s.meshUses ?? null))
+      await db
+        .update(schema.service)
+        .set({ meshUses: next })
+        .where(eq(schema.service.id, s.id))
+        .catch(() => {});
+  }
+  return out;
+}
+
 async function loadPlan() {
   const members = await meshMembers();
   if (!members.length) return null;
@@ -135,7 +159,7 @@ async function loadPlan() {
     : [];
   // By server, not by the deployment's own "primary" flag: the main server can change without a deploy.
   const targets = new Map(deployments.map((d) => [d.id, d.targets ?? []]));
-  const uses = await loadServiceUses(services, (s) => toPlanServices(s).flatMap((e) => serviceKeys(e).flatMap(({ compose }) => meshAliases(e, compose))), namesHost);
+  const uses = await settledUses(services);
   const plan = services
     .flatMap(toPlanServices)
     .map((p) => {
@@ -452,10 +476,21 @@ async function runSync(scope: Set<string> | null, kicks: Set<string>) {
  * Before a service's containers start on a server: bring the network up to date for its
  * environment and wait until the names of its services on other servers resolve there.
  */
-export async function meshBeforeStart(service: Pick<Service, "id" | "environmentId">, serverId: string, log: (line: string) => void) {
+export async function meshBeforeStart(service: Pick<Service, "id" | "environmentId">, serverId: string, log: (line: string) => void, deploymentId?: string) {
   try {
     const members = await meshMemberIds();
     if (!members.has(serverId)) return;
+    // What the new containers use, from the variables they start with: once this deployment is
+    // live, links only the old ones used can go.
+    if (deploymentId) {
+      const envServices = await db.select().from(schema.service).where(eq(schema.service.environmentId, service.environmentId));
+      const now = await loadServiceUses(envServices, aliasesOf, namesHost);
+      if (now)
+        await db
+          .update(schema.service)
+          .set({ meshUsesPending: { deploymentId, ids: [...(now.get(service.id) ?? [])].sort() } })
+          .where(eq(schema.service.id, service.id));
+    }
     // This server and the servers of the environment: they learn about each other's addresses.
     const siblings = await db
       .select({ serverId: schema.service.serverId, type: schema.service.type, distribution: schema.service.distribution, database: schema.service.database })

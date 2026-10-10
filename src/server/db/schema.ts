@@ -550,6 +550,14 @@ export const service = pgTable(
     distribution: jsonb("distribution").$type<DistributionConfig>(),
     /** Health of the app's copies on its extra servers, for the load balancing on its own server. */
     balance: jsonb("balance").$type<BalanceState>(),
+    /**
+     * Services of its environment its running containers may use, for the private network's link
+     * containers on other servers (see mesh/plan.ts stickyUses): grows at once, shrinks only when a
+     * deployment goes live without them.
+     */
+    meshUses: jsonb("mesh_uses").$type<import("@/server/mesh/plan").MeshUses>(),
+    /** What the deployment being rolled out uses (set when its containers start). */
+    meshUsesPending: jsonb("mesh_uses_pending").$type<import("@/server/mesh/plan").MeshUses>(),
     /** Request log settings; null: never set up (off). */
     requestLog: jsonb("request_log").$type<RequestLogConfig>(),
     /** Per-service HTTP options for the nginx site (limits, auth, headers…). */

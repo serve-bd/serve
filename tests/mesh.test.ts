@@ -16,6 +16,7 @@ import {
   linked,
   namesHost,
   neededAddresses,
+  stickyUses,
   type PlanAddress,
   privatelyConnected,
   reachesPrivately,
@@ -626,5 +627,35 @@ describe("link containers only for services in use", () => {
     expect(namesHost("postgresql-2:5432", ["postgresql"])).toBe(false);
     expect(namesHost("mycache", ["cache"])).toBe(false);
     expect(namesHost("host: DB.internal", ["db"])).toBe(true);
+  });
+});
+
+describe("what running containers may use", () => {
+  it("starts from what the variables use now", () => {
+    expect(stickyUses(null, null, ["db"], "d1")).toEqual({ deploymentId: "d1", ids: ["db"] });
+  });
+
+  it("adds a new use at once, before any deploy", () => {
+    expect(stickyUses({ deploymentId: "d1", ids: ["db"] }, null, ["db", "cache"], "d1")).toEqual({ deploymentId: "d1", ids: ["cache", "db"] });
+  });
+
+  it("keeps a use whose variable was removed while the same deployment still runs", () => {
+    expect(stickyUses({ deploymentId: "d1", ids: ["db"] }, null, [], "d1")).toEqual({ deploymentId: "d1", ids: ["db"] });
+  });
+
+  it("drops it once a deployment that started without it is live", () => {
+    expect(stickyUses({ deploymentId: "d1", ids: ["db"] }, { deploymentId: "d2", ids: [] }, [], "d2")).toEqual({ deploymentId: "d2", ids: [] });
+  });
+
+  it("keeps everything while that deployment is not live (rolling out, or failed)", () => {
+    expect(stickyUses({ deploymentId: "d1", ids: ["db"] }, { deploymentId: "d2", ids: [] }, [], "d1")).toEqual({ deploymentId: "d1", ids: ["db"] });
+  });
+
+  it("keeps everything after a change of deployment it knows nothing about", () => {
+    expect(stickyUses({ deploymentId: "d1", ids: ["db"] }, { deploymentId: "d0", ids: [] }, [], "d3")).toEqual({ deploymentId: "d3", ids: ["db"] });
+  });
+
+  it("adds what the variables use now on top of what the new deployment started with", () => {
+    expect(stickyUses({ deploymentId: "d1", ids: ["db"] }, { deploymentId: "d2", ids: ["cache"] }, ["queue"], "d2")).toEqual({ deploymentId: "d2", ids: ["cache", "queue"] });
   });
 });

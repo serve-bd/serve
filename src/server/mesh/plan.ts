@@ -102,6 +102,12 @@ export type PlanService = {
   kind?: string | null;
   /** The serve.service label of its containers, when the entry is not a service itself (a database's pooler or replica). */
   container?: string | null;
+  /**
+   * Services of its environment it uses (their ids): through ${{name.VAR}} references, or their
+   * private names written in its variables or compose file. Other servers get a link container
+   * only for services something there uses. Unknown (undefined): it may use any of them.
+   */
+  uses?: string[];
 };
 
 /** For services, `serverId` is the server that currently exposes the address. */
@@ -317,6 +323,26 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
   return { ...config, hash: createHash("sha256").update(JSON.stringify(config)).digest("hex").slice(0, 16) };
 }
 
+/** Whether a service of `provider`'s environment running on `serverId` uses it (a database's pooler and replicas go with it). */
+function usedOn(serverId: string, provider: PlanService, services: PlanService[]) {
+  const id = provider.container ?? provider.id;
+  return services.some((c) => c.environmentId === provider.environmentId && placements(c).includes(serverId) && (!c.uses || c.uses.includes(id)));
+}
+
+/** Whether a text names one of `names` as a host: not as part of a longer name (db in db-2 or mydb). */
+export function namesHost(text: string, names: string[]) {
+  const lower = text.toLowerCase();
+  return names.some((n) => {
+    const name = n.toLowerCase();
+    for (let i = lower.indexOf(name); i !== -1; i = lower.indexOf(name, i + 1)) {
+      const before = lower[i - 1] ?? "";
+      const after = lower[i + name.length] ?? "";
+      if (!/[a-z0-9_-]/.test(before) && !/[a-z0-9_-]/.test(after)) return true;
+    }
+    return false;
+  });
+}
+
 /** Name of the link container for a service address (one address belongs to one environment). */
 export const linkName = (ip: string) => `serve-link-${ip.replaceAll(".", "-")}`;
 
@@ -331,6 +357,8 @@ function imports(serverId: string, near: Set<string>, services: PlanService[], l
     // Reached directly on the environment network when it also runs here.
     // Services on servers that share no private network with this one stay out of reach.
     if (!envs.has(s.environmentId) || placements(s).includes(serverId) || !near.has(s.serverId)) continue;
+    // Only what the services running here use: a link nobody calls is a container for nothing.
+    if (!usedOn(serverId, s, services)) continue;
     for (const { key, compose } of serviceKeys(s)) {
       const ip = live.find((a) => a.serverId === s.serverId && a.key === key)?.ip;
       if (ip) out.push({ name: linkName(ip), ip, network: envNetworkName(s.environmentId), aliases: meshAliases(s, compose) });

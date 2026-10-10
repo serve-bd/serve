@@ -26,8 +26,12 @@ import {
   type PlanAddress,
   type PlanServer,
   type PlanService,
+  meshAliases,
+  namesHost,
   peerEndpoint,
+  serviceKeys,
 } from "./plan";
+import { loadServiceUses } from "./uses";
 
 type Service = typeof schema.service.$inferSelect;
 type Member = ServerRow & { mesh: ServerMesh; meshIndex: number; networks: string[] };
@@ -131,8 +135,15 @@ async function loadPlan() {
     : [];
   // By server, not by the deployment's own "primary" flag: the main server can change without a deploy.
   const targets = new Map(deployments.map((d) => [d.id, d.targets ?? []]));
+  const uses = await loadServiceUses(services, (s) => toPlanServices(s).flatMap((e) => serviceKeys(e).flatMap(({ compose }) => meshAliases(e, compose))), namesHost);
   const plan = services
     .flatMap(toPlanServices)
+    .map((p) => {
+      if (!uses) return p;
+      const own = [...(uses.get(p.container ?? p.id) ?? [])];
+      // A read replica on another server reaches its primary by name.
+      return { ...p, uses: p.kind?.startsWith("replica-") && p.container ? [...own, p.container] : own };
+    })
     .map((p) =>
       p.balance
         ? { ...p, switched: (targets.get(p.currentDeploymentId ?? "") ?? []).filter((t) => t.serverId !== p.serverId && t.status === "success").map((t) => t.serverId) }

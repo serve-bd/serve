@@ -14,6 +14,7 @@ import {
   allocateAddress,
   environmentKey,
   linked,
+  namesHost,
   neededAddresses,
   type PlanAddress,
   privatelyConnected,
@@ -582,5 +583,48 @@ describe("servers behind NAT", () => {
     expect(linked(server("a", null), server("b", null))).toBe(false);
     expect(linked(server("a", null), server("b", "203.0.113.5"))).toBe(true);
     expect(linked(server("a", "198.51.100.1"), server("b", "203.0.113.5"))).toBe(true);
+  });
+});
+
+describe("link containers only for services in use", () => {
+  const a = server("a", 1);
+  const b = server("b", 2);
+  const addresses: PlanAddress[] = [
+    { serverId: "a", key: serviceKey("db"), ip: "10.240.1.1" },
+    { serverId: "a", key: serviceKey("cache"), ip: "10.240.1.2" },
+    { serverId: "b", key: serviceKey("web"), ip: "10.240.1.3" },
+    { serverId: "a", key: serviceKey("db~pooler"), ip: "10.240.1.4" },
+    { serverId: "a", key: environmentKey("env1"), ip: "10.241.1.2" },
+    { serverId: "b", key: environmentKey("env1"), ip: "10.241.2.2" },
+  ];
+  const linksOn = (self: PlanServer, services: PlanService[]) =>
+    agentConfig({ ...self, privateKey: "k" }, [a, b], services, addresses, neededAddresses([a, b], services))
+      .imports.map((i) => i.ip)
+      .sort();
+  const pooler = (uses?: string[]) => svc("db~pooler", { container: "db", kind: "pooler", uses });
+
+  it("links only what the services of the server use (a database with its pooler)", () => {
+    const services = [svc("db", { uses: [] }), pooler([]), svc("cache", { uses: [] }), svc("web", { type: "app", serverId: "b", uses: ["db"] })];
+    expect(linksOn(b, services)).toEqual(["10.240.1.1", "10.240.1.4"]);
+    // a's services use nothing on b.
+    expect(linksOn(a, services)).toEqual([]);
+  });
+
+  it("links nothing for a server whose services use nothing elsewhere", () => {
+    const services = [svc("db", { uses: [] }), pooler([]), svc("cache", { uses: [] }), svc("web", { type: "app", serverId: "b", uses: [] })];
+    expect(linksOn(b, services)).toEqual([]);
+  });
+
+  it("links everything when usage is unknown, as before", () => {
+    const services = [svc("db"), pooler(), svc("cache"), svc("web", { type: "app", serverId: "b" })];
+    expect(linksOn(b, services)).toEqual(["10.240.1.1", "10.240.1.2", "10.240.1.4"]);
+  });
+
+  it("finds a private name written in a value, not inside a longer name", () => {
+    expect(namesHost("postgres://u:p@postgresql:5432/app", ["postgresql"])).toBe(true);
+    expect(namesHost("REDIS=cache", ["cache"])).toBe(true);
+    expect(namesHost("postgresql-2:5432", ["postgresql"])).toBe(false);
+    expect(namesHost("mycache", ["cache"])).toBe(false);
+    expect(namesHost("host: DB.internal", ["db"])).toBe(true);
   });
 });

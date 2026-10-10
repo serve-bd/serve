@@ -61,6 +61,8 @@ export const templateSchema = z.object({
     .optional(),
   /** Compose service + port that receives the generated domain. */
   expose: z.object({ service: z.string().min(1), port: z.number().int().min(1).max(65535) }),
+  /** Created without a domain (a server other services or bots talk to); one can be added on Domains & ports. Serve 0.5.3+. */
+  noDomain: z.boolean().optional(),
   /** More compose services that get a generated domain of their own (an API, an admin console). Serve 0.1.9+. */
   domains: z
     .array(z.object({ service: z.string().min(1), port: z.number().int().min(1).max(65535) }))

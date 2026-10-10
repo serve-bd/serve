@@ -20,6 +20,7 @@ function composeProblems(
   vars: { key: string; serviceUrl?: string; serviceHost?: string }[],
   domains: { service: string }[] = [],
   minVersion?: string,
+  noDomain = false,
 ) {
   const problems: string[] = [];
   let doc: { services?: Record<string, unknown> } | null = null;
@@ -46,6 +47,9 @@ function composeProblems(
   }
   if (vars.some((v) => (v as { generate?: string }).generate === "strongPassword") && (!minVersion || minVersion.localeCompare("0.2.7", undefined, { numeric: true }) < 0)) {
     problems.push(`${id}: uses strongPassword: set "minVersion": "0.2.7"`);
+  }
+  if (noDomain && (!minVersion || minVersion.localeCompare("0.5.3", undefined, { numeric: true }) < 0)) {
+    problems.push(`${id}: uses noDomain: set "minVersion": "0.5.3"`);
   }
   const declared = new Set(vars.map((v) => v.key));
   for (const v of composeVariables(compose)) {
@@ -89,7 +93,7 @@ export function buildCatalog(dir = TEMPLATES_DIR): { catalog: Catalog; problems:
       problems.push(...result.error.issues.map((i) => `${id}: ${i.path.join(".") || "(root)"}: ${i.message}`));
       continue;
     }
-    problems.push(...composeProblems(id, compose, result.data.expose, result.data.vars, result.data.domains, result.data.minVersion));
+    problems.push(...composeProblems(id, compose, result.data.expose, result.data.vars, result.data.domains, result.data.minVersion, result.data.noDomain));
     templates.push(result.data);
   }
   return { catalog: { schema: CATALOG_SCHEMA, templates }, problems };

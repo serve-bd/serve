@@ -1,0 +1,121 @@
+services:
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    restart: unless-stopped
+    environment:
+      # Wins over the config file, so changing the variable and redeploying changes the password.
+      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD}
+      _JAVA_OPTIONS: ${JAVA_OPTIONS}
+    volumes:
+      # application.yml lives here: edit it on the Files page, then restart.
+      - lavalink-config:/opt/Lavalink/config
+      - lavalink-plugins:/opt/Lavalink/plugins
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # Writes a starter application.yml once; later edits are kept. Deleting the file brings the starter back.
+  setup:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    restart: "no"
+    user: "0"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        f=/opt/Lavalink/config/application.yml
+        if [ ! -s "$$f" ]; then
+        cat > "$$f" <<'YML'
+        # Lavalink settings. Edit, save, then restart the service.
+        # Full reference: https://lavalink.dev/configuration/
+        server:
+          port: 2333
+          address: 0.0.0.0
+          http2:
+            enabled: false
+
+        lavalink:
+          server:
+            # Set by the LAVALINK_PASSWORD variable: change it there, not here.
+            password: "$${LAVALINK_SERVER_PASSWORD}"
+            sources:
+              # The built-in YouTube source no longer works: add the youtube plugin below.
+              youtube: false
+              bandcamp: true
+              soundcloud: true
+              twitch: true
+              vimeo: true
+              nico: true
+              # Plays any URL. Without a proxy (httpConfig) a link can reveal your server's IP.
+              http: true
+              local: false
+            bufferDurationMs: 400
+            frameBufferDurationMs: 5000
+            opusEncodingQuality: 10
+            resamplingQuality: LOW
+            trackStuckThresholdMs: 10000
+            useSeekGhosting: true
+            playerUpdateInterval: 5
+            soundcloudSearchEnabled: true
+            gc-warnings: true
+            # Rotate over an IPv6 block to avoid rate limits:
+            # ratelimit:
+            #   ipBlocks: ["2001:db8::/64"]
+            #   strategy: "RotateOnBan"
+            # httpConfig:
+            #   proxyHost: "proxy.example.com"
+            #   proxyPort: 3128
+
+          # Plugins are downloaded on start and kept in the plugins volume.
+          # Add one per line, then restart. Find more at https://lavalink.dev/plugins
+          plugins: []
+          # plugins:
+          #   - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+          #     snapshot: false
+          #   - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
+          #     snapshot: false
+          #   - dependency: "com.github.topi314.lavasearch:lavasearch-plugin:1.0.0"
+          #     snapshot: false
+          #   - dependency: "com.github.topi314.lavalyrics:lavalyrics-plugin:1.1.0"
+          #     snapshot: false
+          #   - dependency: "com.github.topi314.sponsorblock:sponsorblock-plugin:3.0.1"
+          #     snapshot: false
+
+        # Settings for plugins go under "plugins:" (top level), for example:
+        # plugins:
+        #   youtube:
+        #     enabled: true
+        #     allowSearch: true
+        #   lavasrc:
+        #     sources:
+        #       spotify: true
+        #     spotify:
+        #       clientId: "..."
+        #       clientSecret: "..."
+
+        metrics:
+          prometheus:
+            enabled: false
+            endpoint: /metrics
+
+        # Logs go to the Logs page only: no log files fill the disk.
+        logging:
+          level:
+            root: INFO
+            lavalink: INFO
+          request:
+            enabled: true
+            includeClientInfo: true
+            includeHeaders: false
+            includeQueryString: true
+            includePayload: false
+        YML
+        echo "Wrote $$f"
+        fi
+        chown -R 322:322 /opt/Lavalink/config /opt/Lavalink/plugins
+    volumes:
+      - lavalink-config:/opt/Lavalink/config
+      - lavalink-plugins:/opt/Lavalink/plugins
+volumes:
+  lavalink-config:
+  lavalink-plugins:

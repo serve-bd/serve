@@ -40,7 +40,18 @@ export async function resolveTemplate(id: string, organizationId: string): Promi
     };
   }
   const t = await getTemplate(id);
-  return t ? { id: t.id, name: t.name, compose: t.compose, vars: t.vars, expose: t.expose, domains: t.domains ?? [], custom: false, hostAccess: !!t.hostAccess } : null;
+  return t
+    ? {
+        id: t.id,
+        name: t.name,
+        compose: t.compose,
+        vars: t.vars,
+        expose: t.noDomain ? null : t.expose,
+        domains: t.noDomain ? [] : (t.domains ?? []),
+        custom: false,
+        hostAccess: !!t.hostAccess,
+      }
+    : null;
 }
 
 /**

@@ -529,8 +529,9 @@ function containerStatus(s: typeof schema.service.$inferSelect, containers: Cont
 async function checkServiceContainers(s: typeof schema.service.$inferSelect, reported: ContainerView[]) {
   let next = containerStatus(s, reported);
   if (next === s.status) return;
-  // Bad news from an agent report (it can be seconds behind a deploy) is checked live before acting.
-  if (next !== "running" && reported.some((c) => c.info)) {
+  // Bad news is checked live before acting: an agent's report can be seconds behind a deploy, and
+  // one taken before a new service's first container existed lists none of it at all.
+  if (next !== "running") {
     const live = await withTimeout(serverOf(s).then((server) => listServiceContainers(s.id, true, server.docker))).catch(() => null);
     if (!live) return;
     next = containerStatus(s, live as ContainerView[]);

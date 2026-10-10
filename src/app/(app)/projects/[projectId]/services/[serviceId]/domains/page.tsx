@@ -130,7 +130,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           { id: "access", label: "Access" },
           { id: "headers", label: "Headers" },
           { id: "performance", label: "Performance" },
-          { id: "advanced", label: "Advanced" },
+          { id: "proxy", label: "Proxy" },
         ]
       : []),
   ];
@@ -241,7 +241,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
               }
             />
           )}
-          {section === "advanced" && ctx.isInstanceAdmin && kind !== "none" && (
+          {section === "proxy" && ctx.isInstanceAdmin && kind !== "none" && (
             <ProxyConfigCard
               key={`${kind}:${service.proxyCustom?.[kind] ?? ""}:${generated ?? ""}`}
               serviceId={service.id}

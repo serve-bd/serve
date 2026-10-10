@@ -433,7 +433,7 @@ export function ProxyOptionsCard({
           )}
         </OptionsCard>
       )}
-      {show("advanced") && (
+      {show("proxy") && (
         <OptionsCard
           {...props}
           title="Advanced"
@@ -503,7 +503,7 @@ function toInput(form: Form) {
 type Set = <K extends keyof Form>(key: K, value: Form[K]) => void;
 
 /** The groups of HTTP options, each a section of Domains & ports. */
-export type ProxySection = "traffic" | "access" | "headers" | "performance" | "advanced";
+export type ProxySection = "traffic" | "access" | "headers" | "performance" | "proxy";
 
 /** One card of HTTP options with its own Apply: it changes only `keys`, the rest stays as saved. */
 function OptionsCard({

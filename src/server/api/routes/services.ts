@@ -256,7 +256,7 @@ export const serviceRoutes: ApiRoute[] = [
     description: [
       "The body is the project folder as a .tar.gz (Content-Type: application/gzip), streamed to disk. This is what `serve deploy` sends.",
       "Serve unpacks it where a repository would be cloned and builds it like a checkout: the Dockerfile, the detected builder and the build settings all apply.",
-      'For apps with source {type:"upload"}, and as a one-off deploy of local files for apps built from Git or a Dockerfile. Not for image apps, compose stacks or databases.',
+      'For apps with source {type:"upload"}, and as a one-off deploy of local files for apps built from Git or a Dockerfile (that also needs services.manage). Not for image apps, compose stacks or databases.',
       "Query: message, commit, branch (shown with the deployment), dirty=1 (the folder had changes that were not committed), noCache=1.",
       "Redeploying the deployment builds the same files again; the files of the last 5 uploads are kept.",
     ].join(" "),
@@ -277,6 +277,8 @@ export const serviceRoutes: ApiRoute[] = [
       if (service.type !== "app") throw new ApiError(400, `Only apps can be deployed from uploaded files. This is a ${service.type === "compose" ? "compose stack" : "database"}.`);
       if (!service.source || service.source.type === "image")
         throw new ApiError(400, 'This app runs an image, so there is nothing to build from files. Set its source to {"type": "upload"} to deploy it from the CLI.');
+      // Local files instead of the app's Git or Dockerfile source change what it runs: like changing its source.
+      if (service.source.type !== "upload") assertCan(auth, "services.manage");
       // Files from an upload become the code of a service that reaches the host: like changing its source, only for Root admins.
       const { serviceHasHostAccess } = await import("@/server/security");
       if (serviceHasHostAccess(service)) {

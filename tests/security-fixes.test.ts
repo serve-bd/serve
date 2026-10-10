@@ -83,3 +83,39 @@ RUN --mount="type=cache,dst=/var/cache/apt" apt-get update
     expect(composeDockerfiles(file, "/r")).toEqual(["/r/api/Dockerfile", "/r/web/prod.Dockerfile"]);
   });
 });
+
+describe("compose files that hide a value behind a YAML tag", () => {
+  it("refuses !!binary, which Docker Compose decodes to host, / or the Docker socket", async () => {
+    const { composeSecurityIssues } = await import("@/server/security");
+    const file = [
+      "services:",
+      "  web:",
+      "    image: alpine",
+      "    pid: !!binary aG9zdA==",
+      "    network_mode: !!binary aG9zdA==",
+      "    volumes:",
+      "      - !!binary Lzovcm9vdA==",
+    ].join("\n");
+    expect(composeSecurityIssues(file)).toEqual(['the YAML tag "!!binary" is not allowed']);
+  });
+
+  it("refuses other tags and files it cannot read, and still accepts plain ones", async () => {
+    const { composeSecurityIssues } = await import("@/server/security");
+    expect(composeSecurityIssues("services:\n  web:\n    image: !custom alpine\n")).toEqual(['the YAML tag "!custom" is not allowed']);
+    expect(composeSecurityIssues("services: [\n")).toEqual(["the compose file is not valid YAML"]);
+    expect(composeSecurityIssues("services:\n  web:\n    image: !!str alpine\n    environment:\n      A: !!int 1\n")).toEqual([]);
+    expect(composeSecurityIssues("x-base: &b\n  image: alpine\nservices:\n  web:\n    <<: *b\n")).toEqual([]);
+  });
+});
+
+describe("compose options that reach the host's network", () => {
+  it("refuses host builds, privileged builds and macvlan networks", async () => {
+    const { composeSecurityIssues } = await import("@/server/security");
+    expect(composeSecurityIssues("services:\n  x:\n    build:\n      context: .\n      network: host\n")).toEqual(['x: "build.network: host" is not allowed']);
+    expect(composeSecurityIssues("services:\n  x:\n    build:\n      context: .\n      privileged: true\n")).toEqual(['x: "build.privileged" is not allowed']);
+    expect(composeSecurityIssues("services:\n  x:\n    image: a\nnetworks:\n  n:\n    driver: macvlan\n    driver_opts:\n      parent: eth0\n")).toEqual([
+      'network n: the driver "macvlan" is not allowed',
+    ]);
+    expect(composeSecurityIssues("services:\n  x:\n    build:\n      context: .\n      network: none\nnetworks:\n  n:\n    driver: bridge\n")).toEqual([]);
+  });
+});

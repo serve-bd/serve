@@ -12,6 +12,16 @@ import { type NotificationKind, providerInfo } from "@/lib/notifications";
 import { absolute, applyTemplate, attemptDelivery, channelConfig, sampleMessage, sendTest } from "@/server/notifications/deliver";
 import { ChannelConfigError, type ChannelInput, channelInput, validateChannelConfig } from "@/server/notifications/validate";
 
+/**
+ * Notification channels cover the whole organization (any project's logs or events can go to them): members
+ * limited to some projects cannot change them, as with tags.
+ */
+async function requireOrgWide() {
+  const ctx = await requirePermission("integrations.manage");
+  if (ctx.projectIds) throw new UserError("Notification channels cover every project: only members with access to all projects manage them.");
+  return ctx;
+}
+
 async function ownChannel(id: string, organizationId: string) {
   const [row] = await db
     .select()
@@ -60,7 +70,7 @@ async function cleanScope(organizationId: string, scope: ChannelInput["scope"]) 
 
 export async function saveNotificationChannel(id: string | null, input: ChannelInput) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     const data = channelInput.parse(input);
     if (!data.events.length) throw new UserError("Pick at least one event.");
     const existing = id ? await ownChannel(id, ctx.org.id) : null;
@@ -104,7 +114,7 @@ export async function saveNotificationChannel(id: string | null, input: ChannelI
 
 export async function toggleNotificationChannel(id: string, enabled: boolean) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     await ownChannel(id, ctx.org.id);
     await db.update(schema.notificationChannel).set({ enabled }).where(eq(schema.notificationChannel.id, id));
     return null;
@@ -113,7 +123,7 @@ export async function toggleNotificationChannel(id: string, enabled: boolean) {
 
 export async function deleteNotificationChannel(id: string) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     const channel = await ownChannel(id, ctx.org.id);
     await db.delete(schema.notificationChannel).where(eq(schema.notificationChannel.id, id));
     await logActivity({
@@ -134,7 +144,7 @@ export async function deleteNotificationChannel(id: string) {
  */
 export async function testNotificationChannel(id: string | null, form?: Pick<ChannelInput, "kind" | "config" | "template">) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     const existing = id ? await ownChannel(id, ctx.org.id) : null;
     const kind = existing?.kind ?? form?.kind ?? "";
     const config = form ? checkConfig(kind, form.config, existing ? channelConfig(existing) : undefined) : channelConfig(existing!);
@@ -178,7 +188,7 @@ export async function testNotificationChannel(id: string | null, form?: Pick<Cha
 /** Sends a failed delivery again now. */
 export async function retryNotificationDelivery(deliveryId: string) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     const [row] = await db
       .select()
       .from(schema.notificationDelivery)

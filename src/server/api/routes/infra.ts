@@ -278,8 +278,10 @@ export const infraRoutes: ApiRoute[] = [
     summary: "List the custom proxy configuration files",
     description: "The files of the server's current proxy (nginx .conf, Caddy .caddy, Traefik .yaml).",
     needs: ["admin"],
-    handler: async ({ auth, params }) => {
-      await loadServer(auth, params.serverId);
+    handler: async ({ params }) => {
+      // Custom files can hold other organizations' upstreams and allowlists: managers only, like editing them.
+      const { requireServerAdmin } = await import("@/server/servers/access");
+      await requireServerAdmin(params.serverId);
       const { proxyStateOf } = await import("@/server/proxy/nginx");
       const { kind, config } = await proxyStateOf(params.serverId);
       return { kind, files: kind === "none" ? [] : (config[kind]?.files ?? []) };
@@ -309,8 +311,10 @@ export const infraRoutes: ApiRoute[] = [
     tag: "Servers",
     summary: "Delete a custom proxy configuration file",
     needs: ["admin"],
-    handler: async ({ auth, params }) => {
-      await loadServer(auth, params.serverId);
+    handler: async ({ params }) => {
+      // Custom files can hold other organizations' upstreams and allowlists: managers only, like editing them.
+      const { requireServerAdmin } = await import("@/server/servers/access");
+      await requireServerAdmin(params.serverId);
       const { proxyStateOf } = await import("@/server/proxy/nginx");
       const { kind } = await proxyStateOf(params.serverId);
       if (kind === "none") throw new ApiError(409, "This server has no Serve proxy.");

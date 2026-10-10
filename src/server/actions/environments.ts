@@ -1,5 +1,6 @@
 "use server";
 
+import { cannotMessage } from "@/lib/permissions";
 import { requireRoomFor } from "@/server/limits";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -27,6 +28,8 @@ async function environmentInOrg(environmentId: string, orgId: string) {
 export async function cloneEnvironmentAction(environmentId: string, input: { name: string; generatedDomains?: boolean; copyData?: boolean }) {
   return act(async () => {
     const ctx = await requirePermission("projects.manage");
+    // Copying the databases' data is reading them whole: like cloning one service with its data.
+    if (input.copyData && !ctx.can("databases.backups")) throw new UserError(cannotMessage("databases.backups"));
     const env = await environmentInOrg(environmentId, ctx.org.id);
     const name = envName.parse(input.name);
     const [exists] = await db

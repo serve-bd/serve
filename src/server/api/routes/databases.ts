@@ -16,7 +16,8 @@ import { applyDatabaseChanges } from "@/server/actions/services";
 import { iso, loadService } from "../data";
 import { ApiError, type ApiRoute, assertCan, route, unwrap } from "../router";
 
-const SECRET_KEYS = new Set(["PASSWORD", "DATABASE_URL", "REDIS_URL", "MONGO_URL", "POSTGRES_URL", "MYSQL_URL"]);
+/** The password, and every connection URL (they hold it: DATABASE_URL, POOLED_DATABASE_URL, READ_DATABASE_URL_<id>…). */
+const SECRET_KEY = /PASSWORD|_URL(_|$)/;
 
 async function databaseOf(auth: Parameters<typeof loadService>[0], serviceId: string) {
   const row = await loadService(auth, serviceId);
@@ -74,7 +75,7 @@ export const databaseRoutes: ApiRoute[] = [
       return {
         connection: {
           engine: cfg.engine,
-          variables: Object.fromEntries(Object.entries(vars).filter(([k]) => secrets || !SECRET_KEYS.has(k))),
+          variables: Object.fromEntries(Object.entries(vars).filter(([k]) => secrets || !SECRET_KEY.test(k))),
           publicPort: cfg.publicPort ?? null,
           domain: cfg.domain ?? null,
           publicUrl,

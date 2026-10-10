@@ -3,12 +3,13 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
+import { publicLookup } from "@/server/net/public-fetch";
 import { type OrgContext, requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decryptOrNull, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
-import { hostIsPrivate } from "@/server/net/public-host";
+import { hostIsPrivate, publicAddress } from "@/server/net/public-host";
 import { sampleLine, syslogTarget } from "@/server/log-drains/config";
 
 const drainSchema = z
@@ -42,6 +43,16 @@ const drainSchema = z
   });
 
 type Secrets = { header?: { name: string; value: string }; username?: string; password?: string };
+
+/**
+ * Log drains cover the whole organization (any project's logs or events can go to them): members
+ * limited to some projects cannot change them, as with tags.
+ */
+async function requireOrgWide() {
+  const ctx = await requirePermission("integrations.manage");
+  if (ctx.projectIds) throw new UserError("Log drains cover every project: only members with access to all projects manage them.");
+  return ctx;
+}
 
 async function assertTarget(ctx: OrgContext, url: string) {
   // Logs and the test line go to this address: only the Root organization may point inside the network.
@@ -93,7 +104,7 @@ function resync() {
 
 export async function addLogDrain(input: z.input<typeof drainSchema>) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     const data = drainSchema.parse(input);
     await assertTarget(ctx, data.url);
     const id = newId();
@@ -132,7 +143,7 @@ async function getDrain(id: string, organizationId: string) {
 
 export async function updateLogDrain(id: string, input: z.input<typeof drainSchema>) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     const row = await getDrain(id, ctx.org.id);
     const data = drainSchema.parse(input);
     await assertTarget(ctx, data.url);
@@ -158,7 +169,7 @@ export async function updateLogDrain(id: string, input: z.input<typeof drainSche
 
 export async function setLogDrainEnabled(id: string, enabled: boolean) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     await getDrain(id, ctx.org.id);
     await db.update(schema.logDrain).set({ enabled, updatedAt: new Date() }).where(eq(schema.logDrain.id, id));
     resync();
@@ -172,7 +183,7 @@ export async function setLogDrainEnabled(id: string, enabled: boolean) {
  */
 export async function setServiceLogDrain(drainId: string, serviceId: string, on: boolean) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     const row = await getDrain(drainId, ctx.org.id);
     const { serviceInOrg } = await import("@/server/services/access");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
@@ -191,7 +202,7 @@ export async function setServiceLogDrain(drainId: string, serviceId: string, on:
 
 export async function deleteLogDrain(id: string) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     const row = await getDrain(id, ctx.org.id);
     await db.delete(schema.logDrain).where(eq(schema.logDrain.id, id));
     await logActivity({
@@ -210,13 +221,13 @@ export async function deleteLogDrain(id: string) {
 /** Send one sample line from the dashboard, the way Vector sends them, and report the answer. */
 export async function testLogDrain(id: string) {
   return act(async () => {
-    const ctx = await requirePermission("integrations.manage");
+    const ctx = await requireOrgWide();
     const row = await getDrain(id, ctx.org.id);
     await assertTarget(ctx, row.url);
     const secrets: Secrets = JSON.parse(decryptOrNull(row.secrets) ?? "{}");
     const line = sampleLine(ctx.org.id);
     if (row.kind === "syslog") {
-      await sendSyslogTest(row.url, line, !!row.options?.insecure);
+      await sendSyslogTest(row.url, line, !!row.options?.insecure, !ctx.isRoot);
       return null;
     }
     let url = row.url;
@@ -252,7 +263,7 @@ export async function testLogDrain(id: string) {
     }
     let res: { status: number; text: string };
     try {
-      res = await post(url, headers, body, !!row.options?.insecure);
+      res = await post(url, headers, body, !!row.options?.insecure, !ctx.isRoot);
     } catch (error) {
       throw new UserError(`Could not reach ${new URL(url).host}: ${(error as Error).message}`);
     }
@@ -264,24 +275,29 @@ export async function testLogDrain(id: string) {
   });
 }
 
-/** One RFC 5424 line over TCP, TLS or UDP, the way Vector sends them. */
-async function sendSyslogTest(url: string, line: ReturnType<typeof sampleLine>, insecure: boolean) {
+/**
+ * One RFC 5424 line over TCP, TLS or UDP, the way Vector sends them. `publicOnly`: the address
+ * connected to is checked, not only the one resolved earlier (a name could change in between).
+ */
+async function sendSyslogTest(url: string, line: ReturnType<typeof sampleLine>, insecure: boolean, publicOnly: boolean) {
   const target = syslogTarget(url);
   if (!target) throw new UserError("Use tcp://, tls:// or udp:// with a port.");
   const text = `<14>1 ${line.timestamp} ${line.server} ${line.service} - - - ${line.message}\n`;
   const fail = (error: Error) => new UserError(`Could not reach ${target.host}:${target.port}: ${error.message}`);
   if (target.mode === "udp") {
     const dgram = await import("node:dgram");
-    const socket = dgram.createSocket(target.host.includes(":") ? "udp6" : "udp4");
-    await new Promise<void>((resolve, reject) => socket.send(text, target.port, target.host, (error) => (error ? reject(fail(error)) : resolve()))).finally(() => socket.close());
+    const address = publicOnly ? await publicAddress(target.host) : target.host;
+    if (!address) throw new UserError(`${target.host} is on a private network or does not resolve.`);
+    const socket = dgram.createSocket(address.includes(":") ? "udp6" : "udp4");
+    await new Promise<void>((resolve, reject) => socket.send(text, target.port, address, (error) => (error ? reject(fail(error)) : resolve()))).finally(() => socket.close());
     return;
   }
   const net = await import("node:net");
   const tls = await import("node:tls");
   await new Promise<void>((resolve, reject) => {
     const socket = target.tls
-      ? tls.connect({ host: target.host, port: target.port, servername: target.host, rejectUnauthorized: !insecure })
-      : net.connect({ host: target.host, port: target.port });
+      ? tls.connect({ host: target.host, port: target.port, servername: target.host, rejectUnauthorized: !insecure, ...(publicOnly ? { lookup: publicLookup } : {}) })
+      : net.connect({ host: target.host, port: target.port, ...(publicOnly ? { lookup: publicLookup } : {}) });
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new UserError(`${target.host}:${target.port} did not answer in time.`));
@@ -299,14 +315,20 @@ async function sendSyslogTest(url: string, line: ReturnType<typeof sampleLine>, 
   });
 }
 
-/** One POST, the way Vector sends it: with `insecure`, a self-signed certificate is accepted. */
-async function post(url: string, headers: Record<string, string>, body: string, insecure: boolean): Promise<{ status: number; text: string }> {
+/** One POST, the way Vector sends it: with `insecure`, a self-signed certificate is accepted. `publicOnly`: as for syslog. */
+async function post(url: string, headers: Record<string, string>, body: string, insecure: boolean, publicOnly: boolean): Promise<{ status: number; text: string }> {
   const target = new URL(url);
   const lib = target.protocol === "https:" ? await import("node:https") : await import("node:http");
   return new Promise((resolve, reject) => {
     const req = lib.request(
       target,
-      { method: "POST", headers: { ...headers, "content-length": Buffer.byteLength(body) }, timeout: 10_000, ...(insecure ? { rejectUnauthorized: false } : {}) },
+      {
+        method: "POST",
+        headers: { ...headers, "content-length": Buffer.byteLength(body) },
+        timeout: 10_000,
+        ...(insecure ? { rejectUnauthorized: false } : {}),
+        ...(publicOnly ? { lookup: publicLookup } : {}),
+      },
       (res) => {
         let text = "";
         res.setEncoding("utf8");

@@ -48,7 +48,7 @@ export class PublicFetchError extends Error {}
  * checked is the address connected to: a name cannot resolve publicly for a check and
  * privately for the request (DNS rebinding).
  */
-const publicLookup: net.LookupFunction = (hostname, options, callback) => {
+export const publicLookup: net.LookupFunction = (hostname, options, callback) => {
   dns.lookup(hostname, { ...options, all: true }, (err, addresses) => {
     if (err) return callback(err, "", 4);
     const list = addresses as dns.LookupAddress[];

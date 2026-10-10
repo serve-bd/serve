@@ -355,7 +355,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
             }
           : undefined
       }
-      logDrains={section === "log-drains" ? await logDrainsProps(ctx.org.id, ctx.can("integrations.manage")) : undefined}
+      logDrains={section === "log-drains" ? await logDrainsProps(ctx.org.id, ctx.can("integrations.manage") && !ctx.projectIds) : undefined}
       tags={
         section === "general" && !service.parentServiceId
           ? {

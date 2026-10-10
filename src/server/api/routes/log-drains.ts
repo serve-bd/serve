@@ -37,7 +37,11 @@ export const logDrainRoutes: ApiRoute[] = [
     summary: "List log drains",
     description: "Header values and passwords are not shown: headerName, username and hasSecret say what is set.",
     needs: ["integrations.manage"],
-    handler: async ({ auth }) => ({ drains: await listDrains(auth.organizationId) }),
+    handler: async ({ auth }) => {
+      // Drains cover every project (their URLs can hold keys): not for tokens limited to some projects.
+      if (auth.projectIds) throw new ApiError(403, "Log drains cover every project: this token is limited to some projects.");
+      return { drains: await listDrains(auth.organizationId) };
+    },
   }),
   route({
     method: "POST",

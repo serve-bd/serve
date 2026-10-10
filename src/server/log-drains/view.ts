@@ -3,7 +3,11 @@ import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import { organizationServices } from "./sync";
 
-/** An organization's drains as pages show them (names of secrets only), with the projects and services they can pick. */
+/**
+ * An organization's drains as pages show them (names of secrets only), with the projects and
+ * services they can pick. Without `canManage` (a service's settings, for members who do not manage
+ * integrations): names and switches only. A URL can hold an API key, and the picker lists every project.
+ */
 export async function logDrainsProps(organizationId: string, canManage: boolean) {
   const [rows, projectRows, services] = await Promise.all([
     db.select().from(schema.logDrain).where(eq(schema.logDrain.organizationId, organizationId)).orderBy(desc(schema.logDrain.createdAt)),
@@ -17,10 +21,10 @@ export async function logDrainsProps(organizationId: string, canManage: boolean)
       id: r.id,
       name: r.name,
       kind: r.kind,
-      url: r.url,
+      url: canManage ? r.url : "",
       enabled: r.enabled,
-      headerName: secrets.header?.name ?? null,
-      username: secrets.username ?? null,
+      headerName: canManage ? (secrets.header?.name ?? null) : null,
+      username: canManage ? (secrets.username ?? null) : null,
       hasSecret: !!(secrets.header?.value || secrets.password),
       projectIds: r.projectIds?.length ? r.projectIds : null,
       serviceIds: r.serviceIds?.length ? r.serviceIds : null,
@@ -29,6 +33,6 @@ export async function logDrainsProps(organizationId: string, canManage: boolean)
       insecure: !!r.options?.insecure,
     };
   });
-  const projects = projectRows.map((p) => ({ ...p, services: services.filter((s) => s.projectId === p.id).map((s) => ({ id: s.id, name: s.name })) }));
+  const projects = (canManage ? projectRows : []).map((p) => ({ ...p, services: services.filter((s) => s.projectId === p.id).map((s) => ({ id: s.id, name: s.name })) }));
   return { drains, projects, canManage };
 }

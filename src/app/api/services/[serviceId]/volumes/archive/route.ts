@@ -3,6 +3,7 @@ import { serviceInOrg } from "@/server/services/access";
 import { serverOf } from "@/server/servers/context";
 import { listServiceContainers } from "@/server/docker/client";
 import { serviceHasHostAccess } from "@/server/security";
+import path from "node:path";
 import { Readable } from "node:stream";
 
 export const dynamic = "force-dynamic";
@@ -38,8 +39,19 @@ export async function GET(request: Request, ctx: RouteContext<"/api/services/[se
     (c) => c.State === "running" && (!composeName || c.Labels["com.docker.compose.service"] === composeName),
   );
   if (!container) return new Response("Start the service first: the archive is read from its running container.", { status: 409 });
+  // A volume or mount of the container only: the rest of its files are the console's (console.access).
+  const mounts = (
+    (
+      await server.docker
+        .getContainer(container.Id)
+        .inspect()
+        .catch(() => null)
+    )?.Mounts ?? []
+  ).map((m) => m.Destination);
+  const wanted = path.posix.normalize(mountPath);
+  if (!mounts.some((m) => wanted === m || wanted.startsWith(`${m.replace(/\/+$/, "")}/`))) return new Response("Choose one of the service's volumes or mounts.", { status: 400 });
   try {
-    const stream = (await server.docker.getContainer(container.Id).getArchive({ path: mountPath })) as unknown as NodeJS.ReadableStream;
+    const stream = (await server.docker.getContainer(container.Id).getArchive({ path: wanted })) as unknown as NodeJS.ReadableStream;
     const name = `${service.slug}${mountPath.replace(/[^\w.-]+/g, "-")}-${new Date().toISOString().slice(0, 10)}.tar`;
     return new Response(Readable.toWeb(stream as Readable) as ReadableStream, {
       headers: { "content-type": "application/x-tar", "content-disposition": `attachment; filename="${name}"` },

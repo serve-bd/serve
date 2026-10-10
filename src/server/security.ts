@@ -35,13 +35,50 @@ export function containedPath(base: string, relative: string, label = "Path"): s
 const DANGEROUS_KEYS = ["privileged", "cap_add", "devices", "security_opt", "sysctls", "userns_mode", "cgroup_parent", "device_cgroup_rules"];
 const HOST_MODES = ["pid", "ipc", "uts", "network_mode"];
 
-/** Compose YAML as Docker Compose reads it: merge keys (`<<: *anchor`) resolved. */
-function parseCompose(content: string): Record<string, unknown> | null {
+/** Tags a compose file may use: the plain YAML types. */
+const PLAIN_TAGS = new Set(["str", "int", "float", "bool", "null", "map", "seq", "merge"].map((t) => `tag:yaml.org,2002:${t}`));
+
+/**
+ * The first YAML tag in the file beyond the plain types (`!!binary`, `!!timestamp`, `!custom`…),
+ * or null. A tag can hide a value from these checks (`!!binary aG9zdA==` is "host" to Docker
+ * Compose but bytes here), so a file with one is refused.
+ */
+function unusualTag(content: string): string | null {
+  let found: string | null = null;
   try {
-    return (YAML.parse(content, { merge: true }) as Record<string, unknown>) ?? {};
+    YAML.visit(YAML.parseDocument(content, { merge: true }), (_key, node) => {
+      const tag = (node as { tag?: string }).tag;
+      if (tag && !PLAIN_TAGS.has(tag)) {
+        found = tag.replace(/^tag:yaml\.org,2002:/, "!!");
+        return YAML.visit.BREAK;
+      }
+    });
   } catch {
     return null;
   }
+  return found;
+}
+
+/**
+ * Compose YAML as Docker Compose reads it: merge keys (`<<: *anchor`) resolved. Null when it is not
+ * valid YAML or uses an unusual tag (see unusualTag): the checks below then refuse it.
+ */
+function parseCompose(content: string): Record<string, unknown> | null {
+  try {
+    if (unusualTag(content)) return null;
+    const doc = YAML.parse(content, { merge: true }) as unknown;
+    if (doc === null || doc === undefined) return {};
+    return typeof doc === "object" && !Array.isArray(doc) ? (doc as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Why a compose file cannot be checked at all, or null when it can. */
+function unreadable(content: string): string | null {
+  const tag = unusualTag(content);
+  if (tag) return `the YAML tag "${tag}" is not allowed`;
+  return parseCompose(content) ? null : "the compose file is not valid YAML";
 }
 
 /** `${VAR}` in a value: Compose fills it in later, from the service's variables (`$$` is a plain `$`). */
@@ -55,13 +92,16 @@ const interpolated = (v: unknown) => typeof v === "string" && v.replaceAll("$$",
  */
 export function composeNetworkIssues(content: string): string[] {
   const doc = parseCompose(content) as { services?: Record<string, Record<string, unknown>>; networks?: Record<string, Record<string, unknown> | null> } | null;
-  if (!doc) return [];
+  if (!doc) return [unreadable(content) ?? "the compose file cannot be read"];
   const issues: string[] = [];
   const reserved = (name: unknown) => typeof name === "string" && /^serve($|[-_.])/i.test(name.trim());
   for (const [name, net] of Object.entries(doc.networks ?? {})) {
     if (!net || typeof net !== "object") continue;
     // Naming the stack's own network is fine; an outside one, a reserved or a variable name is not.
     if (net.external) issues.push(`network ${name}: outside networks are not allowed`);
+    // macvlan, ipvlan, host…: a container straight on the host's own network, past the proxy.
+    else if (net.driver !== undefined && net.driver !== "bridge") issues.push(`network ${name}: the driver "${String(net.driver)}" is not allowed`);
+    else if (net.driver_opts) issues.push(`network ${name}: driver_opts are not allowed`);
     else if (reserved(net.name) || interpolated(net.name)) issues.push(`network ${name}: the name "${net.name}" is not allowed`);
   }
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
@@ -97,7 +137,8 @@ export function composeSecurityIssues(content: string): string[] {
     configs?: Record<string, { file?: unknown } | null>;
     include?: unknown;
   } | null;
-  if (!doc) return [];
+  // What cannot be checked is refused, never let through.
+  if (!doc) return [unreadable(content) ?? "the compose file cannot be read"];
   const issues: string[] = [];
   // Other files are not checked here, so they cannot be pulled in.
   if (doc.include) issues.push(`"include" is not allowed`);
@@ -141,6 +182,11 @@ export function composeSecurityIssues(content: string): string[] {
         if (!/^(docker-image|service|oci-layout|https?|git):/i.test(c) && (outside(c) || interpolated(c))) issues.push(`${name}: build context "${c}" is not allowed`);
       }
       if (b.ssh) issues.push(`${name}: "build.ssh" is not allowed`);
+      // The host's network (its loopback services) or extra rights for RUN steps.
+      const bn = (build as { network?: unknown }).network;
+      if (bn !== undefined && bn !== "default" && bn !== "none") issues.push(`${name}: "build.network: ${String(bn)}" is not allowed`);
+      if ((build as { privileged?: unknown }).privileged) issues.push(`${name}: "build.privileged" is not allowed`);
+      if ((build as { entitlements?: unknown }).entitlements) issues.push(`${name}: "build.entitlements" is not allowed`);
       if (b.secrets) issues.push(`${name}: "build.secrets" is not allowed`);
       if (typeof b.dockerfile === "string" && (outside(b.dockerfile) || interpolated(b.dockerfile))) issues.push(`${name}: dockerfile "${b.dockerfile}" is not allowed`);
     }

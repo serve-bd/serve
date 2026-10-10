@@ -94,7 +94,8 @@ export function requestRow(entry: AccessEntry, target: LogTarget, serverId: stri
     bytes: Math.max(0, entry.b || 0),
     ip: target.config.ips ? clean(entry.ip, 64) : null,
     userAgent: clean(entry.ua, MAX_TEXT),
-    referer: clean(entry.ref, MAX_TEXT),
+    // Like the path: no query or fragment (a reset or sign-in link's token would be kept otherwise).
+    referer: clean(entry.ref?.replace(/[?#].*$/, ""), MAX_TEXT),
     // nginx lists every upstream it tried ("a:80, b:80"); the last one answered. Serve's error pages
     // (which replace a 5xx page) are not where the request went.
     upstream: clean(

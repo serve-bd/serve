@@ -8,7 +8,8 @@ export const metadata = { title: "Notifications" };
 
 export default async function NotificationsPage() {
   const ctx = await requireOrg();
-  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
+  // Channels cover every project: members limited to some projects do not manage them.
+  if (!ctx.can("integrations.manage") || ctx.projectIds) return <NoAccess permission="integrations.manage" />;
   const [rows, deliveries] = await Promise.all([
     db.select().from(schema.notificationChannel).where(eq(schema.notificationChannel.organizationId, ctx.org.id)).orderBy(desc(schema.notificationChannel.createdAt)),
     db

@@ -1,5 +1,6 @@
 "use server";
 
+import { cannotMessage } from "@/lib/permissions";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
@@ -37,8 +38,17 @@ export async function saveDeployRules(projectId: string, input: z.input<typeof r
     const envs = await db.select({ id: schema.environment.id }).from(schema.environment).where(eq(schema.environment.projectId, projectId));
     const known = (ids: string[]) => ids.filter((id) => envs.some((e) => e.id === id));
     const before = project.deployRules?.freeze?.now ?? null;
+    // Who may approve decides which deploys wait, as for a service's own approval.
+    const approvalBefore = project.deployRules?.approval;
+    const approvalAfter = { enabled: data.approval.enabled, environmentIds: known(data.approval.environmentIds) };
+    const sameApproval =
+      !!approvalBefore?.enabled === approvalAfter.enabled &&
+      known(approvalBefore?.environmentIds ?? [])
+        .sort()
+        .join() === [...approvalAfter.environmentIds].sort().join();
+    if (!sameApproval && !ctx.can("deploys.approve")) throw new UserError(cannotMessage("deploys.approve"));
     const rules: DeployRules = {
-      approval: { enabled: data.approval.enabled, environmentIds: known(data.approval.environmentIds) },
+      approval: approvalAfter,
       freeze: {
         // Turned on now keeps the moment it started; still on keeps it as it was.
         now: data.freeze.now ? { since: before?.since ?? new Date().toISOString(), until: data.freeze.now.until, reason: data.freeze.now.reason || null } : null,

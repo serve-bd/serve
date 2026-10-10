@@ -60,7 +60,11 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           eq(schema.cloudflareTunnel.organizationId, ctx.org.id),
           eq(schema.cloudflareTunnel.serverId, service.serverId),
           // The server's own tunnels, and this app's shared one (never another app's).
-          or(isNull(schema.cloudflareTunnel.serviceId), eq(schema.cloudflareTunnel.serviceId, service.id)),
+          // Its shared tunnel only while Closest server is on: turned off, it winds down for a few minutes.
+          or(
+            isNull(schema.cloudflareTunnel.serviceId),
+            and(eq(schema.cloudflareTunnel.serviceId, service.id), sql`exists (select 1 from ${schema.domain} where ${schema.domain.tunnelId} = ${schema.cloudflareTunnel.id})`),
+          ),
         ),
       )
       // The app's shared tunnel first: a new domain of its account goes to the closest server too.

@@ -55,7 +55,8 @@ export type JobType =
   | "database.branch"
   | "mesh.sync"
   | "commit.status"
-  | "tunnel.sync";
+  | "tunnel.sync"
+  | "cloudflare-tunnel.settle";
 
 export type JobPayloads = {
   /** `force`: started at once, past the build server's slot limit (someone chose Force start). */
@@ -64,6 +65,11 @@ export type JobPayloads = {
   /** Report a deployment's state on its commit; `status` is the state it was queued for. */
   "commit.status": { deploymentId: string; status: import("@/server/db/schema").DeploymentStatus };
   "tunnel.sync": Record<string, never>;
+  /**
+   * After names moved between Cloudflare Tunnels: Cloudflare's offices keep sending them to the old
+   * tunnel for a few minutes, so its route goes only now. `remove`: a tunnel no domain uses any more.
+   */
+  "cloudflare-tunnel.settle": { sync: string[]; remove?: string | null };
   "service.stop": { serviceId: string };
   "service.start": { serviceId: string };
   "service.restart": { serviceId: string };

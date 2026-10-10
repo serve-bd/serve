@@ -14,6 +14,7 @@ import { closestServerPlan } from "@/server/services/closest-server";
 import { entryPlan, entryProblem } from "@/server/services/entry-plan";
 import { entryDomains, entryServers } from "@/server/services/entry-servers";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
+import { enqueue } from "@/server/queue";
 
 async function loadApp(serviceId: string) {
   const ctx = await requirePermission("services.manage");
@@ -34,7 +35,13 @@ async function loadApp(serviceId: string) {
 export async function enableClosestServer(serviceId: string, accountId: string) {
   return act(async () => {
     const { ctx, service, shared } = await loadApp(serviceId);
-    if (shared) throw new UserError("Closest server is already on.");
+    if (shared) {
+      // Turned off a moment ago, it still serves while Cloudflare moves the names: it can go now.
+      const [used] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.tunnelId, shared.id)).limit(1);
+      if (used) throw new UserError("Closest server is already on.");
+      const { deleteTunnel } = await import("@/server/cloudflare/tunnels");
+      await deleteTunnel(shared.id);
+    }
     if (!normalizeDistribution(service.serverId, service.distribution).extraServerIds.length)
       throw new UserError("Run the app on another server first: tick one in Servers and deploy.");
     const [account] = await db
@@ -66,7 +73,7 @@ export async function enableClosestServer(serviceId: string, accountId: string) 
           : "Add a domain to the app first.",
       );
 
-    const { createAppTunnel, deleteTunnel, syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+    const { createAppTunnel, deleteTunnel, syncTunnelIngress, TUNNEL_SETTLE_MS } = await import("@/server/cloudflare/tunnels");
     let tunnel: Awaited<ReturnType<typeof createAppTunnel>>;
     try {
       tunnel = await createAppTunnel({ organizationId: ctx.org.id, cloudflareAccountId: account.id, service, hostnames: plan.move.map((d) => d.hostname) });
@@ -113,9 +120,10 @@ export async function enableClosestServer(serviceId: string, accountId: string) 
       .set({ distribution: { ...(service.distribution ?? {}), loadBalance: false }, balance: null })
       .where(eq(schema.service.id, serviceId));
     const warnings: string[] = [...failed];
-    // Only the names that moved stay routed; the tunnels they left forget them.
+    // Only the names that moved stay routed. The tunnels they left keep their route a few minutes:
+    // Cloudflare's offices take that long to send the names to the new tunnel.
     await syncTunnelIngress(tunnel.id).catch((e) => warnings.push(`Tunnel routes: ${(e as Error).message}`));
-    for (const id of previousTunnels) await syncTunnelIngress(id).catch(() => {});
+    if (previousTunnels.size) await enqueue("cloudflare-tunnel.settle", { sync: [...previousTunnels] }, { runAt: new Date(Date.now() + TUNNEL_SETTLE_MS) });
     await syncServiceProxy(serviceId).catch((e) => warnings.push(`Proxy not updated: ${(e as Error).message}`));
 
     await logActivity({
@@ -139,6 +147,9 @@ export async function disableClosestServer(serviceId: string) {
   return act(async () => {
     const { ctx, service, shared } = await loadApp(serviceId);
     if (!shared) return { warnings: [] as string[] };
+    const [used] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.tunnelId, shared.id)).limit(1);
+    // Already off: it only serves until Cloudflare has moved the names.
+    if (!used) return { warnings: [] as string[] };
     const servers = await entryServers(service, ctx.org.id);
     const main = servers.find((s) => s.main);
     if (!main) throw new UserError("Main server not found.");
@@ -150,7 +161,7 @@ export async function disableClosestServer(serviceId: string) {
     );
     if (plan.blockers.length) throw new UserError(plan.blockers.join(" "));
 
-    const { deleteTunnel, syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+    const { syncTunnelIngress, TUNNEL_SETTLE_MS } = await import("@/server/cloudflare/tunnels");
     const rows = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
     const failed: string[] = [];
     const touched = new Set<string>();
@@ -191,8 +202,9 @@ export async function disableClosestServer(serviceId: string) {
       await syncTunnelIngress(shared.id).catch(() => {});
       throw new UserError(`Closest server stays on until every domain has moved back. ${failed.join(" ")}`);
     }
-    await deleteTunnel(shared.id);
-    for (const id of touched) await syncTunnelIngress(id).catch(() => {});
+    // The shared tunnel keeps serving a few minutes, while Cloudflare moves the names to their new route.
+    await syncTunnelIngress(shared.id).catch(() => {});
+    await enqueue("cloudflare-tunnel.settle", { sync: [], remove: shared.id }, { runAt: new Date(Date.now() + TUNNEL_SETTLE_MS) });
 
     await logActivity({
       userId: ctx.user.id,

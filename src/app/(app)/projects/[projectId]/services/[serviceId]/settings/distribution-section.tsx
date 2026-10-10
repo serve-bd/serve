@@ -546,7 +546,7 @@ function ClosestServerCard({ serviceId, primaryName, closest, canEdit }: { servi
                 if (
                   await confirm({
                     title: "Turn Closest server on?",
-                    description: `The app's domains in ${account?.name}'s zones move to a new Cloudflare Tunnel with a connector on every server of the app. Load balancing turns off: each server serves the visitors nearest to it. Databases stay where they are, so a far server reaches them over the private network.`,
+                    description: `The app's domains in ${account?.name}'s zones move to a new Cloudflare Tunnel with a connector on every server of the app. Load balancing turns off: each server serves the visitors nearest to it. Databases stay where they are, so a far server reaches them over the private network. Starting the connectors takes up to a minute.`,
                     confirmLabel: "Turn on",
                   })
                 )

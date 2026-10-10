@@ -191,7 +191,9 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     if (problem) throw new UserError(problem);
     // Closest server already spreads the visitors: each server serves its own, the main server none of the others'.
     const [shared] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serviceId, serviceId));
-    if (shared && balances(service.serverId, dist))
+    // A shared tunnel without domains is only winding down after Closest server was turned off.
+    const [closestOn] = shared ? await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.tunnelId, shared.id)).limit(1) : [];
+    if (closestOn && balances(service.serverId, dist))
       throw new UserError("Closest server is on: Cloudflare already sends each visitor to the nearest server. Turn it off to load balance instead.");
     // Load balancing reaches other servers only through a private network: refused without one.
     if (balances(service.serverId, dist)) {

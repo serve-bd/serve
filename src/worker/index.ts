@@ -156,6 +156,10 @@ async function handle(job: Job, signal: AbortSignal) {
       return syncMesh();
     case "tunnel.sync":
       return syncTunnels();
+    case "cloudflare-tunnel.settle": {
+      const { settleTunnels } = await import("@/server/cloudflare/tunnels");
+      return settleTunnels(job.payload as JobPayloads["cloudflare-tunnel.settle"]);
+    }
     case "proxy.switch": {
       const { switchProxy } = await import("@/server/proxy/switch");
       return switchProxy(p.serverId, p.to as ProxyKind);

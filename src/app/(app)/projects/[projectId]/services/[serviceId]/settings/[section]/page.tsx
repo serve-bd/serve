@@ -177,9 +177,12 @@ async function distributionProps(service: typeof schema.service.$inferSelect, se
     canEdit: isAdmin && !service.parentServiceId,
     // Closest server: the app's shared tunnel, and the accounts one can be made in.
     closest: {
-      tunnel: shared
-        ? { ...shared, hostnames: (await db.select({ hostname: schema.domain.hostname }).from(schema.domain).where(eq(schema.domain.tunnelId, shared.id))).map((d) => d.hostname) }
-        : null,
+      // One without domains is winding down after it was turned off: off already.
+      tunnel: await (async () => {
+        if (!shared) return null;
+        const hostnames = (await db.select({ hostname: schema.domain.hostname }).from(schema.domain).where(eq(schema.domain.tunnelId, shared.id))).map((d) => d.hostname);
+        return hostnames.length ? { ...shared, hostnames } : null;
+      })(),
       accounts,
     },
   };

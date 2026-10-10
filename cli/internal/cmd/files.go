@@ -586,18 +586,20 @@ func saveAtomic(dest string, r io.Reader) (int64, error) {
 	return n, nil
 }
 
-// extractTarGz unpacks into dir. Entries that would land outside it are refused, links that
-// point outside it are skipped, and existing files are kept unless force.
+// extractTarGz unpacks into dir. Every write goes through an os.Root on dir, which refuses any
+// path that would leave it, links included (one link to "..", then a link inside it, cannot lead
+// out). Entries with ".." or an absolute name are refused, links that point outside are skipped,
+// and existing files are kept unless force.
 func extractTarGz(r io.Reader, dir string, force bool) (int, error) {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return 0, fmt.Errorf("the download is not a .tar.gz: %w", err)
 	}
-	root, err := filepath.Abs(dir)
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return 0, err
 	}
-	inside := func(p string) bool { return p == root || strings.HasPrefix(p, root+string(filepath.Separator)) }
+	defer root.Close()
 	tr := tar.NewReader(gz)
 	files := 0
 	for {
@@ -608,44 +610,78 @@ func extractTarGz(r io.Reader, dir string, force bool) (int, error) {
 		if err != nil {
 			return files, fmt.Errorf("the download did not finish: %w", err)
 		}
-		target := filepath.Join(root, filepath.FromSlash(h.Name))
-		if !inside(target) {
+		name := filepath.FromSlash(strings.TrimPrefix(h.Name, "./"))
+		if name == "" || name == "." {
+			continue
+		}
+		if !filepath.IsLocal(name) {
 			return files, fmt.Errorf("refused %q: it would be written outside %s", h.Name, dir)
+		}
+		name = filepath.Clean(name)
+		shown := filepath.Join(dir, name)
+		exists := func() error {
+			if _, err := root.Lstat(name); err == nil {
+				if !force {
+					return fmt.Errorf("%s already exists. Pass --force to replace it", shown)
+				}
+				if err := root.Remove(name); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 		switch h.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return files, err
+			if err := root.MkdirAll(name, 0o755); err != nil {
+				return files, fmt.Errorf("refused %q: %w", h.Name, err)
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+				return files, fmt.Errorf("refused %q: %w", h.Name, err)
+			}
+			if err := exists(); err != nil {
 				return files, err
 			}
-			if _, err := os.Lstat(target); err == nil && !force {
-				return files, fmt.Errorf("%s already exists. Pass --force to replace it", target)
-			}
-			if _, err := saveAtomic(target, tr); err != nil {
+			if err := saveInRoot(root, name, tr, fs.FileMode(h.Mode)&0o777); err != nil {
 				return files, err
 			}
-			_ = os.Chmod(target, fs.FileMode(h.Mode)&0o777)
 			files++
 		case tar.TypeSymlink:
-			dest := h.Linkname
-			if !filepath.IsAbs(dest) {
-				dest = filepath.Join(filepath.Dir(target), dest)
-			}
-			if filepath.IsAbs(h.Linkname) || !inside(filepath.Clean(dest)) {
+			// Only relative links that stay inside: an absolute one would mean this machine's paths.
+			if filepath.IsAbs(h.Linkname) || !filepath.IsLocal(filepath.Join(filepath.Dir(name), filepath.FromSlash(h.Linkname))) {
 				continue
 			}
-			if _, err := os.Lstat(target); err == nil {
-				if !force {
-					return files, fmt.Errorf("%s already exists. Pass --force to replace it", target)
-				}
-				os.Remove(target)
+			if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+				return files, fmt.Errorf("refused %q: %w", h.Name, err)
 			}
-			if err := os.Symlink(h.Linkname, target); err != nil {
+			if err := exists(); err != nil {
+				return files, err
+			}
+			if err := root.Symlink(h.Linkname, name); err != nil {
 				return files, err
 			}
 		}
 	}
+}
+
+// saveInRoot writes r to a temporary file next to name inside root, then renames it: a cut-off
+// download leaves no half file behind.
+func saveInRoot(root *os.Root, name string, r io.Reader, mode fs.FileMode) error {
+	tmp := filepath.Join(filepath.Dir(name), fmt.Sprintf(".%s.serve-%d", filepath.Base(name), os.Getpid()))
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode|0o200)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(f, r)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = root.Rename(tmp, name)
+	}
+	if err != nil {
+		_ = root.Remove(tmp)
+		return fmt.Errorf("the download did not finish: %w", err)
+	}
+	return root.Chmod(name, mode)
 }

@@ -340,3 +340,33 @@ func TestLsTable(t *testing.T) {
 		t.Fatalf("relative path: %+v", r)
 	}
 }
+
+// A folder from a server can hold links made by whoever has access there. A link to "..", then a
+// link inside it to "..", each look inside on their own; a file written through both would land
+// outside the folder. Nothing may be written outside it.
+func TestExtractRefusesChainedLinks(t *testing.T) {
+	base := t.TempDir()
+	out := filepath.Join(base, "out")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	tw.WriteHeader(&tar.Header{Name: "a/", Typeflag: tar.TypeDir, Mode: 0o755})
+	tw.WriteHeader(&tar.Header{Name: "a/up", Typeflag: tar.TypeSymlink, Linkname: ".."})
+	tw.WriteHeader(&tar.Header{Name: "a/up/up2", Typeflag: tar.TypeSymlink, Linkname: ".."})
+	tw.WriteHeader(&tar.Header{Name: "a/up/up2/escaped.txt", Typeflag: tar.TypeReg, Mode: 0o644, Size: 3})
+	io.WriteString(tw, "bad")
+	tw.Close()
+	gz.Close()
+	_, err := extractTarGz(bytes.NewReader(buf.Bytes()), out, false)
+	if _, statErr := os.Stat(filepath.Join(base, "escaped.txt")); statErr == nil {
+		t.Fatal("a file was written outside the folder")
+	}
+	if err == nil {
+		if _, statErr := os.Stat(filepath.Join(out, "escaped.txt")); statErr != nil {
+			t.Fatalf("no error, and the file is nowhere inside either")
+		}
+	}
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { QuietDot } from "@/components/ui/status";
+import { Led, StatusDot } from "@/components/ui/status";
 import { useNow } from "@/hooks/use-client";
 import { formatDuration } from "@/lib/utils";
 
@@ -19,6 +19,19 @@ export type DeploymentTableRow = {
   environmentName: string | null;
   serverName: string | null;
 };
+
+/** How a finished deployment ended, as a light: green, red, or grey for cancelled. */
+const ENDED: Record<string, { color: string; off?: boolean }> = {
+  success: { color: "var(--ok)" },
+  failed: { color: "var(--bad)" },
+  cancelled: { color: "var(--idle)", off: true },
+};
+
+function DeployLight({ status }: { status: string }) {
+  const ended = ENDED[status];
+  // Still queued or building: its own light, which moves.
+  return ended ? <Led color={ended.color} off={ended.off} /> : <StatusDot status={status} kind="deployment" />;
+}
 
 function dayLabel(date: Date, now: Date) {
   const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
@@ -63,7 +76,7 @@ export function DeployTimeline({ rows }: { rows: DeploymentTableRow[] }) {
                       {now ? new Date(d.createdAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}
                     </time>
                     <span className="flex h-5 items-center justify-center">
-                      <QuietDot status={d.status} kind="deployment" />
+                      <DeployLight status={d.status} />
                     </span>
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className="flex min-w-0 items-baseline gap-2 leading-5">

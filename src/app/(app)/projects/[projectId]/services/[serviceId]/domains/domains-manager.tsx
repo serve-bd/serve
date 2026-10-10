@@ -26,7 +26,7 @@ import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHea
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { SwitchRow } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Led } from "@/components/ui/status";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -775,26 +775,15 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                   </>
                 )}
                 {zone && !viaTunnel && (
-                  <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4">
-                    <div className="flex items-center gap-2 text-[13px] font-medium text-fg">
-                      <Cloud className="size-4 text-[#f38020]" /> Found {zone.zoneName} in Cloudflare ({zone.accountName})
-                    </div>
-                    <SwitchRow
-                      title="Create the DNS record"
-                      description={p.serverIp ? `A record → ${p.serverIp}` : "Set the server IP in Server settings first."}
-                      checked={createRecord}
-                      onCheckedChange={setCreateRecord}
-                    />
-                    <SwitchRow
-                      title="Proxy through Cloudflare"
-                      description="Orange cloud. Hides your server IP and adds Cloudflare's CDN and DDoS protection."
-                      checked={proxied}
-                      onCheckedChange={setProxied}
-                    />
-                    {https && (p.proxyKind ?? "nginx") === "nginx" && (
-                      <p className="text-xs text-muted">The certificate is validated through Cloudflare DNS, so it works even when proxied.</p>
-                    )}
-                  </div>
+                  <CloudflareDnsBox
+                    zone={zone}
+                    ip={p.serverIp}
+                    record={createRecord}
+                    onRecord={setCreateRecord}
+                    proxied={proxied}
+                    onProxied={setProxied}
+                    note={https && (p.proxyKind ?? "nginx") === "nginx" ? "The certificate is checked through Cloudflare DNS, so it works when proxied." : undefined}
+                  />
                 )}
                 {!zone && hostname && p.isAdmin && p.tunnels.length > 0 && (
                   <p className="text-xs leading-relaxed text-muted">Domains in {p.tunnels.map((t) => t.accountName).join(" or ")} can use the Cloudflare Tunnel of this server.</p>
@@ -1070,33 +1059,22 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
               </>
             )}
             {zone && !viaTunnel && (
-              <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4">
-                <div className="flex items-center gap-2 text-[13px] font-medium text-fg">
-                  <Cloud className="size-4 text-[#f38020]" /> {zone.zoneName} in Cloudflare ({zone.accountName})
-                </div>
-                {props.isAdmin ? (
-                  <>
-                    <SwitchRow
-                      title={domain.managedRecord && !renamed && !routeChanged ? "Keep the DNS record" : "Create the DNS record"}
-                      description={
-                        props.serverIp ? `A record → ${props.serverIp}${keepRecord ? "" : ". Off removes the one Serve made."}` : "Set the server IP in Server settings first."
-                      }
-                      checked={keepRecord}
-                      onCheckedChange={setRecord}
-                    />
-                    {keepRecord && (
-                      <SwitchRow
-                        title="Proxy through Cloudflare"
-                        description="Orange cloud. Hides your server IP and adds Cloudflare's CDN and DDoS protection."
-                        checked={isProxied}
-                        onCheckedChange={setProxied}
-                      />
-                    )}
-                  </>
-                ) : (
-                  <p className="text-xs text-muted">An organization admin can change its DNS record.</p>
-                )}
-              </div>
+              <CloudflareDnsBox
+                zone={zone}
+                ip={props.serverIp}
+                record={keepRecord}
+                onRecord={setRecord}
+                proxied={isProxied}
+                onProxied={setProxied}
+                readOnly={!props.isAdmin}
+                note={
+                  !props.isAdmin
+                    ? "An organization admin can change its DNS record."
+                    : !keepRecord && domain.managedRecord
+                      ? "Unticked: the A record Serve made is removed."
+                      : undefined
+                }
+              />
             )}
             {!zone && renamed && validHost && props.serverIp && !viaTunnel && <DnsRecordTable hostname={hostname} ip={props.serverIp} />}
           </DialogBody>
@@ -1343,5 +1321,78 @@ export function DomainsManager(props: Props) {
       <AddDomainDialog props={props} open={open} onOpenChange={setOpen} />
       {editing && <EditDomainDialog key={editing.id} props={props} domain={editing} onClose={() => setEditing(null)} />}
     </Card>
+  );
+}
+
+/** The A record Serve makes in the domain's Cloudflare zone, and its orange cloud: one compact box. */
+function CloudflareDnsBox({
+  zone,
+  ip,
+  record,
+  onRecord,
+  proxied,
+  onProxied,
+  readOnly,
+  note,
+}: {
+  zone: { zoneName: string; accountName: string };
+  ip: string | null | undefined;
+  record: boolean;
+  onRecord: (on: boolean) => void;
+  proxied: boolean;
+  onProxied: (on: boolean) => void;
+  readOnly?: boolean;
+  note?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-[13px]">
+      <div className="flex min-w-0 items-center gap-2 text-fg-2" title={`Cloudflare account: ${zone.accountName}`}>
+        <Cloud className="size-4 flex-none text-[#f38020]" />
+        <span className="truncate">
+          <span className="font-medium text-fg">{zone.zoneName}</span> is in Cloudflare
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <label className="flex items-center gap-2">
+          <Checkbox checked={record} disabled={readOnly || !ip} onCheckedChange={(c) => onRecord(!!c)} />
+          {ip ? (
+            <span>
+              A record → <span className="font-mono text-[12px]">{ip}</span>
+            </span>
+          ) : (
+            <span className="text-muted">A record (set the server IP first)</span>
+          )}
+        </label>
+        {record && (
+          // Cloudflare's own "Proxy status" control.
+          <div role="radiogroup" aria-label="Proxy status" className="flex items-center rounded-lg border border-line bg-surface p-0.5 text-[12px] font-medium">
+            {(
+              [
+                [true, "Proxied", "Visitors reach Cloudflare, which forwards them to the server: hides its IP, adds CDN and DDoS protection."],
+                [false, "DNS only", "Visitors connect straight to the server's IP."],
+              ] as const
+            ).map(([value, label, help]) => (
+              <Tooltip key={label} content={help}>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={proxied === value}
+                  disabled={readOnly}
+                  onClick={() => onProxied(value)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-2.5 py-1 transition-colors disabled:opacity-60",
+                    proxied === value ? "bg-surface-2 text-fg shadow-sm" : "text-muted hover:text-fg",
+                  )}
+                >
+                  <Cloud className={cn("size-3.5", value ? "text-[#f38020]" : "text-faint")} />
+                  {label}
+                </button>
+              </Tooltip>
+            ))}
+          </div>
+        )}
+      </div>
+      {note && <p className="text-xs text-muted">{note}</p>}
+    </div>
   );
 }

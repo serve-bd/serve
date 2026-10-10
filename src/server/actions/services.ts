@@ -1766,14 +1766,38 @@ const domainSchema = z.object({
   tunnelId: z.string().nullable().optional(),
 });
 
-/** A certificate of this organization stored on `serverId`: the proxy there can only serve its own files. */
-async function certificateOnServer(certificateId: string, orgId: string, serverId: string) {
+/**
+ * The certificate to use on `serverId`: the proxy there can only serve its own files. One of this
+ * organization stored on another server is copied there (once: a copy made before is used again).
+ */
+async function certificateOnServer(certificateId: string, orgId: string, serverId: string): Promise<string> {
   const [cert] = await db
-    .select({ serverId: schema.certificate.serverId })
+    .select()
     .from(schema.certificate)
     .where(and(eq(schema.certificate.id, certificateId), eq(schema.certificate.organizationId, orgId)));
   if (!cert) throw new UserError("Certificate not found.");
-  if (cert.serverId !== serverId) throw new UserError("That certificate is stored on another server. Upload it for this service's server to use it here.");
+  if (cert.serverId === serverId) return cert.id;
+  const [copied] = await db
+    .select({ id: schema.certificate.id, domains: schema.certificate.domains })
+    .from(schema.certificate)
+    .where(
+      and(
+        eq(schema.certificate.organizationId, orgId),
+        eq(schema.certificate.serverId, serverId),
+        eq(schema.certificate.name, cert.name),
+        eq(schema.certificate.provider, cert.provider),
+        eq(schema.certificate.status, "active"),
+        dsql`${schema.certificate.expiresAt} is not distinct from ${cert.expiresAt}`,
+      ),
+    );
+  if (copied && JSON.stringify([...copied.domains].sort()) === JSON.stringify([...cert.domains].sort())) return copied.id;
+  if (cert.status !== "active" || !cert.certPath) throw new UserError("That certificate is not active, so it cannot be copied to this server.");
+  const { copyCertificate } = await import("@/server/ssl/certificates");
+  try {
+    return (await copyCertificate(cert, serverId)).id;
+  } catch (e) {
+    throw new UserError(`Could not copy the certificate to this server: ${(e as Error).message}`);
+  }
 }
 
 export async function addDomain(serviceId: string, input: z.input<typeof domainSchema>) {
@@ -1797,7 +1821,7 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
     const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, data.hostname);
     if (!ownership.verified) throw new UserError(ownershipMessage(data.hostname, ownership));
     await requireRoom(ctx.org.id, { domains: 1 });
-    if (data.certificateId) await certificateOnServer(data.certificateId, ctx.org.id, service.serverId);
+    if (data.certificateId) data.certificateId = await certificateOnServer(data.certificateId, ctx.org.id, service.serverId);
 
     let recordId: string | null = null;
     let warning: string | null = null;
@@ -2034,7 +2058,7 @@ export async function updateDomain(domainId: string, input: z.input<typeof domai
     const { dns, ...data } = domainUpdateSchema.parse(input);
     if (data.redirectTo !== undefined) data.redirectTo = safeRedirectUrl(data.redirectTo);
     if (domain.primary && data.redirectTo) throw new UserError("The primary domain cannot become a redirect. Make another domain primary first.");
-    if (data.certificateId) await certificateOnServer(data.certificateId, ctx.org.id, service.serverId);
+    if (data.certificateId) data.certificateId = await certificateOnServer(data.certificateId, ctx.org.id, service.serverId);
     // Tunnel domains get HTTPS from Cloudflare; a certificate at the proxy is never needed.
     if (domain.tunnelId) {
       data.https = false;

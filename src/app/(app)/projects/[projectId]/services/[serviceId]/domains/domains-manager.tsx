@@ -380,8 +380,11 @@ function TlsChoice({
   onCertificate: (id: string) => void;
 }) {
   const matching = props.certificates.filter((c) => !c.provider.startsWith("letsencrypt") && c.status === "active" && certCovers(c.domains, hostname));
-  const own = matching.filter((c) => c.here);
-  const elsewhere = own.length ? null : matching.find((c) => !c.here);
+  // Any of the organization's servers: one stored elsewhere is copied to this server on save.
+  // The same certificate on several servers is offered once, the copy here first.
+  const own = [...matching]
+    .sort((a, b) => Number(b.here) - Number(a.here))
+    .filter((c, i, all) => all.findIndex((x) => x.name === c.name && x.domains.join() === c.domains.join()) === i);
   const options: { id: "auto" | "custom" | "none"; title: string; body: string }[] = [
     { id: "auto", title: "HTTPS, free certificate", body: httpsDescription(props) },
     ...(own.length || value === "custom" ? [{ id: "custom" as const, title: "HTTPS, my certificate", body: "Use a certificate you uploaded in Certificates." }] : []),
@@ -416,13 +419,16 @@ function TlsChoice({
           </button>
         ))}
       </div>
-      {elsewhere && (
-        <p className="text-xs leading-relaxed text-muted">
-          Your certificate {elsewhere.name} is stored on {elsewhere.serverName}. Upload it for {props.serverName} too in Certificates to use it here.
-        </p>
-      )}
       {value === "custom" && own.length > 0 && (
-        <Select value={certificateId} onValueChange={onCertificate} options={own.map((c) => ({ value: c.id, label: c.name, description: c.domains.join(", ") }))} />
+        <Select
+          value={certificateId}
+          onValueChange={onCertificate}
+          options={own.map((c) => ({
+            value: c.id,
+            label: c.name,
+            description: `${c.domains.join(", ")}${c.here ? "" : ` · copied from ${c.serverName} to ${props.serverName} on save`}`,
+          }))}
+        />
       )}
       {value === "none" && (
         <p className="text-xs leading-relaxed text-muted">

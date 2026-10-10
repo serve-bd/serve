@@ -386,14 +386,15 @@ function TlsChoice({
     .sort((a, b) => Number(b.here) - Number(a.here))
     .filter((c, i, all) => all.findIndex((x) => x.name === c.name && x.domains.join() === c.domains.join()) === i);
   const options: { id: "auto" | "custom" | "none"; title: string; body: string }[] = [
-    { id: "auto", title: "HTTPS, free certificate", body: httpsDescription(props) },
-    ...(own.length || value === "custom" ? [{ id: "custom" as const, title: "HTTPS, my certificate", body: "Use a certificate you uploaded in Certificates." }] : []),
+    { id: "auto", title: "Free certificate", body: httpsDescription(props) },
+    ...(own.length || value === "custom" ? [{ id: "custom" as const, title: "My certificate", body: "A certificate you uploaded in Certificates." }] : []),
     { id: "none", title: "HTTP only", body: "No certificate. For when your own proxy, load balancer or CDN in front handles HTTPS." },
   ];
+  const current = options.find((o) => o.id === value) ?? options[0];
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-[13px] font-medium text-fg">Security</span>
-      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Security">
+      <span className="text-[13px] font-medium text-fg">HTTPS</span>
+      <div role="radiogroup" aria-label="HTTPS" className="grid auto-cols-fr grid-flow-col gap-1 rounded-xl bg-sunken p-1">
         {options.map((o) => (
           <button
             key={o.id}
@@ -404,21 +405,13 @@ function TlsChoice({
               onChange(o.id);
               if (o.id === "custom" && !certificateId && own[0]) onCertificate(own[0].id);
             }}
-            className={cn(
-              "flex items-start gap-3 rounded-xl border p-3 text-left transition-colors",
-              value === o.id ? "border-accent bg-accent-soft/40" : "border-line hover:border-line-strong",
-            )}
+            className={cn("h-8 rounded-lg text-[13px] font-medium transition-all", value === o.id ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
           >
-            <span className={cn("mt-0.5 flex size-4 flex-none items-center justify-center rounded-full border", value === o.id ? "border-accent" : "border-line-strong")}>
-              {value === o.id && <span className="size-2 rounded-full bg-accent" />}
-            </span>
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="text-[13px] font-medium text-fg">{o.title}</span>
-              <span className="text-xs leading-relaxed text-muted">{o.body}</span>
-            </span>
+            {o.title}
           </button>
         ))}
       </div>
+      <p className="text-xs leading-relaxed text-muted">{current.body}</p>
       {value === "custom" && own.length > 0 && (
         <Select
           value={certificateId}
@@ -505,12 +498,15 @@ function RouteCard({
   selected,
   onSelect,
   tunnelAccount,
+  shared,
   serverIp,
 }: {
   kind: "tunnel" | "ip";
   selected: boolean;
   onSelect: () => void;
   tunnelAccount?: string;
+  /** The tunnel is the app's own, on all its servers (Closest server). */
+  shared?: boolean;
   serverIp: string | null;
 }) {
   return (
@@ -530,12 +526,14 @@ function RouteCard({
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
           {kind === "tunnel" ? <Waypoints className="size-3.5 text-[#f38020]" /> : <Globe className="size-3.5 text-muted" />}
-          {kind === "tunnel" ? "Cloudflare Tunnel" : "Server IP"}
-          {kind === "tunnel" && <Badge tone="info">Recommended</Badge>}
+          {kind === "tunnel" ? (shared ? "Closest server" : "Cloudflare Tunnel") : "Server IP"}
+          {kind === "tunnel" && <Badge tone="info">{shared ? "On for this app" : "Recommended"}</Badge>}
         </span>
         <span className="text-xs leading-relaxed text-muted">
           {kind === "tunnel"
-            ? `Through the tunnel in ${tunnelAccount}. HTTPS by Cloudflare; no public IP or open port needed.`
+            ? shared
+              ? `Through the app's shared tunnel in ${tunnelAccount}: each visitor reaches the nearest of its servers.`
+              : `Through the tunnel in ${tunnelAccount}. HTTPS by Cloudflare; no public IP or open port needed.`
             : serverIp
               ? `Visitors connect to ${serverIp}. Ports 80 and 443 must be reachable.`
               : "Visitors connect to the server's public IP. Set it in the server settings first."}
@@ -567,6 +565,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   const [proxied, setProxied] = React.useState(true);
   const [redirect, setRedirect] = React.useState("");
   const [mode, setMode] = React.useState<"route" | "redirect">("route");
+  const [showServers, setShowServers] = React.useState(false);
 
   const [step, setStep] = React.useState<1 | 2>(1);
   // The TXT record to add when the organization has not proved it owns the domain yet.
@@ -600,6 +599,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
     if (!o) {
       setStep(1);
       setRoute(null);
+      setShowServers(false);
     }
   };
 
@@ -633,7 +633,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   );
 
   const routeCard = (r: "tunnel" | "ip") => (
-    <RouteCard key={r} kind={r} selected={route === r} onSelect={() => setRoute(r)} tunnelAccount={tunnel?.accountName} serverIp={p.serverIp} />
+    <RouteCard key={r} kind={r} selected={route === r} onSelect={() => setRoute(r)} tunnelAccount={tunnel?.accountName} shared={tunnel?.shared} serverIp={p.serverIp} />
   );
 
   return (
@@ -731,8 +731,17 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
               <>
                 {entries.length > 1 && (
                   <div className="flex flex-col gap-2">
-                    <span className="text-[13px] font-medium text-fg">Visitors enter through</span>
-                    <div className="flex flex-col gap-2" role="radiogroup" aria-label="Visitors enter through">
+                    {/* Usually the main server: the other servers fold away until asked for. */}
+                    <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-[13px]">
+                      <span className="min-w-0 flex-1 truncate text-fg-2">
+                        Visitors enter through <span className="font-medium text-fg">{(entry ?? mainEntry)?.name}</span>
+                        <span className="text-muted">{switching ? " · becomes the main server" : " · main server"}</span>
+                      </span>
+                      <button type="button" onClick={() => setShowServers((v) => !v)} className="flex-none text-[13px] font-medium text-accent hover:underline">
+                        {showServers ? "Done" : "Change"}
+                      </button>
+                    </div>
+                    <div className={cn("flex flex-col gap-2", !showServers && "hidden")} role="radiogroup" aria-label="Visitors enter through">
                       {entries.map((e) => (
                         <EntryServerOption
                           key={e.id}
@@ -754,13 +763,10 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                 {zoneLoading && !zoneData && <p className="text-xs text-muted">Looking for {hostname} in your Cloudflare accounts…</p>}
                 {tunnel && <div className="grid grid-cols-1 gap-2">{(["tunnel", "ip"] as const).map(routeCard)}</div>}
                 {viaTunnel ? (
-                  <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
-                    <Waypoints className="mt-0.5 size-4 flex-none text-[#f38020]" />
-                    <p>
-                      <span className="font-mono text-fg">{hostname}</span> points at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no certificate or
-                      open port is needed.
-                    </p>
-                  </div>
+                  <p className="flex items-center gap-2 rounded-xl border border-ok/25 bg-ok-soft px-3.5 py-2.5 text-[13px] text-fg-2">
+                    <Lock className="size-3.5 flex-none text-ok" />
+                    HTTPS by Cloudflare. No certificate or open port needed.
+                  </p>
                 ) : p.proxyKind === "none" ? (
                   <NotServedNotice text={`${notServed(p)} The domain is saved, and served once a proxy runs.`} />
                 ) : (
@@ -768,14 +774,17 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                     {notServed(p) && <NotServedNotice text={`${notServed(p)} The domain is saved, and served once it runs again.`} />}
                     <TlsChoice props={p} hostname={hostname} value={tls} onChange={setTls} certificateId={certificateId} onCertificate={setCertificateId} />
                     {tls === "auto" && !!hostname && challengeProblem(p, !!zone && (p.proxyKind ?? "nginx") === "nginx") && (
-                      <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
-                        {challengeProblem(p, !!zone && (p.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel
-                        {p.proxyKind === "traefik"
-                          ? " or use the Cloudflare DNS challenge (Server → Proxy)"
-                          : p.proxyKind === "caddy"
-                            ? ""
-                            : " or add it from a Cloudflare zone for DNS validation"}
-                        .
+                      <p className="flex gap-2 text-xs leading-relaxed text-warn">
+                        <TriangleAlert className="mt-0.5 size-3.5 flex-none" />
+                        <span>
+                          {challengeProblem(p, !!zone && (p.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel
+                          {p.proxyKind === "traefik"
+                            ? " or use the Cloudflare DNS challenge (Server → Proxy)"
+                            : p.proxyKind === "caddy"
+                              ? ""
+                              : " or add it from a Cloudflare zone for DNS validation"}
+                          .
+                        </span>
                       </p>
                     )}
                   </>
@@ -1037,6 +1046,7 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
                       setRecord(null);
                     }}
                     tunnelAccount={tunnel?.accountName ?? "Cloudflare"}
+                    shared={tunnel?.shared}
                     serverIp={props.serverIp}
                   />
                 ))}

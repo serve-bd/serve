@@ -113,7 +113,8 @@ async function removeStaleContainers(ctx: ServerCtx) {
 
 /**
  * Images older than a day that no container uses. Serve's builds (labelled) and its serve/<slug>
- * tags stay: a pulled image carries no Serve label, and rollbacks need it. Returns bytes freed.
+ * tags stay: a pulled image carries no Serve label, and rollbacks need it. So do named images that
+ * were built here rather than pulled. Returns bytes freed.
  */
 async function removeUnusedImages(ctx: ServerCtx) {
   const d = ctx.docker;
@@ -124,6 +125,9 @@ async function removeUnusedImages(ctx: ServerCtx) {
   for (const img of images) {
     const tags = (img.RepoTags ?? []).filter((t) => t !== "<none>:<none>");
     if (used.has(img.Id) || img.Created > cutoff || img.Labels?.[LABEL.managed] || tags.some((t) => t.startsWith("serve/"))) continue;
+    // Named but never pulled from a registry: built on this machine by someone (docker build), and
+    // nothing could download it again.
+    if (tags.length && !(img.RepoDigests ?? []).length) continue;
     let ok = true;
     // By tag: removing an image by id fails while more than one tag points at it.
     for (const ref of tags.length ? tags : [img.Id])

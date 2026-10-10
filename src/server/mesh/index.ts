@@ -124,13 +124,36 @@ const aliasesOf = (s: Service) => toPlanServices(s).flatMap((e) => serviceKeys(e
  * the variables cannot be read: every service may use every other one then.
  */
 async function settledUses(services: Service[]): Promise<Map<string, string[]> | null> {
-  const current = await loadServiceUses(services, aliasesOf, namesHost);
-  if (!current) return null;
+  // Links only join servers: environments on one server need no answer (and no variables read).
+  const serversOf = new Map<string, Set<string>>();
+  for (const s of services)
+    for (const e of toPlanServices(s)) {
+      const set = serversOf.get(s.environmentId) ?? new Set<string>();
+      for (const id of [e.serverId, ...e.extraServerIds]) set.add(id);
+      serversOf.set(s.environmentId, set);
+    }
+  const spread = services.filter((s) => (serversOf.get(s.environmentId)?.size ?? 0) > 1);
   const out = new Map<string, string[]>();
-  for (const s of services) {
-    const next = stickyUses(s.meshUses ?? null, s.meshUsesPending ?? null, [...(current.get(s.id) ?? [])], s.currentDeploymentId);
+  if (!spread.length) return out;
+  const current = await loadServiceUses(spread, aliasesOf, namesHost);
+  if (!current) return null;
+  // A deployment live on only some of its servers (it failed on an extra one): the old containers
+  // there still use what they did, so nothing they use may go yet.
+  const ids = spread.map((s) => s.currentDeploymentId).filter((id): id is string => !!id);
+  const partial = new Set(
+    ids.length
+      ? (await db.select({ id: schema.deployment.id, targets: schema.deployment.targets }).from(schema.deployment).where(inArray(schema.deployment.id, ids)))
+          .filter((d) => (d.targets ?? []).some((t) => t.status !== "success"))
+          .map((d) => d.id)
+      : [],
+  );
+  for (const s of spread) {
+    const pending = s.currentDeploymentId && partial.has(s.currentDeploymentId) ? null : (s.meshUsesPending ?? null);
+    const next = stickyUses(s.meshUses ?? null, pending, [...(current.get(s.id) ?? [])], s.currentDeploymentId);
     out.set(s.id, next.ids);
-    if (JSON.stringify(next) !== JSON.stringify(s.meshUses ?? null))
+    // Field by field: Postgres hands jsonb keys back in its own order.
+    const stored = s.meshUses;
+    if (!stored || stored.deploymentId !== next.deploymentId || stored.ids.join() !== next.ids.join())
       await db
         .update(schema.service)
         .set({ meshUses: next })

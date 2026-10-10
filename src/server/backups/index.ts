@@ -823,7 +823,9 @@ export async function runBackup(backupId: string, protect?: string, choice?: Bac
     // What it takes, not what was asked: chosen databases the server no longer has are not in it,
     // and with none left it is the usual backup of the main database (null).
     if (!backup.target && (databases || backup.databases)) await db.update(schema.backup).set({ databases }).where(eq(schema.backup.id, backup.id));
-    let filename = `${t.stem}-${stamp}.${t.extension}`;
+    // The backup's own id at the end: two backups started in the same second (two apps deploying,
+    // each backing the database up first) never share a file.
+    let filename = `${t.stem}-${stamp}-${backup.id.slice(-6)}.${t.extension}`;
     file = backupFile(service.id, filename);
     // Known before the dump starts, so a restart mid-way can remove the partial file.
     await db.update(schema.backup).set({ filename }).where(eq(schema.backup.id, backup.id));
@@ -981,23 +983,18 @@ async function applyRetention(serviceId: string, target: string | null, keepLoca
     .where(and(eq(schema.backup.serviceId, serviceId), eq(schema.backup.status, "success"), target ? eq(schema.backup.target, target) : isNull(schema.backup.target)))
     .orderBy(desc(schema.backup.createdAt));
   // A backup queued for a restore (marked running when queued) waits for it, after this job.
-  const cleanable = rows.filter((b) => b.trigger !== "import" && b.id !== protect && b.id !== self && b.restoreStatus !== "running");
+  // Safety backups taken before a restore or import stay until someone deletes them: after a
+  // restore that went wrong, one can be the only copy of the data as it was.
+  const cleanable = rows.filter((b) => b.trigger !== "import" && b.trigger !== "pre-import" && b.id !== protect && b.id !== self && b.restoreStatus !== "running");
   const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, serviceId));
-  // Backups before deploys count on their own: an app deploying often never pushes out the scheduled ones.
-  await cleanGroup(
-    cleanable.filter((b) => b.trigger === "pre-deploy"),
-    serviceId,
-    svc?.slug,
-    keepLocal,
-    keepS3,
-  );
-  await cleanGroup(
-    cleanable.filter((b) => b.trigger !== "pre-deploy"),
-    serviceId,
-    svc?.slug,
-    keepLocal,
-    keepS3,
-  );
+  // Each kind counts on its own: backups before deploys (an app deploying often never pushes out the
+  // scheduled ones), and backups of some databases only (a few of those never push out the full ones).
+  const groups = new Map<string, typeof cleanable>();
+  for (const b of cleanable) {
+    const key = `${b.trigger === "pre-deploy" ? "pre-deploy" : "other"}|${b.databases ? JSON.stringify([...b.databases].sort()) : "main"}`;
+    groups.set(key, [...(groups.get(key) ?? []), b]);
+  }
+  for (const group of groups.values()) await cleanGroup(group, serviceId, svc?.slug, keepLocal, keepS3);
 }
 
 async function cleanGroup(own: (typeof schema.backup.$inferSelect)[], serviceId: string, slug: string | undefined, keepLocal: number, keepS3: number) {
@@ -1007,6 +1004,12 @@ async function cleanGroup(own: (typeof schema.backup.$inferSelect)[], serviceId:
   const newest = (list: { id: string }[], n: number) => new Set(list.slice(0, Math.max(1, n)).map((b) => b.id));
   const keepRemote = newest(inBucket, keepS3);
   const keepHere = newest(own, keepLocal);
+  // The newest backup that passed its restore test stays too: newer ones could all be broken.
+  const proven = own.find((b) => b.verifyStatus === "passed");
+  if (proven) {
+    keepHere.add(proven.id);
+    if (s3Copies(proven).length) keepRemote.add(proven.id);
+  }
   for (const b of own) {
     if (!b.filename) continue;
     const inS3 = s3Copies(b).length > 0;

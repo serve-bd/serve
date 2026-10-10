@@ -219,6 +219,11 @@ async function destroyOnServer(opts: {
   serverId?: string;
   /** Keep the service's local files (used when a service moves to another server). */
   keepFiles?: boolean;
+  /**
+   * Keep its backup files on this machine even though the service goes: a server removed with
+   * "delete the data" left unticked. Its backups may be the only copies left of that server's data.
+   */
+  keepBackups?: boolean;
   /** Keep the service's folder on that server too: a moved stack's ./data binds stay with its volumes. */
   keepServerFiles?: boolean;
   /** Volumes it owns under other names than its own (data started from a kept database), removed with removeVolumes. */
@@ -277,7 +282,7 @@ async function destroyOnServer(opts: {
     await fs.rm(paths.service(opts.serviceId), { recursive: true, force: true }).catch(() => {});
     // Its backup list is gone with the service, so the local files could never be used again.
     // Copies in S3 stay: they are the off-site history and can be imported elsewhere.
-    await fs.rm(path.join(paths.backups, opts.serviceId), { recursive: true, force: true }).catch(() => {});
+    if (!opts.keepBackups) await fs.rm(path.join(paths.backups, opts.serviceId), { recursive: true, force: true }).catch(() => {});
     await fs.rm(path.join(paths.uploads, opts.serviceId), { recursive: true, force: true }).catch(() => {});
   }
   if (!server.local && !opts.keepServerFiles) await server.fs.rm(server.paths.service(opts.serviceId)).catch(() => {});

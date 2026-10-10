@@ -327,7 +327,7 @@ export function FileManager({
   };
 
   const errStatus = error?.status;
-  const noContainer = (containers && targetData && !targets.length) || errStatus === 409;
+  const noContainer = (containers && targetData && !targets.length) || errStatus === 503;
 
   return (
     <div
@@ -493,7 +493,7 @@ export function FileManager({
           <EmptyState
             icon={<HardDrive />}
             title="No running container"
-            description={error?.message && errStatus === 409 ? error.message : "Files are read from a running container. Start or deploy the service first."}
+            description={error?.message && errStatus === 503 ? error.message : "Files are read from a running container. Start or deploy the service first."}
           />
         ) : error && !data ? (
           <EmptyState

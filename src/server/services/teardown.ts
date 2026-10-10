@@ -142,6 +142,8 @@ async function teardown(services: (typeof schema.service.$inferSelect)[], remove
         slug: s.slug,
         type: s.type,
         removeVolumes,
+        // Data kept: the backups on this machine stay too (in its backups folder, by service id).
+        keepBackups: !removeVolumes,
         environmentId: s.environmentId,
         serverId: s.serverId,
         volumes: s.database?.dataVolume && s.database.dataVolumeOwned && !s.database.dataVolume.startsWith("/") ? [s.database.dataVolume] : [],
@@ -154,6 +156,7 @@ async function teardown(services: (typeof schema.service.$inferSelect)[], remove
           slug: s.slug,
           type: s.type,
           removeVolumes,
+          keepBackups: !removeVolumes,
           environmentId: s.environmentId,
           serverId: s.serverId,
           volumes: s.database?.dataVolume && s.database.dataVolumeOwned && !s.database.dataVolume.startsWith("/") ? [s.database.dataVolume] : [],

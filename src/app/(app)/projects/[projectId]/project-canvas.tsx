@@ -482,7 +482,8 @@ function Canvas({ projectId, environmentId, environmentName, services, kept, onK
                 taken.filter((t) => t.serverId !== copy.serverId),
                 main,
               )) ??
-            place(id);
+            // Nothing else of this server here yet: its own box, right of everything, level with the app.
+            (taken.length ? { x: Math.max(...taken.map((t) => t.x)) + CARD_W + FRAME_PAD * 2 + 48, y: main?.y ?? 0 } : place(id));
           taken.push({ serverId: copy.serverId, h: CARD_H, ...position });
           return { ...was, id, type: "copy", position, data: { s, projectId, copy }, draggable: canManage };
         }),

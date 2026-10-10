@@ -331,7 +331,6 @@ export async function attachTunnelToDatabases(tunnel: Tunnel) {
 export async function syncTunnelIngress(tunnelId: string) {
   const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
   if (!tunnel) return;
-  const ctx = await getServer(tunnel.serverId);
   const domains = await db.select({ hostname: schema.domain.hostname }).from(schema.domain).where(eq(schema.domain.tunnelId, tunnelId));
   // The dashboard can use a tunnel of the server Serve runs on, like any service domain.
   const settings = await getSettings();
@@ -339,7 +338,8 @@ export async function syncTunnelIngress(tunnelId: string) {
   // Status pages with their own domain on this tunnel: the dashboard's proxy serves them too.
   const pages = await db.select({ hostname: schema.statusPage.domain }).from(schema.statusPage).where(eq(schema.statusPage.tunnelId, tunnelId));
   for (const p of pages) if (p.hostname) domains.push({ hostname: p.hostname });
-  const origin = tunnel.serviceId ? APP_TUNNEL_ORIGIN : `http://${ctx.proxyContainer}:80`;
+  // An app's shared tunnel needs nothing of its main server here: it may be down while the others serve.
+  const origin = tunnel.serviceId ? APP_TUNNEL_ORIGIN : `http://${(await getServer(tunnel.serverId)).proxyContainer}:80`;
   // Databases go through their server's own tunnel only.
   const databases = tunnel.serviceId ? [] : await attachTunnelToDatabases(tunnel);
   const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
@@ -498,8 +498,41 @@ export async function createAppTunnel(opts: { organizationId: string; cloudflare
 export const TUNNEL_SETTLE_MS = 5 * 60_000;
 
 /** Finish a move between tunnels once Cloudflare has caught up: the old tunnels' routes are written again, without the names that left. */
-export async function settleTunnels({ sync }: { sync: string[] }) {
+export async function settleTunnels({ sync, remove = [] }: { sync: string[]; remove?: string[] }) {
   for (const id of sync) await syncTunnelIngress(id).catch(() => {});
+  // An app's shared tunnel after Closest server went off: it served the names until now. Kept when
+  // a domain went back on it meanwhile.
+  for (const id of remove) {
+    const [used] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.tunnelId, id)).limit(1);
+    if (!used) await deleteTunnel(id).catch(() => {});
+  }
+}
+
+/**
+ * An app's shared tunnel that carries no domain any more (its last one removed or moved away):
+ * Closest server is over. Load balancing comes back as it was before it, and the tunnel goes, at
+ * once (`now`: its names are gone) or once Cloudflare stops sending them to it.
+ */
+export async function endSharedTunnelIfUnused(tunnelId: string, opts: { now: boolean }) {
+  const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
+  if (!tunnel?.serviceId) return;
+  const [used] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.tunnelId, tunnelId)).limit(1);
+  if (used) return;
+  const before = tunnel.restore?.loadBalance;
+  if (before !== null && before !== undefined) {
+    const [svc] = await db.select({ distribution: schema.service.distribution }).from(schema.service).where(eq(schema.service.id, tunnel.serviceId));
+    if (svc) {
+      await db
+        .update(schema.service)
+        .set({ distribution: { ...(svc.distribution ?? {}), loadBalance: before } })
+        .where(eq(schema.service.id, tunnel.serviceId));
+      const { syncServiceProxy } = await import("@/server/proxy/nginx");
+      await syncServiceProxy(tunnel.serviceId).catch(() => {});
+    }
+  }
+  if (opts.now) return deleteTunnel(tunnelId);
+  const { enqueue } = await import("@/server/queue");
+  await enqueue("cloudflare-tunnel.settle", { sync: [], remove: [tunnelId] }, { runAt: new Date(Date.now() + TUNNEL_SETTLE_MS) });
 }
 
 /** Stop the connector and delete the tunnel on Cloudflare. Domains must be moved off it first. */
@@ -549,10 +582,15 @@ export async function checkTunnels() {
     try {
       await ensureConnectors(tunnel);
     } catch (error) {
-      await db
-        .update(schema.cloudflareTunnel)
-        .set({ status: "error", statusMessage: (error as Error).message.slice(0, 300) })
-        .where(eq(schema.cloudflareTunnel.id, tunnel.id));
+      const message = (error as Error).message.slice(0, 300);
+      if (!tunnel.serviceId) {
+        await db.update(schema.cloudflareTunnel).set({ status: "error", statusMessage: message }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
+        continue;
+      }
+      // An app's shared tunnel has a connector on each of its servers: one server down leaves the
+      // others serving. Its state is Cloudflare's; the server that failed is said in the message.
+      await refreshTunnelStatus(tunnel);
+      await db.update(schema.cloudflareTunnel).set({ statusMessage: message }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
       continue;
     }
     await refreshTunnelStatus(tunnel);

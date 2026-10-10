@@ -100,8 +100,10 @@ export async function enableClosestServer(serviceId: string, accountId: string) 
           certificateId: d.certificateId,
           wantsTunnel: d.wantsTunnel,
         };
-        const record = await cf.upsertTunnelRecord(m.zoneId, d.hostname, tunnel.cfTunnelId);
+        // Saved before the name moves: a request cut off mid-way still knows how to go back.
         before.domains[d.id] = was;
+        await db.update(schema.cloudflareTunnel).set({ restore: before }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
+        const record = await cf.upsertTunnelRecord(m.zoneId, d.hostname, tunnel.cfTunnelId);
         if (d.tunnelId) previousTunnels.add(d.tunnelId);
         // Cloudflare ends HTTPS; the tunnel reaches each server's proxy over plain HTTP.
         await db
@@ -127,7 +129,6 @@ export async function enableClosestServer(serviceId: string, accountId: string) 
       throw new UserError(`No domain moved to the shared tunnel. ${failed.join(" ")}`);
     }
 
-    await db.update(schema.cloudflareTunnel).set({ restore: before }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
     // Each server serves its own visitors now: the main server stops sending them to the others.
     await db
       .update(schema.service)
@@ -179,7 +180,7 @@ export async function disableClosestServer(serviceId: string) {
     const blockers = [...restore.blockers, ...plan.blockers];
     if (blockers.length) throw new UserError(blockers.join(" "));
 
-    const { deleteTunnel, syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+    const { syncTunnelIngress, TUNNEL_SETTLE_MS } = await import("@/server/cloudflare/tunnels");
     const rows = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
     const failed: string[] = [];
     const toTunnel = async (d: (typeof rows)[number], tunnelId: string, set: Partial<typeof schema.domain.$inferInsert> = {}) => {
@@ -249,7 +250,8 @@ export async function disableClosestServer(serviceId: string) {
     }
     await syncServiceProxy(serviceId).catch(() => {});
     if (failed.length) {
-      await syncTunnelIngress(shared.id).catch(() => {});
+      // The names that did move leave its routes once Cloudflare has caught up, not now.
+      await enqueue("cloudflare-tunnel.settle", { sync: [shared.id] }, { runAt: new Date(Date.now() + TUNNEL_SETTLE_MS) });
       throw new UserError(`Closest server stays on until every domain has moved back. ${failed.join(" ")}`);
     }
     // Load balancing as it was before.
@@ -261,8 +263,9 @@ export async function disableClosestServer(serviceId: string) {
         .where(eq(schema.service.id, serviceId));
       await syncServiceProxy(serviceId).catch(() => {});
     }
-    // Off means gone: its connectors and the tunnel on Cloudflare go now.
-    await deleteTunnel(shared.id);
+    // Off means gone, once Cloudflare stops sending the names to it (until then it still serves them):
+    // its connectors and the tunnel on Cloudflare go in a few minutes. Pages no longer show it.
+    await enqueue("cloudflare-tunnel.settle", { sync: [], remove: [shared.id] }, { runAt: new Date(Date.now() + TUNNEL_SETTLE_MS) });
 
     await logActivity({
       userId: ctx.user.id,

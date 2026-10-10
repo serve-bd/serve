@@ -66,7 +66,8 @@ export type JobPayloads = {
   "commit.status": { deploymentId: string; status: import("@/server/db/schema").DeploymentStatus };
   "tunnel.sync": Record<string, never>;
   /** After names moved between Cloudflare Tunnels: Cloudflare keeps sending them to the old tunnel for a few minutes, so its route goes only now. */
-  "cloudflare-tunnel.settle": { sync: string[] };
+  /** sync: rewrite these tunnels' routes; remove: delete these shared tunnels if nothing uses them any more. */
+  "cloudflare-tunnel.settle": { sync: string[]; remove?: string[] };
   "service.stop": { serviceId: string };
   "service.start": { serviceId: string };
   "service.restart": { serviceId: string };
@@ -78,6 +79,8 @@ export type JobPayloads = {
     environmentId?: string;
     serverId?: string;
     keepFiles?: boolean;
+    /** Keep its backup files on the dashboard's machine (a server removed with its data kept). */
+    keepBackups?: boolean;
     keepServerFiles?: boolean;
     volumes?: string[];
     /** An app taken off one of its extra servers: skipped if it runs there again by then. */

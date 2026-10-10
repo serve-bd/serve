@@ -1,3 +1,4 @@
+import { inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import { scopeReader } from "@/lib/refs";
@@ -14,13 +15,25 @@ type Service = typeof schema.service.$inferSelect;
 export async function loadServiceUses(services: Service[], names: (s: Service) => string[], namesHost: (text: string, names: string[]) => boolean) {
   try {
     const [vars, projects, shared] = await Promise.all([
-      db.select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value, literal: schema.envVar.literal }).from(schema.envVar),
+      services.length
+        ? db
+            .select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value, literal: schema.envVar.literal })
+            .from(schema.envVar)
+            .where(
+              inArray(
+                schema.envVar.serviceId,
+                services.map((s) => s.id),
+              ),
+            )
+        : [],
       db.select({ id: schema.project.id, organizationId: schema.project.organizationId }).from(schema.project),
       db.select().from(schema.sharedVar),
     ]);
     const plain = vars.map((v) => ({ ...v, value: decryptOrNull(v.value) ?? "" }));
     const orgOf = new Map(projects.map((p) => [p.id, p.organizationId]));
     const sharedPlain = shared.map((v) => ({ ...v, value: decryptOrNull(v.value) ?? "" }));
+    // Each service's names, worked out once (they parse compose files).
+    const namesOf = new Map(services.map((s) => [s.id, names(s)]));
     const byEnv = new Map<string, Service[]>();
     for (const s of services) byEnv.set(s.environmentId, [...(byEnv.get(s.environmentId) ?? []), s]);
     const out = new Map<string, Set<string>>();
@@ -46,7 +59,7 @@ export async function loadServiceUses(services: Service[], names: (s: Service) =
         const used = new Set((refs.get(c.id) ?? []).map((u) => u.id));
         // A name typed into a value (postgres://…@postgresql:5432) or a compose file.
         const texts = [...envVars.filter((v) => v.serviceId === c.id).map((v) => v.value), c.compose?.content ?? ""].filter(Boolean);
-        for (const p of list) if (p.id !== c.id && !used.has(p.id) && texts.some((t) => namesHost(t, names(p)))) used.add(p.id);
+        for (const p of list) if (p.id !== c.id && !used.has(p.id) && texts.some((t) => namesHost(t, namesOf.get(p.id) ?? []))) used.add(p.id);
         out.set(c.id, used);
       }
     }

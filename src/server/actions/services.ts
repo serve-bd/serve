@@ -2011,6 +2011,11 @@ export async function setDomainRoute(domainId: string, tunnelId: string | null) 
       await ensureCertificateFor(updated, ctx.org.id);
     }
     if (previousTunnel) await syncTunnelIngress(previousTunnel).catch(() => {});
+    // Its last domain left the app's shared tunnel: Closest server ends.
+    if (previousTunnel) {
+      const { endSharedTunnelIfUnused } = await import("@/server/cloudflare/tunnels");
+      await endSharedTunnelIfUnused(previousTunnel, { now: false }).catch(() => {});
+    }
     await syncServiceProxy(domain.serviceId);
     return { warning };
   });
@@ -2167,11 +2172,11 @@ export async function removeDomain(domainId: string, deleteDns: boolean) {
     }
     await db.delete(schema.domain).where(eq(schema.domain.id, domainId));
     if (domain.tunnelId) {
-      const { deleteTunnel, syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+      const { endSharedTunnelIfUnused, syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
       const [tunnel] = await db.select({ serviceId: schema.cloudflareTunnel.serviceId }).from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, domain.tunnelId));
       const [left] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.tunnelId, domain.tunnelId)).limit(1);
       // The app's last domain on its shared tunnel: Closest server has nothing left to carry, so it goes off.
-      if (tunnel?.serviceId && !left) await deleteTunnel(domain.tunnelId).catch(leftover(leftovers, "Cloudflare Tunnel of the closest server"));
+      if (tunnel?.serviceId && !left) await endSharedTunnelIfUnused(domain.tunnelId, { now: true }).catch(leftover(leftovers, "Cloudflare Tunnel of the closest server"));
       else await syncTunnelIngress(domain.tunnelId).catch(leftover(leftovers, "Cloudflare Tunnel routes"));
     }
     await syncServiceProxy(domain.serviceId).catch(leftover(leftovers, `Proxy site of ${service.name}`));

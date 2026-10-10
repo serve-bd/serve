@@ -101,9 +101,9 @@ export class FilesError extends Error {
   }
 }
 
-/** HTTP status for an exit code of the script (9: no running container to open). */
+/** HTTP status for an exit code of the script: 409 exists already, 412 changed since read, 503 no running container. */
 export function filesStatus(code: number) {
-  return { 2: 404, 3: 403, 5: 400, 6: 409, 7: 409, 9: 409 }[code] ?? 500;
+  return { 2: 404, 3: 403, 5: 400, 6: 409, 7: 412, 9: 503 }[code] ?? 500;
 }
 
 type Run = { stdout: Readable; done: Promise<void> };

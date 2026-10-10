@@ -70,9 +70,26 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
+# The database as it is now, first: a restore that fails puts it back.
+BEFORE="$DATA_DIR/serve-before-restore-$(date +%Y%m%d-%H%M%S).dump"
+info "Saving the current database to $BEFORE"
+"${COMPOSE[@]}" exec -T serve-db pg_dump -Fc -U serve -d serve > "$BEFORE" || fail "Could not save the current database; nothing was changed."
+
+# Emptied whole, not object by object: tables a newer version added would otherwise survive next to
+# an older migration history, and Serve would not start.
+empty_database() {
+  "${COMPOSE[@]}" exec -T serve-db psql -v ON_ERROR_STOP=1 -q -U serve -d serve \
+    -c 'DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'
+}
+
 info "Restoring the database"
-"${COMPOSE[@]}" exec -T serve-db pg_restore --clean --if-exists --no-owner -U serve -d serve < "$WORK/database.dump" \
-  || echo "  pg_restore reported warnings (usually objects that did not exist yet); check the output above."
+if ! { empty_database && "${COMPOSE[@]}" exec -T serve-db pg_restore --no-owner --exit-on-error --single-transaction -U serve -d serve < "$WORK/database.dump"; }; then
+  echo "  The restore failed. Putting the database back as it was."
+  { empty_database && "${COMPOSE[@]}" exec -T serve-db pg_restore --no-owner --exit-on-error --single-transaction -U serve -d serve < "$BEFORE"; } \
+    || fail "Could not put the database back either. It is saved in $BEFORE (restore it with pg_restore)."
+  "${COMPOSE[@]}" up -d
+  fail "Nothing was restored; Serve runs as before."
+fi
 
 info "Restoring instance files"
 tar -xzf "$BUNDLE" -C "$DATA_DIR" --exclude=manifest.json --exclude=database.dump

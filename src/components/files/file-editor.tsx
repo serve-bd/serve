@@ -78,7 +78,7 @@ export function FileEditor({
         onSaved();
       } catch (e) {
         const err = e as Error & { status?: number };
-        if (err.status === 409 && !overwrite) {
+        if (err.status === 412 && !overwrite) {
           setSaving(false);
           const ok = await confirm({
             title: "The file changed on the server",

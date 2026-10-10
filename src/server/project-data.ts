@@ -27,6 +27,8 @@ export type ServiceCardData = {
   issues: ServiceIssue[];
   serverId: string;
   serverName: string;
+  /** An app's other servers: it runs there too (load balancing, Closest server or copies). */
+  alsoOn: { id: string; name: string }[];
   /** Services of the environment this one references in its variables. */
   uses: ServiceUse[];
   /** Where it keeps its data, with sizes when measured. */
@@ -68,7 +70,8 @@ export async function environmentServices(environmentId: string): Promise<Servic
       .where(
         inArray(
           schema.server.id,
-          services.map((s) => s.serverId),
+          // Apps' other servers too: their cards name them.
+          services.flatMap((s) => runServerIds(s.serverId, s.type === "app" ? s.distribution : null)),
         ),
       ),
     meshMemberIds(),
@@ -133,6 +136,10 @@ export async function environmentServices(environmentId: string): Promise<Servic
       issues: issues.get(s.id) ?? [],
       serverId: s.serverId,
       serverName: servers.find((x) => x.id === s.serverId)?.name ?? "",
+      alsoOn: runsOn
+        .get(s.id)!
+        .slice(1)
+        .map((id) => ({ id, name: servers.find((x) => x.id === id)?.name ?? "another server" })),
       uses: uses.get(s.id) ?? [],
       volumes: cardVolumes(s, sizes),
     };

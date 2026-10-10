@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
 import { AlertTriangle, ArrowUpRight, Check, ChevronDown, Copy, Layers3, Plus, Settings } from "lucide-react";
+import { ServersChip } from "./servers-chip";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
@@ -133,6 +134,7 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-center gap-2">
             <span className="truncate text-[14px] font-semibold text-fg">{s.name}</span>
+            <ServersChip s={s} />
           </span>
           <span className="truncate text-xs text-muted">{s.source ?? (s.engine ? s.engine : s.type)}</span>
         </div>
@@ -192,6 +194,7 @@ function ServiceRow({ projectId, s }: { projectId: string; s: ServiceCardData })
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-1.5">
           <span className="truncate text-[13.5px] font-semibold text-fg">{s.name}</span>
+          <ServersChip s={s} />
           {issue && (
             <span title={s.issues.map((i) => i.text).join("\n")} className={cn("flex-none", issue.tone === "bad" ? "text-bad" : "text-warn")}>
               <AlertTriangle className="size-3.5" />

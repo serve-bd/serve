@@ -40,6 +40,7 @@ import { useCanvasFullscreen } from "@/hooks/use-canvas-fullscreen";
 import { autoLayout, CARD_H, CARD_W, cardHeight, FRAME_PAD, FRAME_TOP, keptLayout, type Pos, VOLUME_LINE_H, VOLUME_LINES } from "@/lib/canvas-layout";
 import { TimeAgo } from "@/components/ui/misc";
 import { KeptIcon, KeptMenu, keptLabel, useKeptActions } from "./kept-data";
+import { ServersChip } from "./servers-chip";
 import { useCollapsed } from "./services/[serviceId]/variables/replica-vars";
 
 type ServiceNode = Node<{ s: ServiceCardData; projectId: string }, "service">;
@@ -159,10 +160,13 @@ function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
       <div className="flex items-start gap-3 px-3.5 pt-3">
         <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind(s)} size="sm" />
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="flex items-center gap-1.5">
+          <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-[13px] font-semibold text-fg">{s.name}</span>
           </span>
-          <span className="truncate text-[11px] text-muted">{s.domain ?? s.source ?? (s.engine ? s.engine : s.type)}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[11px] text-muted">{s.domain ?? s.source ?? (s.engine ? s.engine : s.type)}</span>
+            <ServersChip s={s} />
+          </span>
         </div>
         {s.domain && (
           <a

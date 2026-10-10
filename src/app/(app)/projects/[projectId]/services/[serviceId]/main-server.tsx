@@ -41,10 +41,13 @@ export function EntryServerOption({ server, selected, onSelect }: { server: Entr
           {server.main && <Badge tone="info">Main now</Badge>}
           {problem && <Badge tone="bad">Can&apos;t take visitors</Badge>}
         </span>
-        <span className="flex items-center gap-1.5 text-xs text-muted">
-          {server.tunnels.length ? <Waypoints className="size-3 text-[#f38020]" /> : <Globe className="size-3" />}
-          {entryWays(server)}
-          {server.proxyKind !== "none" && <span className="text-faint">· {server.proxyKind}</span>}
+        <span className="flex items-start gap-1.5 text-xs text-muted">
+          {server.tunnels.length ? <Waypoints className="mt-0.5 size-3 flex-none text-[#f38020]" /> : <Globe className="mt-0.5 size-3 flex-none" />}
+          {/* One run of text, so a long line wraps under itself with the proxy at its end. */}
+          <span className="min-w-0">
+            {entryWays(server)}
+            {server.proxyKind !== "none" && <span className="text-faint"> · {server.proxyKind}</span>}
+          </span>
         </span>
       </span>
     </button>

@@ -5,6 +5,8 @@ import useSWR from "swr";
 import { Eraser, RotateCw } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FullscreenButton } from "@/components/fullscreen-button";
+import { useFullscreen } from "@/hooks/use-fullscreen";
 import { Terminal, type TerminalHandle, type TerminalStatus } from "@/components/terminal";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +49,7 @@ export function Console({
   const [session, setSession] = React.useState(0);
   const [status, setStatus] = React.useState<TerminalStatus>("connecting");
   const terminal = React.useRef<TerminalHandle>(null);
+  const fs = useFullscreen();
   const selected = target ?? targets[0]?.key ?? null;
   const selectedName = targets.find((t) => t.key === selected)?.name ?? selected;
   // Replicas on several servers share names: each says its server.
@@ -77,7 +80,7 @@ export function Console({
         )}
       </div>
 
-      <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-log-bg shadow-sm">
+      <div className={cn("flex flex-col overflow-hidden bg-log-bg", fs.full ? "fixed inset-0 z-40" : "rounded-2xl border border-line shadow-sm")}>
         <div className="flex h-10 items-center gap-3 border-b border-white/[0.06] pr-2 pl-4 text-[11.5px] text-white/45">
           <span className="flex min-w-0 items-center gap-2">
             <span
@@ -110,10 +113,17 @@ export function Console({
                 <RotateCw className="size-3.5" />
               </button>
             </Tooltip>
+            <FullscreenButton
+              full={fs.full}
+              onClick={() => {
+                fs.toggle();
+                terminal.current?.focus();
+              }}
+            />
           </span>
         </div>
 
-        <div className="relative">
+        <div className={cn("relative", fs.full && "flex min-h-0 flex-1 flex-col")}>
           {selected ? (
             <Terminal
               key={`${selected}:${session}`}
@@ -121,10 +131,10 @@ export function Console({
               endpoint={`/api/services/${serviceId}/terminal`}
               target={selected}
               onStatus={setStatus}
-              className="h-[min(62vh,580px)] min-h-72 py-2 pl-3"
+              className={cn("py-2 pl-3", fs.full ? "min-h-0 flex-1" : "h-[min(62vh,580px)] min-h-72")}
             />
           ) : (
-            <div className="flex h-[min(62vh,580px)] min-h-72 flex-col items-center justify-center gap-1 px-6 text-center">
+            <div className={cn("flex flex-col items-center justify-center gap-1 px-6 text-center", fs.full ? "min-h-0 flex-1" : "h-[min(62vh,580px)] min-h-72")}>
               <p className="text-[13px] font-medium text-white/80">{isLoading ? "Looking for containers…" : "No running container"}</p>
               {!isLoading && <p className="text-[12.5px] text-white/40">Deploy or start the service to open a shell.</p>}
             </div>

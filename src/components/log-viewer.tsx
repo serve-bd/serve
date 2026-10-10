@@ -7,6 +7,8 @@ import { ArrowDown, Check, Clock, Copy, Download, Search, WrapText } from "lucid
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 import { copyText } from "@/components/ui/clipboard";
+import { FullscreenButton } from "@/components/fullscreen-button";
+import { useFullscreen } from "@/hooks/use-fullscreen";
 
 export type LogLine = { text: string; time?: string; source?: string | null; error?: boolean };
 
@@ -84,6 +86,7 @@ export function LogViewer({
   const [query, setQuery] = React.useState("");
   const [last, setLast] = React.useState(0);
   const [copied, setCopied] = React.useState(false);
+  const fs = useFullscreen();
   // Timestamps take room a phone does not have: hidden there until asked for.
   const [times, setTimes] = React.useState(true);
   // The last choices are remembered in this browser, for every log.
@@ -151,7 +154,7 @@ export function LogViewer({
   };
 
   return (
-    <div className={cn("relative flex flex-col overflow-hidden rounded-2xl border border-line bg-log-bg shadow-sm", className)}>
+    <div className={cn("relative flex flex-col overflow-hidden bg-log-bg", fs.full ? "fixed inset-0 z-40" : cn("rounded-2xl border border-line shadow-sm", className))}>
       {/* Phones: the filter gets its own row, the buttons the row under it. */}
       <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] px-3 py-2">
         <div className="relative min-w-0 basis-full sm:flex-1 sm:basis-auto">
@@ -216,8 +219,14 @@ export function LogViewer({
             <Download className="size-3.5" />
           </button>
         </Tooltip>
+        <FullscreenButton full={fs.full} onClick={fs.toggle} />
       </div>
-      <div ref={ref} onScroll={onScroll} className="scrollbar-thin overflow-auto py-2 font-mono text-[12px] leading-[1.65] text-log-fg" style={{ height }}>
+      <div
+        ref={ref}
+        onScroll={onScroll}
+        className={cn("scrollbar-thin overflow-auto py-2 font-mono text-[12px] leading-[1.65] text-log-fg", fs.full && "min-h-0 flex-1")}
+        style={fs.full ? undefined : { height }}
+      >
         {visible.length === 0 ? (
           <div className="px-4 py-3 text-white/35">{query ? "No lines match the filter." : emptyText}</div>
         ) : (

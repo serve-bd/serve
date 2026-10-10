@@ -9,6 +9,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, Textarea } from "@/components/ui/input";
+import { MaskedInput } from "@/components/ui/masked-input";
 import { LogViewer } from "@/components/log-viewer";
 import { SshPublicKey } from "@/components/ssh-public-key";
 import { createPrivateKey, createServer, updateServer, validateServer } from "@/server/actions/servers";
@@ -230,7 +231,8 @@ export function AddServer({
               {reach === "ssh" && (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
                   <Field label="IP address or hostname">
-                    <Input
+                    <MaskedInput
+                      label="IP address"
                       value={conn.host}
                       onChange={(e) => setConn({ ...conn, host: e.target.value })}
                       placeholder="203.0.113.10"

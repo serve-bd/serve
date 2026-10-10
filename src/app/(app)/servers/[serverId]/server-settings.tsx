@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, Copyable, TimeAgo } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup } from "@/components/ui/input";
+import { MaskedInput } from "@/components/ui/masked-input";
 import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SwitchRow } from "@/components/ui/switch";
@@ -116,7 +117,7 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
               </Field>
             ) : (
               <Field label="IP address or hostname">
-                <Input value={v.host} onChange={(e) => set("host")(e.target.value)} className="font-mono" spellCheck={false} />
+                <MaskedInput label="IP address" value={v.host} onChange={(e) => set("host")(e.target.value)} className="font-mono" spellCheck={false} autoComplete="off" />
               </Field>
             )}
             <Field label="SSH port">

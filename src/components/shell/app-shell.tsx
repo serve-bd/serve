@@ -34,6 +34,7 @@ import {
   Server,
   Settings,
   ShieldCheck,
+  SquareTerminal,
   Sun,
   Tag,
   User,
@@ -179,6 +180,10 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
           {mainNav.map((item) => (
             <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
           ))}
+          {/* Consoles need console access; server shells, an admin who manages servers. */}
+          {(props.access.permissions.includes("console.access") || props.isInstanceAdmin || props.isOrgAdmin) && (
+            <NavLink item={{ href: "/terminal", label: "Terminal", icon: SquareTerminal }} pathname={pathname} onNavigate={onNavigate} />
+          )}
         </NavGroup>
 
         {props.access.permissions.includes("integrations.manage") && (

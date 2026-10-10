@@ -1,5 +1,6 @@
 "use server";
 
+import { runServerIds } from "@/server/deploy/distribution";
 import { requireRoom } from "@/server/limits";
 import { requireDeleteProof } from "@/server/delete-proof";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -181,7 +182,10 @@ export async function saveCanvasPositions(environmentId: string, positions: Reco
     await projectInOrg(env.projectId, ctx.org.id);
     // Services, and data their deleted ones left here (kept:<database|volume>:<id>).
     const [services, keptDbs, keptVols] = await Promise.all([
-      db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.environmentId, environmentId)),
+      db
+        .select({ id: schema.service.id, type: schema.service.type, serverId: schema.service.serverId, distribution: schema.service.distribution })
+        .from(schema.service)
+        .where(eq(schema.service.environmentId, environmentId)),
       db
         .select({ id: schema.keptDatabase.id })
         .from(schema.keptDatabase)
@@ -191,7 +195,9 @@ export async function saveCanvasPositions(environmentId: string, positions: Reco
         .from(schema.keptVolume)
         .where(and(eq(schema.keptVolume.environmentId, environmentId), eq(schema.keptVolume.organizationId, ctx.org.id))),
     ]);
-    const ids = new Set([...services.map((s) => s.id), ...keptDbs.map((k) => `kept:database:${k.id}`), ...keptVols.map((k) => `kept:volume:${k.id}`)]);
+    // Apps' copies on their other servers (copy:<service>:<server>) are placed too.
+    const copies = services.flatMap((s) => (s.type === "app" ? runServerIds(s.serverId, s.distribution).slice(1) : []).map((server) => `copy:${s.id}:${server}`));
+    const ids = new Set([...services.map((s) => s.id), ...copies, ...keptDbs.map((k) => `kept:database:${k.id}`), ...keptVols.map((k) => `kept:volume:${k.id}`)]);
     const moved: Record<string, { x: number; y: number }> = {};
     for (const [id, p] of Object.entries(parsed)) if (ids.has(id)) moved[id] = { x: Math.round(p.x), y: Math.round(p.y) };
     if (!Object.keys(moved).length) return null;

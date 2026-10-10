@@ -9,6 +9,7 @@ import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
 import { scopeReader } from "@/lib/refs";
 import { runServerIds } from "@/server/deploy/distribution";
 import { type CardVolume, cardVolumes } from "@/server/services/card-volumes";
+import { type CardSpread, cardSpreads } from "@/server/services/card-spread";
 
 export type { ServiceUse };
 
@@ -29,6 +30,8 @@ export type ServiceCardData = {
   serverName: string;
   /** An app's other servers: it runs there too (load balancing, Closest server or copies). */
   alsoOn: { id: string; name: string }[];
+  /** How the app reaches its other servers, with each one's state; null on a single server. */
+  spread: CardSpread | null;
   /** Services of the environment this one references in its variables. */
   uses: ServiceUse[];
   /** Where it keeps its data, with sizes when measured. */
@@ -103,6 +106,7 @@ export async function environmentServices(environmentId: string): Promise<Servic
     scopeReader({ environment: mapOf((v) => !!v.environmentId), project: mapOf((v) => !v.environmentId && !!v.projectId), org: mapOf((v) => !v.environmentId && !v.projectId) }),
     (consumer, provider) => reachesPrivately(mesh, runsOn.get(consumer.id)!, { serverId: provider.serverId, servers: runsOn.get(provider.id)! }),
   );
+  const spreads = await cardSpreads(services, (id) => servers.find((x) => x.id === id)?.name ?? "another server");
   return services.map((s) => {
     const primary = pickPrimaryDomain(domains.filter((x) => x.serviceId === s.id));
     const dep = deployments.find((x) => x.serviceId === s.id);
@@ -140,6 +144,7 @@ export async function environmentServices(environmentId: string): Promise<Servic
         .get(s.id)!
         .slice(1)
         .map((id) => ({ id, name: servers.find((x) => x.id === id)?.name ?? "another server" })),
+      spread: spreads.get(s.id) ?? null,
       uses: uses.get(s.id) ?? [],
       volumes: cardVolumes(s, sizes),
     };

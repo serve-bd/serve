@@ -49,6 +49,8 @@ export type ServiceProxyConfig = {
   wwwRedirect?: "none" | "to-apex" | "to-www";
   /** Compress responses (default on). */
   gzip?: boolean;
+  /** Paths answered with a redirect: an exact path to another path or URL (308 permanent, 307 not). */
+  redirects?: ProxyRedirect[];
   /** Long browser caching for static files (css, js, images, fonts). */
   cacheStatic?: boolean;
   /** Raw nginx directives inside the service's location block. Root admins only. */
@@ -58,6 +60,25 @@ export type ServiceProxyConfig = {
   /** Extra Traefik middlewares (YAML map of name → middleware) attached to the service's routers. Root admins only. */
   traefikMiddlewares?: string | null;
 };
+
+export type ProxyRedirect = { from: string; to: string; permanent?: boolean };
+
+/** An exact request path: plain URL characters only, so it is safe in every proxy's config. */
+export const redirectFrom = z
+  .string()
+  .trim()
+  .max(300)
+  .regex(/^\/[A-Za-z0-9._~%/-]*$/, "Use a path like /old-page (letters, digits and . _ ~ % - /)");
+/** Where a redirect goes: a path on the same site or an http(s) address, without quotes, spaces or query strings. */
+export const redirectTo = z
+  .string()
+  .trim()
+  .max(500)
+  .regex(/^(\/[A-Za-z0-9._~%/-]*|https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[A-Za-z0-9._~%/-]*)?)$/, "Use a path like /new-page or an address like https://example.com/page");
+export const redirectsSchema = z
+  .array(z.object({ from: redirectFrom, to: redirectTo, permanent: z.boolean().optional() }))
+  .max(100)
+  .refine((list) => new Set(list.map((r) => r.from)).size === list.length, "Each path can have one redirect.");
 
 /** The login wall is on: for the team, for guests, or both. */
 export const gateOn = (c: ServiceProxyConfig | null | undefined) => !!c && (!!c.login || !!c.guests?.length);
@@ -102,21 +123,21 @@ const RESERVED_HEADERS = new Set(["content-length", "transfer-encoding", "connec
 
 const cidr = z.string().trim().refine(isCidr, "Use an IP address or CIDR range like 203.0.113.0/24");
 
-const headerName = z
+export const headerName = z
   .string()
   .trim()
   .regex(/^[A-Za-z0-9-]{1,64}$/, "Header names may use letters, digits and dashes")
   .refine((n) => !RESERVED_HEADERS.has(n.toLowerCase()), "This header is managed by the proxy");
 
 // Printable ASCII without quotes, backslashes or "$" (nginx variables): the value goes inside "…".
-const headerValue = z
+export const headerValue = z
   .string()
   .max(512)
   .regex(/^[\x20-\x7e]*$/, "Header values must be plain text on one line")
   // Braces and backticks: Caddy placeholders ({env.X}, {file.…}) and Traefik templates would run.
   .refine((v) => !/["\\${}`]/.test(v), 'Header values cannot contain ", \\, $, braces or backticks');
 
-const origin = z
+export const origin = z
   .string()
   .trim()
   .refine((v) => v === "*" || /^https?:\/\/[a-z0-9.-]+(:\d{1,5})?$/i.test(v), "Use * or an origin like https://app.example.com");
@@ -179,6 +200,7 @@ export const proxyInputSchema = z.object({
   wwwRedirect: z.enum(["none", "to-apex", "to-www"]).optional(),
   gzip: z.boolean().optional(),
   cacheStatic: z.boolean().optional(),
+  redirects: redirectsSchema.optional(),
   customDirectives: z.string().max(10_000).refine(balanced, "Braces { } must be balanced").nullable().optional(),
   caddyDirectives: z.string().max(10_000).refine(balanced, "Braces { } must be balanced").nullable().optional(),
   traefikMiddlewares: z.string().max(20_000).refine(isMiddlewareYaml, "Use a YAML map of middleware names to Traefik middleware definitions").nullable().optional(),
@@ -248,6 +270,8 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     wwwRedirect: input.wwwRedirect ?? "none",
     gzip: input.gzip ?? true,
     cacheStatic: input.cacheStatic ?? false,
+    // Left out (the dashboard form has no redirects yet): the saved ones stay.
+    redirects: input.redirects ?? previous?.redirects ?? [],
     // Left out (a form for another proxy, an API call without it): the saved value stays.
     customDirectives: input.customDirectives === undefined ? (previous?.customDirectives ?? null) : input.customDirectives?.trim() || null,
     caddyDirectives: input.caddyDirectives === undefined ? (previous?.caddyDirectives ?? null) : input.caddyDirectives?.trim() || null,

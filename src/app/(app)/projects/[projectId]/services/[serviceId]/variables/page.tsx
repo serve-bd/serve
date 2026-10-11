@@ -137,6 +137,11 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
         }
         previewDatabaseVariable={service.previewDatabase?.variable ?? null}
         initialTab={tab === "previews" ? "previews" : "main"}
+        fromFile={
+          service.configFile
+            ? { path: service.configFile.path, values: service.configFile.variables, generated: service.configFile.generated, required: service.configFile.required }
+            : null
+        }
         canEdit={ctx.can("variables.edit")}
         canSeeSecrets={canSeeSecrets}
         references={references}

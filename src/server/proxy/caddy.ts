@@ -190,12 +190,16 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, real
   if (m) {
     // Visitors on the allow list still reach the app; everyone else gets the page with a 503.
     lines.push(
-      m.allow.length ? `@serve_maintenance not client_ip ${m.allow.join(" ")}` : "@serve_maintenance path *",
+      // Allowed visitors reach a running app; with none running, everyone gets the page (like nginx and Traefik).
+      targets && m.allow.length ? `@serve_maintenance not client_ip ${m.allow.join(" ")}` : "@serve_maintenance path *",
       "handle @serve_maintenance {",
       tab([`header Retry-After "${m.retryAfter}"`, `header Cache-Control "no-store"`, `root * ${proxyPaths.pages}`, `rewrite * /${m.page}`, "file_server {", "\tstatus 503", "}"]),
       "}",
     );
   }
+  // Exact paths answered with a redirect (a path matcher without * is exact in Caddy).
+  // Only while the app runs, like nginx and Traefik: otherwise every path gets the unavailable answer.
+  if (targets) for (const r of o?.redirects ?? []) lines.push(`redir ${r.from} ${r.to} ${r.permanent === false ? 307 : 308}`);
   if (o?.maxBodySize) lines.push("request_body {", `\tmax_size ${sizeToBytes(o.maxBodySize) ?? o.maxBodySize}`, "}");
   if (o?.gzip !== false) lines.push("encode zstd gzip");
   const headers = headerLines(o, h.https);

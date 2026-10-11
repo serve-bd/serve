@@ -165,6 +165,14 @@ export function renderTraefikSite(
     if (opts.trusted.length) middlewares[`${p}-allow-direct`] = { ipAllowList: { sourceRange: allowAll } };
     chain.push(`${p}-allow`);
   }
+  // Exact paths answered with a redirect: first in the chain, like nginx and Caddy.
+  for (const [i, r] of (o?.redirects ?? []).entries()) {
+    const path = r.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    middlewares[`${p}-redirect-${i}`] = {
+      redirectRegex: { regex: `^(https?://[^/]+)${path}(\\?.*)?$`, replacement: r.to.startsWith("/") ? `\${1}${r.to}` : r.to, permanent: r.permanent !== false },
+    };
+    chain.unshift(`${p}-redirect-${i}`);
+  }
   const headers: Obj = {};
   const custom: Record<string, string> = {};
   for (const h of o?.headers ?? []) custom[h.name] = h.value;

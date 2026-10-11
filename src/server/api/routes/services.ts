@@ -9,6 +9,8 @@ import * as tagActions from "@/server/actions/tags";
 import * as dbActions from "@/server/actions/databases";
 import { setServiceApproval } from "@/server/actions/deploy-rules";
 import * as serviceProxy from "@/server/actions/service-proxy";
+import * as serveConfig from "@/server/actions/serve-config";
+import { parseServeConfig, resolveServeConfig } from "@/lib/serve-config";
 import { saveComposeMounts } from "@/server/actions/compose-storage";
 import { savePreviewDatabase } from "@/server/actions/environments";
 import * as monitoring from "@/server/actions/monitoring";
@@ -362,6 +364,36 @@ export const serviceRoutes: ApiRoute[] = [
       await loadService(auth, params.serviceId);
       await unwrap(actions.restartContainer(params.serviceId, params.containerId));
       return { ok: true };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/serve-json",
+    tag: "Services",
+    summary: "The service's settings as a serve.json",
+    description:
+      "Build, deploy, health check, resources, storage, scheduled tasks, HTTP options and the uptime check of an app (stacks: tasks, HTTP options and the uptime check), as a serve.json to commit. Variables are left out: their values stay in Serve.",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      return unwrap(serveConfig.exportServeConfig(params.serviceId));
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/serve-json/validate",
+    tag: "Services",
+    summary: "Check a serve.json",
+    description:
+      "Checks a serve.json the way a deploy does: every problem with the place it is in. With environment (and preview), the settings that environment's deploys would use are checked too, blocks merged in.",
+    needs: ["projects.view"],
+    body: z.object({ text: z.string().max(1_000_000), environment: z.string().max(64).optional(), preview: z.boolean().optional() }),
+    handler: async ({ body }) => {
+      const parsed = parseServeConfig(body.text);
+      if ("errors" in parsed) return { valid: false, errors: parsed.errors };
+      if (!body.environment) return { valid: true, errors: [] };
+      const resolved = resolveServeConfig(parsed.config, { environment: body.environment, preview: !!body.preview });
+      return "errors" in resolved ? { valid: false, errors: resolved.errors } : { valid: true, errors: [], blocks: resolved.applied, settings: resolved.settings };
     },
   }),
   route({

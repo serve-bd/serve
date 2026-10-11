@@ -735,6 +735,16 @@ export type ServiceConfigFile = {
   tasks: string[];
   /** Variables it requires a value for. */
   required: string[];
+  /** The environment it was applied for, and the blocks merged in ("environments.staging", "previews"). */
+  environment: string;
+  blocks: string[];
+  /** Variables it sets values for: removed again when a later file no longer lists them. */
+  variables: string[];
+  /** Variables it has Serve generate once (secrets; kept when the file stops listing them). */
+  generated: string[];
+  /** HTTP options it sets, and those an earlier file set that go back to their defaults. */
+  httpKeys: string[];
+  httpDropped: string[];
 };
 
 export type DeploymentTrigger = "manual" | "webhook" | "rollback" | "redeploy" | "create" | "deploy-hook" | "api" | "cli";

@@ -486,7 +486,12 @@ function proxyLocation(target: string, o: SiteOptions | null | undefined, tls: b
     );
   }
   if (o?.customDirectives) inner.push("# Custom directives", o.customDirectives);
-  const main = `    location / {
+  // Exact paths answered with a redirect before anything else (no app, no login needed for a redirect).
+  // The maintenance guard comes along: during maintenance only allowed visitors are redirected.
+  const redirects = (o?.redirects ?? [])
+    .map((r) => `    location = ${r.from} {\n${indent([...guard, `return ${r.permanent === false ? 307 : 308} ${r.to};`], 2)}\n    }\n\n`)
+    .join("");
+  const main = `${redirects}    location / {
 ${indent(inner, 2)}
     }${o?.gate ? `\n\n${gateLocations(o.gate)}` : ""}`;
   if (!errorPages) return main;

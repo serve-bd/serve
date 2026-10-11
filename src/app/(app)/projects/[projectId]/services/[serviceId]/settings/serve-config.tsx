@@ -31,9 +31,12 @@ const same = (field: string, saved: unknown, file: unknown) => {
   return JSON.stringify(saved ?? null) === JSON.stringify(file ?? null);
 };
 
+/** Build and runtime settings this page has the saved values of (HTTP options and the uptime check live elsewhere). */
+const comparable = (field: string) => field.startsWith("build.") || field.startsWith("runtime.");
+
 /** Settings serve.json set that were changed in the dashboard since. */
 function overrides(ctx: Ctx) {
-  return (ctx.file?.settings ?? []).filter((s) => !same(s.field, savedValue(ctx, s.field), s.value));
+  return (ctx.file?.settings ?? []).filter((s) => comparable(s.field) && !same(s.field, savedValue(ctx, s.field), s.value));
 }
 
 const shown = (v: unknown) => (v === null || v === undefined || v === "" ? "nothing" : typeof v === "string" ? v : JSON.stringify(v));
@@ -48,7 +51,7 @@ export function FromFile({ field }: { field: string | string[] }) {
   const fields = Array.isArray(field) ? field : [field];
   const set = ctx.file.settings.filter((s) => fields.includes(s.field));
   if (!set.length) return null;
-  const changed = set.filter((s) => !same(s.field, savedValue(ctx, s.field), s.value));
+  const changed = set.filter((s) => comparable(s.field) && !same(s.field, savedValue(ctx, s.field), s.value));
   const path = ctx.file.path;
   if (changed.length)
     return (

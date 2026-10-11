@@ -22,7 +22,7 @@ export async function resetToServeConfig(serviceId: string) {
       await applyServeConfig(
         service,
         { path: file.path, text: file.text },
-        { deploymentId: file.deploymentId, commitSha: file.commitSha, organizationId: ctx.org.id, log: quiet, tasksNow: true },
+        { deploymentId: file.deploymentId, commitSha: file.commitSha, organizationId: ctx.org.id, log: quiet, now: true },
       );
     } catch (e) {
       throw new UserError((e as Error).message);
@@ -46,14 +46,24 @@ export async function exportServeConfig(serviceId: string) {
     // Files mounted into the app can hold private settings: the same people who can change them.
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
-    if (service.type !== "app") throw new UserError("serve.json is for apps built from Git or the CLI.");
+    if (service.type !== "app" && service.type !== "compose") throw new UserError("serve.json is for apps and stacks.");
     const tasks = await db.select().from(schema.scheduledTask).where(eq(schema.scheduledTask.serviceId, serviceId));
+    const [monitor] = await db.select().from(schema.monitor).where(eq(schema.monitor.serviceId, serviceId));
     const config = serveConfigFrom(
       {
         build: service.build ?? defaultBuild(),
         runtime: service.runtime,
-        // Tasks that pick a container belong to stacks; an app has one kind of container.
-        tasks: tasks.map((t) => ({ name: t.name, schedule: t.schedule, command: t.command, timeoutSeconds: t.timeoutSeconds, enabled: t.enabled })),
+        tasks: tasks.map((t) => ({
+          name: t.name,
+          schedule: t.schedule,
+          command: t.command,
+          timeoutSeconds: t.timeoutSeconds,
+          enabled: t.enabled,
+          composeService: t.composeService,
+        })),
+        compose: service.type === "compose",
+        proxy: service.proxy,
+        monitor: monitor ?? null,
       },
       { build: defaultBuild(), runtime: defaultRuntime(null) },
     );

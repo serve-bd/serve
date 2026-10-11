@@ -297,9 +297,10 @@ export function ServiceSettings(props: Props) {
           </Section>
         )}
 
-        {show("general") && service.type === "app" && !service.isPreview && (service.source?.type === "git" || service.source?.type === "upload") && (
-          <ServeConfigCard serviceId={service.id} canManage={can("services.manage")} />
-        )}
+        {show("general") &&
+          !service.isPreview &&
+          ((service.type === "app" && (service.source?.type === "git" || service.source?.type === "upload")) ||
+            (service.type === "compose" && service.compose?.mode === "git")) && <ServeConfigCard serviceId={service.id} canManage={can("services.manage")} />}
 
         {show("general") && props.tags && <TagsSection serviceId={service.id} tags={props.tags.names} all={props.tags.all} canEdit={props.tags.canEdit} />}
 

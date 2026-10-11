@@ -59,6 +59,7 @@ export function VariablesEditor({
   previewVars = null,
   previewDatabaseVariable = null,
   initialTab,
+  fromFile = null,
 }: {
   serviceId: string;
   type: string;
@@ -78,6 +79,8 @@ export function VariablesEditor({
   /** Variables of pull request previews; null when the service has no previews. */
   previewVars?: ReplicaVar[] | null;
   previewDatabaseVariable?: string | null;
+  /** What the applied serve.json says about variables: values it sets, secrets it generated, names it requires. */
+  fromFile?: { path: string; values: string[]; generated: string[]; required: string[] } | null;
   initialTab?: "main" | "previews";
 }) {
   const [vars, setVars] = React.useState<Var[]>(() => initial.map(withId));
@@ -152,6 +155,8 @@ export function VariablesEditor({
   const missing = composeVars.filter((name) => !current.some((v) => v.key === name));
   // Hidden values are not known here: only ones that are visibly empty count.
   const empty = composeRequired.filter((r) => current.some((v) => v.key === r.name && v.value === "" && !("keep" in v)));
+  // Required by serve.json: missing, or visibly empty (hidden values are not known here).
+  const fileMissing = (fromFile?.required ?? []).filter((k) => !current.some((v) => v.key === k && (v.value !== "" || "keep" in v)));
 
   return (
     <Tabs value={previewVars ? tab : "main"} onValueChange={(v) => setTab(v as "main" | "previews")} className="flex flex-col gap-4">
@@ -168,6 +173,15 @@ export function VariablesEditor({
       <TabsPanel value="main" keepMounted className="data-[hidden]:hidden">
         <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="flex min-w-0 flex-col gap-4">
+            {fileMissing.length > 0 && (
+              <div role="alert" className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/30 bg-warn-soft px-4 py-3 text-[13px]">
+                <TriangleAlert className="size-4 flex-none text-warn" />
+                <p className="min-w-0 flex-1 text-fg-2">
+                  {fromFile?.path} requires <span className="font-mono text-fg">{fileMissing.join(", ")}</span>. Deploys stop until{" "}
+                  {fileMissing.length === 1 ? "it has" : "they have"} a value.
+                </p>
+              </div>
+            )}
             {missing.length > 0 && (
               <div role="alert" className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/30 bg-warn-soft px-4 py-3 text-[13px]">
                 <TriangleAlert className="size-4 flex-none text-warn" />
@@ -286,13 +300,28 @@ export function VariablesEditor({
                           hasBuild ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_32px]" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_32px]",
                         )}
                       >
-                        <Input
-                          value={v.key}
-                          onChange={(e) => update(v.id!, { key: e.target.value.replace(/\s/g, "_") })}
-                          placeholder="KEY"
-                          className="font-mono text-[12.5px]"
-                          disabled={!canEdit}
-                        />
+                        <div className="relative">
+                          <Input
+                            value={v.key}
+                            onChange={(e) => update(v.id!, { key: e.target.value.replace(/\s/g, "_") })}
+                            placeholder="KEY"
+                            className={cn("font-mono text-[12.5px]", fromFile && (fromFile.values.includes(v.key) || fromFile.generated.includes(v.key)) && "pr-24")}
+                            disabled={!canEdit}
+                          />
+                          {fromFile && (fromFile.values.includes(v.key) || fromFile.generated.includes(v.key)) && (
+                            <Tooltip
+                              content={
+                                fromFile.values.includes(v.key)
+                                  ? `Set in ${fromFile.path}. A change here lasts until the next deploy.`
+                                  : `Generated once because ${fromFile.path} asks for it. Serve keeps it; changing it here keeps the new value.`
+                              }
+                            >
+                              <Badge tone="info" className="absolute top-1/2 right-2 -translate-y-1/2 font-mono">
+                                {fromFile.values.includes(v.key) ? "serve.json" : "generated"}
+                              </Badge>
+                            </Tooltip>
+                          )}
+                        </div>
                         <div className="relative">
                           {v.multiline && (shown || isRef || v.hidden || !v.value) ? (
                             <Textarea

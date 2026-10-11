@@ -8,8 +8,7 @@ import { db, schema } from "@/server/db";
 import { decryptOrNull, hmac } from "@/server/crypto";
 import { currentVersion } from "@/server/instance/version";
 import type Docker from "dockerode";
-import { applyServeConfig, forgetServeConfig, missingRequired, readServeConfigFile, syncServeConfigTasks } from "@/server/services/serve-config";
-import { parseServeConfig, planServeConfig } from "@/lib/serve-config";
+import { applyServeConfig, fileBuildSettings, finishServeConfig, forgetServeConfig, missingRequired, readServeConfigFile } from "@/server/services/serve-config";
 import { type BuildConfig, buildsImage, defaultBuild, type ImageSource, type PortMapping, type VolumeMount } from "@/server/services/types";
 import { copyImage, ensureNetwork, imageExists, imageExistsFor, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { forgetServer, getServer, serverOf, type ServerCtx } from "@/server/servers/context";
@@ -210,7 +209,7 @@ async function prepareAppImage(
   }
 
   // Git source: clone and build. Dockerfile source: build the saved Dockerfile in an empty context.
-  const env = await resolveEnv(service);
+  let env = await resolveEnv(service);
   log.redact(env.secrets);
   stopOnFailedSecrets(env);
   // Said before the build: an empty build variable often breaks it, long before the container starts.
@@ -248,9 +247,7 @@ async function prepareAppImage(
     const file = await readServeConfigFile(workDir, saved.rootDir || "/");
     if (workSuffix) {
       if (!file || dep.trigger === "redeploy") return;
-      const parsed = parseServeConfig(file.text);
-      if ("errors" in parsed) throw new Error(`${file.path} is not valid: ${parsed.errors[0]}`);
-      build = effective(planServeConfig(parsed.config, { build: saved, runtime: service.runtime, previousMounts: service.configFile?.mounts }).build);
+      build = effective(await fileBuildSettings({ ...service, build: saved }, file));
       return;
     }
     if (!file) {
@@ -258,8 +255,14 @@ async function prepareAppImage(
     } else if (dep.trigger === "redeploy") {
       log.line(`Redeploy: ${file.path} is not applied again, so changes made in the dashboard stay. Deploy to apply it.`);
     } else {
-      await applyServeConfig(service, file, { deploymentId: dep.id, commitSha: sha, organizationId: await orgIdOf(service), log });
+      const applied = await applyServeConfig(service, file, { deploymentId: dep.id, commitSha: sha, organizationId: await orgIdOf(service), log });
       build = effective(service.build ?? saved);
+      // Variables the file set or generated are part of this build.
+      if (applied.variablesChanged) {
+        env = await resolveEnv(service);
+        log.redact(env.secrets);
+        stopOnFailedSecrets(env);
+      }
       if (build.buildTimeoutMinutes !== timeoutMinutes) {
         clearTimeout(timer);
         timer = startTimer(build.buildTimeoutMinutes);
@@ -1444,7 +1447,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   const rollback = await composeRollbackOf(dep, log);
   // A rollback runs the file the way that deployment got it: saved in Serve, or from git.
   const cfg = rollback ? { ...service.compose!, mode: rollback.mode } : service.compose!;
-  const env = await resolveEnv(service);
+  let env = await resolveEnv(service);
   log.redact(env.secrets);
   stopOnFailedSecrets(env);
   const serviceDir = paths.service(service.id);
@@ -1525,6 +1528,34 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     content = rollback?.content ?? read;
     file = path.relative(repoDir, composePath).split(path.sep).join("/");
     dir = path.dirname(composePath);
+    // serve.json next to the compose file (or in the repository's root): tasks, variables, HTTP
+    // options and the uptime check of the stack. A new deploy applies it; a redeploy keeps the dashboard's.
+    if (!rollback) {
+      const config = await readServeConfigFile(repoDir, path.posix.dirname(file));
+      if (!config) {
+        if (dep.trigger !== "redeploy") await forgetServeConfig(service, log);
+      } else if (dep.trigger === "redeploy") {
+        log.line(`Redeploy: ${config.path} is not applied again, so changes made in the dashboard stay. Deploy to apply it.`);
+      } else {
+        const applied = await applyServeConfig(service, config, {
+          deploymentId: dep.id,
+          commitSha: clone.commitSha || null,
+          organizationId: await orgIdOf(service),
+          log,
+          composeServices: composeServiceNames(content),
+        });
+        if (applied.variablesChanged) {
+          env = await resolveEnv(service);
+          log.redact(env.secrets);
+          stopOnFailedSecrets(env);
+        }
+      }
+      const unset = missingRequired(service.configFile?.required ?? [], env);
+      if (unset.length)
+        throw new Error(
+          `${service.configFile?.path ?? "serve.json"} requires ${unset.join(", ")}, which ${unset.length === 1 ? "has" : "have"} no value. Add ${unset.length === 1 ? "it" : "them"} in Variables and deploy again.`,
+        );
+    }
     // Bind mounts, env files, build contexts and secret files are read on the host: a symlink in the
     // repository must not lead them to files outside it.
     const escaping = await pathsOutside(repoDir, composeLocalPaths(content, dir));
@@ -1874,7 +1905,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     if (ran) await setDeployment(dep.id, { configHash: await configFingerprint(ran).catch(() => null) });
 
     // Live now: the tasks of the serve.json this deploy applied may run against it.
-    await syncServeConfigTasks(service.id, dep.id, log).catch((e) => log.line(`Warning: the scheduled tasks of serve.json were not updated: ${(e as Error).message}`));
+    await finishServeConfig(service.id, dep.id, log).catch((e) => log.line(`Warning: serve.json's tasks, HTTP options or uptime check were not updated: ${(e as Error).message}`));
 
     const seconds = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
     log.step(`Deployed successfully in ${seconds}s`);

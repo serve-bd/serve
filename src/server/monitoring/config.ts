@@ -11,4 +11,4 @@ export async function alertsFor(serverId: string): Promise<ServerAlertConfig> {
 }
 
 /** Interval choices offered in the UI (seconds). */
-export const MONITOR_INTERVALS = [30, 60, 120, 300, 600] as const;
+export { MONITOR_INTERVALS } from "@/lib/monitor-intervals";

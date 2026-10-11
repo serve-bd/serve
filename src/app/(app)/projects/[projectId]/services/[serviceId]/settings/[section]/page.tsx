@@ -299,6 +299,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
         compose: service.compose ? { mode: service.compose.mode, content: service.compose.content, path: service.compose.path, isolated: !!service.compose.isolated } : null,
         database: service.database ? { engine: service.database.engine, version: service.database.version } : null,
         status: service.status,
+        configFile: service.configFile,
       }}
       db={database}
       section={section}

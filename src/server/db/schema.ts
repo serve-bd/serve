@@ -558,6 +558,8 @@ export const service = pgTable(
     meshUses: jsonb("mesh_uses").$type<import("@/server/mesh/plan").MeshUses>(),
     /** What the deployment being rolled out uses (set when its containers start). */
     meshUsesPending: jsonb("mesh_uses_pending").$type<import("@/server/mesh/plan").MeshUses>(),
+    /** The serve.json the last new deploy applied: which settings and tasks it controls. Null: no file. */
+    configFile: jsonb("config_file").$type<ServiceConfigFile>(),
     /** Request log settings; null: never set up (off). */
     requestLog: jsonb("request_log").$type<RequestLogConfig>(),
     /** Per-service HTTP options for the nginx site (limits, auth, headers…). */
@@ -715,6 +717,25 @@ export const customTemplate = pgTable(
 
 /** "waiting": held for approval (deploy rules), not queued yet. */
 export type DeploymentStatus = "waiting" | "queued" | "building" | "deploying" | "success" | "failed" | "cancelled" | "superseded";
+
+/** What the last applied serve.json controls on a service (see src/lib/serve-config.ts). */
+export type ServiceConfigFile = {
+  /** Path of the file in the repository or upload, like serve.json or apps/web/serve.json. */
+  path: string;
+  /** The file as applied: shown in the dashboard, and used to put its values back. */
+  text: string;
+  appliedAt: string;
+  deploymentId: string;
+  commitSha: string | null;
+  /** Settings it set, with the file's values: the dashboard shows when one was changed since. */
+  settings: { field: string; value: unknown }[];
+  /** Container paths of the volumes and files it mounts. */
+  mounts: string[];
+  /** Names of the tasks it defines. */
+  tasks: string[];
+  /** Variables it requires a value for. */
+  required: string[];
+};
 
 export type DeploymentTrigger = "manual" | "webhook" | "rollback" | "redeploy" | "create" | "deploy-hook" | "api" | "cli";
 
@@ -1354,6 +1375,8 @@ export const scheduledTask = pgTable(
     composeService: text("compose_service"),
     enabled: boolean("enabled").notNull().default(true),
     timeoutSeconds: integer("timeout_seconds").notNull().default(3600),
+    /** Defined in serve.json: a new deploy updates or removes it to match the file. */
+    fromFile: boolean("from_file").notNull().default(false),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
     lastStatus: text("last_status"),
     createdAt: createdAt(),

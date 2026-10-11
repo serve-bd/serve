@@ -8,6 +8,8 @@ import { db, schema } from "@/server/db";
 import { decryptOrNull, hmac } from "@/server/crypto";
 import { currentVersion } from "@/server/instance/version";
 import type Docker from "dockerode";
+import { applyServeConfig, forgetServeConfig, missingRequired, readServeConfigFile, syncServeConfigTasks } from "@/server/services/serve-config";
+import { parseServeConfig, planServeConfig } from "@/lib/serve-config";
 import { type BuildConfig, buildsImage, defaultBuild, type ImageSource, type PortMapping, type VolumeMount } from "@/server/services/types";
 import { copyImage, ensureNetwork, imageExists, imageExistsFor, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { forgetServer, getServer, serverOf, type ServerCtx } from "@/server/servers/context";
@@ -215,28 +217,61 @@ async function prepareAppImage(
   if (env.missing.length) log.line(`Warning: unresolved variable references (left empty): ${env.missing.join(", ")}`);
   const workDir = path.join(paths.builds, workSuffix ? `${dep.id}-${workSuffix}` : dep.id);
   const saved = service.build ?? defaultBuild();
-  const build: BuildConfig = {
-    ...saved,
-    noCache: saved.noCache || saved.noCacheOnce,
+  const effective = (b: BuildConfig): BuildConfig => ({
+    ...b,
+    noCache: b.noCache || saved.noCacheOnce,
     ...(source.type === "dockerfile" ? { builder: "dockerfile" as const, dockerfile: "Dockerfile", rootDir: "/" } : {}),
-  };
+  });
+  let build: BuildConfig = effective(saved);
   if (service.build?.noCacheOnce) {
     // One-shot "build without cache": consume the flag so later deploys use the cache again.
-    await db
-      .update(schema.service)
-      .set({ build: { ...service.build, noCacheOnce: false } })
-      .where(eq(schema.service.id, service.id));
+    // In memory too, or serve.json saving the build settings later would set it again.
+    service.build = { ...service.build, noCacheOnce: false };
+    await db.update(schema.service).set({ build: service.build }).where(eq(schema.service.id, service.id));
   }
   // A build timeout aborts clone + build like a cancellation.
   const timeoutMinutes = build.buildTimeoutMinutes;
   const buildController = new AbortController();
   const onAbort = () => buildController.abort();
   signal?.addEventListener("abort", onAbort);
-  const timer = timeoutMinutes ? setTimeout(() => buildController.abort(new Error(`The build exceeded ${timeoutMinutes} minutes.`)), timeoutMinutes * 60_000) : undefined;
+  const startTimer = (minutes: number | null | undefined) =>
+    minutes ? setTimeout(() => buildController.abort(new Error(`The build exceeded ${minutes} minutes.`)), minutes * 60_000) : undefined;
+  let timer = startTimer(timeoutMinutes);
   const buildSignal = buildController.signal;
   // Standard image labels: the repository and commit an image was built from, readable by any tool.
   const origin: Record<string, string> = {};
   let commit: string | null = null;
+  // serve.json: a new deploy applies it before building; a redeploy keeps changes made in the
+  // dashboard since. A second build (another CPU type) builds with the same file's settings and
+  // leaves saving them to the main build.
+  const applyConfigFile = async (sha: string | null) => {
+    const file = await readServeConfigFile(workDir, saved.rootDir || "/");
+    if (workSuffix) {
+      if (!file || dep.trigger === "redeploy") return;
+      const parsed = parseServeConfig(file.text);
+      if ("errors" in parsed) throw new Error(`${file.path} is not valid: ${parsed.errors[0]}`);
+      build = effective(planServeConfig(parsed.config, { build: saved, runtime: service.runtime, previousMounts: service.configFile?.mounts }).build);
+      return;
+    }
+    if (!file) {
+      if (dep.trigger !== "redeploy") await forgetServeConfig(service, log);
+    } else if (dep.trigger === "redeploy") {
+      log.line(`Redeploy: ${file.path} is not applied again, so changes made in the dashboard stay. Deploy to apply it.`);
+    } else {
+      await applyServeConfig(service, file, { deploymentId: dep.id, commitSha: sha, organizationId: await orgIdOf(service), log });
+      build = effective(service.build ?? saved);
+      if (build.buildTimeoutMinutes !== timeoutMinutes) {
+        clearTimeout(timer);
+        timer = startTimer(build.buildTimeoutMinutes);
+      }
+    }
+    const unset = missingRequired(service.configFile?.required ?? [], env);
+    if (unset.length) {
+      throw new Error(
+        `${service.configFile?.path ?? "serve.json"} requires ${unset.join(", ")}, which ${unset.length === 1 ? "has" : "have"} no value. Add ${unset.length === 1 ? "it" : "them"} in Variables and deploy again.`,
+      );
+    }
+  };
   try {
     if (upload) {
       log.step("Unpacking the uploaded files");
@@ -259,6 +294,7 @@ async function prepareAppImage(
       if (dep.branch) origin[LABEL.branch] = dep.branch;
       // A clean commit is passed to the build as SOURCE_COMMIT; files with local changes are no commit.
       commit = dep.commitSha && !upload.dirty ? dep.commitSha : null;
+      await applyConfigFile(dep.commitSha ?? null);
     } else if (source.type === "git") {
       log.step("Cloning repository");
       if (build.noCache) log.line("Building without cache");
@@ -285,6 +321,7 @@ async function prepareAppImage(
       if (clone.commitSha) origin["org.opencontainers.image.revision"] = clone.commitSha;
       origin[LABEL.branch] = source.branch;
       commit = clone.commitSha || null;
+      await applyConfigFile(commit);
       if (commit) {
         const key = buildKey(service, build, env.build, commit, platform);
         origin[LABEL.buildKey] = key;
@@ -1835,6 +1872,9 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     const deployed = await db.query.service.findFirst({ where: eq(schema.service.id, service.id) });
     const ran = deployed?.compose && ranCompose !== null ? { ...deployed, compose: { ...deployed.compose, content: ranCompose } } : deployed;
     if (ran) await setDeployment(dep.id, { configHash: await configFingerprint(ran).catch(() => null) });
+
+    // Live now: the tasks of the serve.json this deploy applied may run against it.
+    await syncServeConfigTasks(service.id, dep.id, log).catch((e) => log.line(`Warning: the scheduled tasks of serve.json were not updated: ${(e as Error).message}`));
 
     const seconds = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
     log.step(`Deployed successfully in ${seconds}s`);

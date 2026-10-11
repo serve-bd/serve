@@ -1,0 +1,433 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "build": {
+      "type": "object",
+      "properties": {
+        "builder": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "dockerfile",
+            "nixpacks",
+            "railpack",
+            "buildpacks",
+            "static"
+          ],
+          "description": "auto picks one from the files; dockerfile, nixpacks, railpack, buildpacks or static to choose."
+        },
+        "dockerfile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Dockerfile path inside the root directory, like docker/Dockerfile."
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Stage of a multi-stage Dockerfile to build."
+        },
+        "buildpacksBuilder": {
+          "type": "string",
+          "maxLength": 300,
+          "pattern": "^[a-z0-9][a-z0-9._/:@-]*$",
+          "description": "Builder image for Cloud Native Buildpacks (default heroku/builder:24)."
+        },
+        "installCommand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Install step for nixpacks and railpack builds."
+        },
+        "buildCommand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Build step for nixpacks, railpack and static builds."
+        },
+        "startCommand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Start command baked into nixpacks and railpack images."
+        },
+        "publishDir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Folder with the built site, for static builds."
+        },
+        "args": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "description": "Docker build arguments. Not for secrets: use build-time variables in the dashboard."
+        },
+        "noCache": {
+          "type": "boolean",
+          "description": "Always build without the layer cache."
+        },
+        "timeoutMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 240,
+          "description": "Stop a build that runs longer (minutes)."
+        },
+        "submodules": {
+          "type": "boolean",
+          "description": "Clone Git submodules (default true)."
+        },
+        "watchPaths": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "description": "Only pushes that change a matching path deploy (globs; !path excludes). A change to serve.json always deploys."
+        }
+      },
+      "additionalProperties": false,
+      "description": "How the image is built."
+    },
+    "deploy": {
+      "type": "object",
+      "properties": {
+        "startCommand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Command the container runs, replacing the image's."
+        },
+        "entrypoint": {
+          "minItems": 1,
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "description": "Entrypoint, replacing the image's, as a list of arguments."
+        },
+        "workingDir": {
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^\\/[^:]*$",
+          "description": "Working directory in the container."
+        },
+        "user": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_.-]+(:[a-zA-Z0-9_.-]+)?$",
+          "description": "User to run as, like node or 1000:1000."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Port the app listens on."
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Containers to run; traffic is balanced across them."
+        },
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "rolling",
+            "recreate"
+          ],
+          "description": "rolling starts the new version before stopping the old one (no downtime); recreate stops first."
+        },
+        "drainSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600,
+          "description": "Seconds old containers keep serving requests that are in flight."
+        },
+        "preDeployCommand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Runs once in a container of the new version before traffic switches, like migrations. A failure keeps the old version."
+        },
+        "postDeployCommand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Runs once in the new version after it is live."
+        },
+        "restartPolicy": {
+          "type": "string",
+          "enum": [
+            "always",
+            "unless-stopped",
+            "on-failure",
+            "no"
+          ],
+          "description": "When Docker restarts a stopped container."
+        },
+        "crashLimit": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Stop a replica after this many crashes in a row; null restarts it forever."
+        },
+        "stopSignal": {
+          "type": "string",
+          "enum": [
+            "SIGTERM",
+            "SIGINT",
+            "SIGQUIT",
+            "SIGHUP",
+            "SIGUSR1",
+            "SIGUSR2"
+          ],
+          "description": "Signal sent to stop the container."
+        },
+        "stopTimeout": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600,
+          "description": "Seconds to shut down before the container is killed."
+        },
+        "init": {
+          "type": "boolean",
+          "description": "Run an init process that reaps zombie processes."
+        },
+        "restartSchedule": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Restart on a schedule (cron, server time zone), like 0 4 * * *."
+        }
+      },
+      "additionalProperties": false,
+      "description": "How the app is started and replaced."
+    },
+    "healthcheck": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "maxLength": 300,
+          "pattern": "^\\/[A-Za-z0-9._~%/?=&+,:@!*()-]*$",
+          "description": "Path to request, like /health. Without one, the deploy waits for the port."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Port to check (default: the app port)."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1800,
+          "description": "Seconds before giving up and keeping the old version."
+        },
+        "interval": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300,
+          "description": "Seconds between checks."
+        },
+        "startPeriod": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1800,
+          "description": "Seconds to wait before the first check."
+        },
+        "status": {
+          "type": "string",
+          "pattern": "^\\s*\\d{3}(\\s*-\\s*\\d{3})?(\\s*,\\s*\\d{3}(\\s*-\\s*\\d{3})?)*\\s*$",
+          "description": "Statuses that pass, like 200-399 (default: below 500)."
+        },
+        "successes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Passing checks in a row that are needed."
+        }
+      },
+      "additionalProperties": false,
+      "description": "How a new version is checked before it gets traffic."
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "cpu": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 256,
+          "description": "CPU cores, like 0.5 or 2."
+        },
+        "memory": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 1048576,
+          "description": "Memory limit in MB; the container stops above it."
+        },
+        "memoryReservation": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 1048576,
+          "description": "Memory in MB kept free for it under pressure."
+        },
+        "shm": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536,
+          "description": "Size of /dev/shm in MB."
+        },
+        "logMaxSizeMb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024,
+          "description": "Size of a log file before it rotates (MB)."
+        },
+        "logMaxFiles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Log files kept."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Limits per container."
+    },
+    "tasks": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "schedule": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 86400
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "schedule",
+          "command"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Scheduled tasks: commands run in the app's container on a cron schedule. Known by name; one removed here is removed on the next deploy."
+    },
+    "volumes": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^[a-zA-Z0-9][\\w.-]*$"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^\\/[^:]*$"
+          },
+          "readOnly": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Named volumes: data kept across deploys."
+    },
+    "files": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^\\/[^:]*$"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 256000
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Files written into the container (read-only), like a config file."
+    },
+    "variables": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "maxItems": 200,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "description": "Names that must have a value: the deploy stops before building when one is missing."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Variables the app needs. Values stay in the dashboard."
+    }
+  },
+  "additionalProperties": false,
+  "description": "Settings of a Serve app, kept next to its code. Each new deploy applies them; a change made in the dashboard lasts until the next deploy (a redeploy keeps it).",
+  "$id": "https://serve.bd/schema/serve.json",
+  "title": "Serve app settings (serve.json)"
+}

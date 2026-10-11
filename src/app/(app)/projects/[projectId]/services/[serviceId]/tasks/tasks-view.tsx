@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Led } from "@/components/ui/status";
+import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
 import { LogViewer } from "@/components/log-viewer";
 import { useAction } from "@/hooks/use-action";
@@ -28,6 +29,8 @@ type Task = {
   timeoutSeconds: number;
   lastRunAt: string | null;
   lastStatus: string | null;
+  /** Defined in serve.json: the next deploy sets it back to what the file says. */
+  fromFile: boolean;
 };
 type Run = {
   id: string;
@@ -187,7 +190,16 @@ export function TasksView({ serviceId, composeServices }: { serviceId: string; c
                 <div key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
                   <Led color={t.lastStatus === "failed" ? "var(--bad)" : t.lastStatus === "success" ? "var(--ok)" : "var(--idle)"} off={!t.enabled} />
                   <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-[14px] font-medium text-fg">{t.name}</span>
+                    <span className="flex items-center gap-2 text-[14px] font-medium text-fg">
+                      {t.name}
+                      {t.fromFile && (
+                        <Tooltip content="Defined in serve.json. Changes made here last until the next deploy, which sets it back to what the file says.">
+                          <Badge tone="info" className="font-mono">
+                            serve.json
+                          </Badge>
+                        </Tooltip>
+                      )}
+                    </span>
                     <span className="truncate text-xs text-muted">
                       <code className="font-mono">{t.command}</code> · {describe(t.schedule)}
                       {t.composeService && ` · ${t.composeService}`} ·{" "}
@@ -215,7 +227,15 @@ export function TasksView({ serviceId, composeServices }: { serviceId: string; c
                         variant="ghost"
                         aria-label="Delete"
                         onClick={async () => {
-                          if (await confirm({ title: `Delete ${t.name}?`, confirmLabel: "Delete task", danger: true })) remove.run(t.id);
+                          if (
+                            await confirm({
+                              title: `Delete ${t.name}?`,
+                              description: t.fromFile ? "It is defined in serve.json: the next deploy adds it again. Remove it from the file to delete it for good." : undefined,
+                              confirmLabel: "Delete task",
+                              danger: true,
+                            })
+                          )
+                            remove.run(t.id);
                         }}
                       >
                         <Trash2 />

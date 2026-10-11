@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { SERVE_CONFIG_FILE } from "@/lib/serve-config";
 import { UserError } from "@/server/action";
 import { db, schema } from "@/server/db";
 import { queueDeployment, recordSkipped } from "@/server/services/create";
@@ -213,7 +214,11 @@ export async function applyPush(service: Service, push: PushInfo): Promise<Event
   if (push.branch !== service.source.branch) {
     return { skipped: `Push to ${push.branch}, service tracks ${service.source.branch}` };
   }
-  if (!matchesWatchPaths(push.files ?? null, service.build?.watchPaths)) {
+  // A push that changes the app's serve.json deploys whatever the watch paths say: the file may
+  // be what changes them.
+  const configPaths = [service.configFile?.path, SERVE_CONFIG_FILE, `${(service.build?.rootDir ?? "/").replace(/^\/+|\/+$/g, "")}/${SERVE_CONFIG_FILE}`.replace(/^\//, "")];
+  const touchesConfig = !!push.files?.some((f) => configPaths.includes(f.replace(/^\//, "")));
+  if (!touchesConfig && !matchesWatchPaths(push.files ?? null, service.build?.watchPaths)) {
     return { skipped: "No changed file matches the watch paths" };
   }
   if (push.skip) {

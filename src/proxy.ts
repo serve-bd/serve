@@ -21,6 +21,8 @@ const PUBLIC = [
   "/api/gate",
   "/gate",
   "/status",
+  // The JSON Schema of serve.json, for editors.
+  "/schema",
 ];
 
 /** Routes that go by a token or a signature, never the session cookie (better-auth checks its own origins). */

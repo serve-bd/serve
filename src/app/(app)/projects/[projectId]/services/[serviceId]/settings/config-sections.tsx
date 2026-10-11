@@ -16,6 +16,7 @@ import { type BuildConfig, DEFAULT_CRASH_LIMIT, type KeyValue, type RuntimeConfi
 import { CAPABILITIES, DROP_CAPABILITIES, joinArgs, PLATFORMS, splitArgs } from "@/server/deploy/options";
 import { digits, KeyValueEditor, linesOf, num, Section } from "./section";
 import { NixpacksHint } from "@/components/nixpacks-hint";
+import { FromFile } from "./serve-config";
 
 type Save = (patch: Parameters<typeof updateService>[1]) => Promise<unknown>;
 
@@ -57,7 +58,15 @@ export function BuildSection({
       >
         {(v, set) => (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Builder" description={v.builder === "nixpacks" && !nixpacks ? <NixpacksHint /> : undefined}>
+            <Field
+              label={
+                <>
+                  Builder
+                  <FromFile field="build.builder" />
+                </>
+              }
+              description={v.builder === "nixpacks" && !nixpacks ? <NixpacksHint /> : undefined}
+            >
               <Select
                 value={v.builder}
                 onValueChange={async (b) => {
@@ -90,7 +99,16 @@ export function BuildSection({
               </InputGroup>
             </Field>
             {v.builder === "buildpacks" && (
-              <Field label="Builder image" optional description="Leave empty for heroku/builder:24. Paketo builders work too.">
+              <Field
+                label={
+                  <>
+                    Builder image
+                    <FromFile field="build.buildpacksBuilder" />
+                  </>
+                }
+                optional
+                description="Leave empty for heroku/builder:24. Paketo builders work too."
+              >
                 <Input
                   value={v.buildpacksBuilder}
                   onChange={(e) => set({ buildpacksBuilder: e.target.value })}
@@ -102,10 +120,25 @@ export function BuildSection({
             )}
             {(v.builder === "dockerfile" || v.builder === "auto") && (
               <>
-                <Field label="Dockerfile path">
+                <Field
+                  label={
+                    <>
+                      Dockerfile path
+                      <FromFile field="build.dockerfile" />
+                    </>
+                  }
+                >
                   <Input value={v.dockerfile} onChange={(e) => set({ dockerfile: e.target.value })} className="font-mono text-[13px]" />
                 </Field>
-                <Field label="Target stage" optional>
+                <Field
+                  label={
+                    <>
+                      Target stage
+                      <FromFile field="build.target" />
+                    </>
+                  }
+                  optional
+                >
                   <Input value={v.target} onChange={(e) => set({ target: e.target.value })} className="font-mono text-[13px]" />
                 </Field>
               </>
@@ -142,21 +175,54 @@ export function BuildSection({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {build.builder !== "buildpacks" && (
                 <>
-                  <Field label="Install command" optional>
+                  <Field
+                    label={
+                      <>
+                        Install command
+                        <FromFile field="build.installCommand" />
+                      </>
+                    }
+                    optional
+                  >
                     <Input value={v.installCommand} onChange={(e) => set({ installCommand: e.target.value })} placeholder="npm ci" className="font-mono text-[13px]" />
                   </Field>
-                  <Field label="Build command" optional>
+                  <Field
+                    label={
+                      <>
+                        Build command
+                        <FromFile field="build.buildCommand" />
+                      </>
+                    }
+                    optional
+                  >
                     <Input value={v.buildCommand} onChange={(e) => set({ buildCommand: e.target.value })} placeholder="npm run build" className="font-mono text-[13px]" />
                   </Field>
                 </>
               )}
               {build.builder !== "static" && (
-                <Field label="Start command" optional>
+                <Field
+                  label={
+                    <>
+                      Start command
+                      <FromFile field="build.startCommand" />
+                    </>
+                  }
+                  optional
+                >
                   <Input value={v.startCommand} onChange={(e) => set({ startCommand: e.target.value })} placeholder="npm start" className="font-mono text-[13px]" />
                 </Field>
               )}
               {(build.builder === "auto" || build.builder === "static") && (
-                <Field label="Output directory" optional description="For static sites.">
+                <Field
+                  label={
+                    <>
+                      Output directory
+                      <FromFile field="build.publishDir" />
+                    </>
+                  }
+                  optional
+                  description="For static sites."
+                >
                   <Input value={v.publishDir} onChange={(e) => set({ publishDir: e.target.value })} placeholder="dist" className="font-mono text-[13px]" />
                 </Field>
               )}
@@ -198,10 +264,28 @@ export function BuildSection({
       >
         {(v, set) => (
           <>
-            <Field label="Build arguments" optional description="Passed as --build-arg. Use variables marked Build time for secrets.">
+            <Field
+              label={
+                <>
+                  Build arguments
+                  <FromFile field="build.buildArgs" />
+                </>
+              }
+              optional
+              description="Passed as --build-arg. Use variables marked Build time for secrets."
+            >
               <KeyValueEditor value={v.buildArgs} onChange={(buildArgs) => set({ buildArgs })} keyPlaceholder="NODE_VERSION" valuePlaceholder="22" addLabel="Add argument" />
             </Field>
-            <Field label="Watch paths" optional description="One glob per line, like src/** or !docs/**. Pushes that change none of them do not deploy. Applies to push webhooks.">
+            <Field
+              label={
+                <>
+                  Watch paths
+                  <FromFile field="build.watchPaths" />
+                </>
+              }
+              optional
+              description="One glob per line, like src/** or !docs/**. Pushes that change none of them do not deploy. Applies to push webhooks."
+            >
               <Textarea
                 value={v.watchPaths}
                 onChange={(e) => set({ watchPaths: e.target.value })}
@@ -211,15 +295,39 @@ export function BuildSection({
               />
             </Field>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Build timeout" optional description="Stop builds that run longer.">
+              <Field
+                label={
+                  <>
+                    Build timeout
+                    <FromFile field="build.buildTimeoutMinutes" />
+                  </>
+                }
+                optional
+                description="Stop builds that run longer."
+              >
                 <InputGroup suffix="minutes">
                   <Input value={v.buildTimeoutMinutes} onChange={(e) => set({ buildTimeoutMinutes: digits(e.target.value) })} placeholder="No limit" inputMode="numeric" />
                 </InputGroup>
               </Field>
             </div>
-            <SwitchRow title="Git submodules" description="Clone submodules together with the repository." checked={v.submodules} onCheckedChange={(c) => set({ submodules: c })} />
             <SwitchRow
-              title="Always build without cache"
+              title={
+                <>
+                  Git submodules
+                  <FromFile field="build.submodules" />
+                </>
+              }
+              description="Clone submodules together with the repository."
+              checked={v.submodules}
+              onCheckedChange={(c) => set({ submodules: c })}
+            />
+            <SwitchRow
+              title={
+                <>
+                  Always build without cache
+                  <FromFile field="build.noCache" />
+                </>
+              }
               description="Slower, but every build starts from fresh base images."
               checked={v.noCache}
               onCheckedChange={(c) => set({ noCache: c })}
@@ -282,11 +390,25 @@ export function DeploySection({ runtime, save, databases = [] }: { runtime: Runt
               </div>
             </Field>
           )}
-          <Field label="Pre-deploy command" optional description="Runs once in a container from the new image, with its variables, before traffic switches. For migrations.">
+          <Field
+            label={
+              <>
+                Pre-deploy command
+                <FromFile field="runtime.preDeployCommand" />
+              </>
+            }
+            optional
+            description="Runs once in a container from the new image, with its variables, before traffic switches. For migrations."
+          >
             <Input value={v.preDeployCommand} onChange={(e) => set({ preDeployCommand: e.target.value })} placeholder="npm run migrate" className="font-mono text-[13px]" />
           </Field>
           <Field
-            label="Post-deploy command"
+            label={
+              <>
+                Post-deploy command
+                <FromFile field="runtime.postDeployCommand" />
+              </>
+            }
             optional
             description="Runs once in the new version's first container, after it is live. A failure is shown in the deploy log and the new version keeps running."
           >
@@ -298,7 +420,14 @@ export function DeploySection({ runtime, save, databases = [] }: { runtime: Runt
             />
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Strategy">
+            <Field
+              label={
+                <>
+                  Strategy
+                  <FromFile field="runtime.deployStrategy" />
+                </>
+              }
+            >
               <Select
                 value={v.deployStrategy}
                 onValueChange={(s) => set({ deployStrategy: s as "rolling" | "recreate" })}
@@ -308,7 +437,15 @@ export function DeploySection({ runtime, save, databases = [] }: { runtime: Runt
                 ]}
               />
             </Field>
-            <Field label="Drain time" description="Old containers finish in-flight requests.">
+            <Field
+              label={
+                <>
+                  Drain time
+                  <FromFile field="runtime.drainSeconds" />
+                </>
+              }
+              description="Old containers finish in-flight requests."
+            >
               <InputGroup suffix="seconds">
                 <Input
                   value={v.drainSeconds}
@@ -325,7 +462,16 @@ export function DeploySection({ runtime, save, databases = [] }: { runtime: Runt
               instead to deploy with no downtime.
             </p>
           )}
-          <Field label="Scheduled restart" optional description="Cron expression in the server timezone, like 0 4 * * * for 04:00 every day.">
+          <Field
+            label={
+              <>
+                Scheduled restart
+                <FromFile field="runtime.restartSchedule" />
+              </>
+            }
+            optional
+            description="Cron expression in the server timezone, like 0 4 * * * for 04:00 every day."
+          >
             <Input value={v.restartSchedule} onChange={(e) => set({ restartSchedule: e.target.value })} placeholder="0 4 * * *" className="font-mono text-[13px]" />
           </Field>
           <p className="text-xs leading-relaxed text-muted">
@@ -371,31 +517,90 @@ export function HealthSection({ runtime, save }: { runtime: RuntimeConfig; save:
     >
       {(v, set) => (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Path" optional description={<>Without a path, the deploy waits for the port to accept connections.</>}>
+          <Field
+            label={
+              <>
+                Path
+                <FromFile field="runtime.healthcheckPath" />
+              </>
+            }
+            optional
+            description={<>Without a path, the deploy waits for the port to accept connections.</>}
+          >
             <Input value={v.path} onChange={(e) => set({ path: e.target.value })} placeholder="/health" className="font-mono text-[13px]" />
           </Field>
-          <Field label="Port" optional description="Defaults to the app port.">
+          <Field
+            label={
+              <>
+                Port
+                <FromFile field="runtime.healthcheckPort" />
+              </>
+            }
+            optional
+            description="Defaults to the app port."
+          >
             <Input value={v.port} onChange={(e) => set({ port: digits(e.target.value) })} placeholder={String(runtime.port ?? 3000)} inputMode="numeric" />
           </Field>
-          <Field label="Expected status" optional description="Default: any status below 500.">
+          <Field
+            label={
+              <>
+                Expected status
+                <FromFile field="runtime.healthcheckStatus" />
+              </>
+            }
+            optional
+            description="Default: any status below 500."
+          >
             <Input value={v.status} onChange={(e) => set({ status: e.target.value })} placeholder="200-399" className="font-mono text-[13px]" />
           </Field>
-          <Field label="Timeout" description="Give up and roll back after this long.">
+          <Field
+            label={
+              <>
+                Timeout
+                <FromFile field="runtime.healthcheckTimeout" />
+              </>
+            }
+            description="Give up and roll back after this long."
+          >
             <InputGroup suffix="seconds">
               <Input value={v.timeout} onChange={(e) => set({ timeout: digits(e.target.value) })} inputMode="numeric" />
             </InputGroup>
           </Field>
-          <Field label="Interval" description="Time between checks.">
+          <Field
+            label={
+              <>
+                Interval
+                <FromFile field="runtime.healthcheckInterval" />
+              </>
+            }
+            description="Time between checks."
+          >
             <InputGroup suffix="seconds">
               <Input value={v.interval} onChange={(e) => set({ interval: digits(e.target.value) })} inputMode="numeric" />
             </InputGroup>
           </Field>
-          <Field label="Start period" description="Wait before the first check.">
+          <Field
+            label={
+              <>
+                Start period
+                <FromFile field="runtime.healthcheckStartPeriod" />
+              </>
+            }
+            description="Wait before the first check."
+          >
             <InputGroup suffix="seconds">
               <Input value={v.startPeriod} onChange={(e) => set({ startPeriod: digits(e.target.value) })} inputMode="numeric" />
             </InputGroup>
           </Field>
-          <Field label="Successes needed" description="Consecutive passing checks.">
+          <Field
+            label={
+              <>
+                Successes needed
+                <FromFile field="runtime.healthcheckSuccesses" />
+              </>
+            }
+            description="Consecutive passing checks."
+          >
             <Input value={v.successes} onChange={(e) => set({ successes: digits(e.target.value) })} inputMode="numeric" />
           </Field>
         </div>
@@ -463,16 +668,50 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
     >
       {(v, set) => (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Port" description="The port your app listens on.">
+          <Field
+            label={
+              <>
+                Port
+                <FromFile field="runtime.port" />
+              </>
+            }
+            description="The port your app listens on."
+          >
             <Input value={v.port} onChange={(e) => set({ port: digits(e.target.value) })} inputMode="numeric" placeholder="3000" />
           </Field>
-          <Field label="Replicas" description="Traffic is balanced across replicas.">
+          <Field
+            label={
+              <>
+                Replicas
+                <FromFile field="runtime.replicas" />
+              </>
+            }
+            description="Traffic is balanced across replicas."
+          >
             <Input value={v.replicas} onChange={(e) => set({ replicas: digits(e.target.value) })} inputMode="numeric" />
           </Field>
-          <Field label="Start command" optional description="Overrides the image's command.">
+          <Field
+            label={
+              <>
+                Start command
+                <FromFile field="runtime.command" />
+              </>
+            }
+            optional
+            description="Overrides the image's command."
+          >
             <Input value={v.command} onChange={(e) => set({ command: e.target.value })} placeholder="node server.js" className="font-mono text-[13px]" />
           </Field>
-          <Field label="Entrypoint" optional description="Replaces the image's entrypoint. Quote arguments with spaces.">
+          <Field
+            label={
+              <>
+                Entrypoint
+                <FromFile field="runtime.entrypoint" />
+              </>
+            }
+            optional
+            description="Replaces the image's entrypoint. Quote arguments with spaces."
+          >
             <Input value={v.entrypoint} onChange={(e) => set({ entrypoint: e.target.value })} placeholder="/docker-entrypoint.sh" className="font-mono text-[13px]" />
           </Field>
           <Field label="Platform" description="Architecture to pull or build for. Another one than the server's runs under emulation.">
@@ -492,13 +731,37 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
               ]}
             />
           </Field>
-          <Field label="Working directory" optional>
+          <Field
+            label={
+              <>
+                Working directory
+                <FromFile field="runtime.workingDir" />
+              </>
+            }
+            optional
+          >
             <Input value={v.workingDir} onChange={(e) => set({ workingDir: e.target.value })} placeholder="/app" className="font-mono text-[13px]" />
           </Field>
-          <Field label="User" optional description="Name or uid:gid.">
+          <Field
+            label={
+              <>
+                User
+                <FromFile field="runtime.user" />
+              </>
+            }
+            optional
+            description="Name or uid:gid."
+          >
             <Input value={v.user} onChange={(e) => set({ user: e.target.value })} placeholder="1000:1000" className="font-mono text-[13px]" />
           </Field>
-          <Field label="Restart policy">
+          <Field
+            label={
+              <>
+                Restart policy
+                <FromFile field="runtime.restartPolicy" />
+              </>
+            }
+          >
             <Select
               value={v.restartPolicy}
               onValueChange={(r) => set({ restartPolicy: r as RuntimeConfig["restartPolicy"] })}
@@ -511,20 +774,45 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
             />
           </Field>
           {(v.restartPolicy === "always" || v.restartPolicy === "unless-stopped") && (
-            <Field label="Stop after crashes" optional description="A replica that crashes this many times in a row stops until the next deploy or start. Empty: restart forever.">
+            <Field
+              label={
+                <>
+                  Stop after crashes
+                  <FromFile field="runtime.crashLimit" />
+                </>
+              }
+              optional
+              description="A replica that crashes this many times in a row stops until the next deploy or start. Empty: restart forever."
+            >
               <InputGroup suffix="crashes">
                 <Input value={v.crashLimit} onChange={(e) => set({ crashLimit: digits(e.target.value) })} inputMode="numeric" placeholder="Never" />
               </InputGroup>
             </Field>
           )}
-          <Field label="Stop signal" description="Sent when a container stops.">
+          <Field
+            label={
+              <>
+                Stop signal
+                <FromFile field="runtime.stopSignal" />
+              </>
+            }
+            description="Sent when a container stops."
+          >
             <Select
               value={v.stopSignal}
               onValueChange={(s) => set({ stopSignal: s as NonNullable<RuntimeConfig["stopSignal"]> })}
               options={["SIGTERM", "SIGINT", "SIGQUIT", "SIGHUP", "SIGUSR1", "SIGUSR2"].map((s) => ({ value: s, label: s }))}
             />
           </Field>
-          <Field label="Graceful stop timeout" description="Time to shut down before being killed.">
+          <Field
+            label={
+              <>
+                Graceful stop timeout
+                <FromFile field="runtime.stopTimeout" />
+              </>
+            }
+            description="Time to shut down before being killed."
+          >
             <InputGroup suffix="seconds">
               <Input value={v.stopTimeout} onChange={(e) => set({ stopTimeout: digits(e.target.value) })} inputMode="numeric" />
             </InputGroup>
@@ -571,22 +859,55 @@ export function ResourcesSection({ runtime, save }: { runtime: RuntimeConfig; sa
     >
       {(v, set) => (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="CPU limit">
+          <Field
+            label={
+              <>
+                CPU limit
+                <FromFile field="runtime.cpuLimit" />
+              </>
+            }
+          >
             <InputGroup suffix="cores">
               <Input value={v.cpu} onChange={(e) => set({ cpu: e.target.value.replace(/[^\d.]/g, "") })} placeholder="1.0" inputMode="decimal" />
             </InputGroup>
           </Field>
-          <Field label="Memory limit" description="The container is stopped above this.">
+          <Field
+            label={
+              <>
+                Memory limit
+                <FromFile field="runtime.memoryLimit" />
+              </>
+            }
+            description="The container is stopped above this."
+          >
             <InputGroup suffix="MB">
               <Input value={v.memory} onChange={(e) => set({ memory: digits(e.target.value) })} placeholder="512" inputMode="numeric" />
             </InputGroup>
           </Field>
-          <Field label="Memory reservation" optional description="Soft limit kept free under memory pressure.">
+          <Field
+            label={
+              <>
+                Memory reservation
+                <FromFile field="runtime.memoryReservation" />
+              </>
+            }
+            optional
+            description="Soft limit kept free under memory pressure."
+          >
             <InputGroup suffix="MB">
               <Input value={v.reservation} onChange={(e) => set({ reservation: digits(e.target.value) })} placeholder="256" inputMode="numeric" />
             </InputGroup>
           </Field>
-          <Field label="Shared memory" optional description="/dev/shm size, for browsers and databases.">
+          <Field
+            label={
+              <>
+                Shared memory
+                <FromFile field="runtime.shmSize" />
+              </>
+            }
+            optional
+            description="/dev/shm size, for browsers and databases."
+          >
             <InputGroup suffix="MB">
               <Input value={v.shm} onChange={(e) => set({ shm: digits(e.target.value) })} placeholder="64" inputMode="numeric" />
             </InputGroup>
@@ -675,7 +996,12 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
         {(v, set) => (
           <>
             <SwitchRow
-              title="Init process"
+              title={
+                <>
+                  Init process
+                  <FromFile field="runtime.init" />
+                </>
+              }
               description="Runs a tiny init as PID 1 that forwards signals and reaps zombie processes."
               checked={v.init}
               onCheckedChange={(c) => set({ init: c })}
@@ -700,12 +1026,27 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
       >
         {(v, set) => (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Log file size" description="Per file, before rotating.">
+            <Field
+              label={
+                <>
+                  Log file size
+                  <FromFile field="runtime.logMaxSizeMb" />
+                </>
+              }
+              description="Per file, before rotating."
+            >
               <InputGroup suffix="MB">
                 <Input value={v.logMaxSizeMb} onChange={(e) => set({ logMaxSizeMb: digits(e.target.value) })} inputMode="numeric" />
               </InputGroup>
             </Field>
-            <Field label="Log files kept">
+            <Field
+              label={
+                <>
+                  Log files kept
+                  <FromFile field="runtime.logMaxFiles" />
+                </>
+              }
+            >
               <Input value={v.logMaxFiles} onChange={(e) => set({ logMaxFiles: digits(e.target.value) })} inputMode="numeric" />
             </Field>
           </div>

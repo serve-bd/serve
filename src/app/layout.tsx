@@ -11,8 +11,8 @@ const code = JetBrains_Mono({ variable: "--font-code", subsets: ["latin"] });
 export async function generateMetadata(): Promise<Metadata> {
   const brand = await getBrand();
   return {
-    // "<page> · <name>", or the bare name when a page has no title.
-    title: { default: brand.name, template: `%s · ${brand.name}` },
+    // The page alone, or the name when a page has no title. Sign-in pages add the name (their layouts).
+    title: { default: brand.name, template: "%s" },
     description: "Deploy apps, databases and services on your own servers.",
     // The URL carries the image hash, so a new icon shows without a hard reload.
     // Without an uploaded favicon: the default mark (SVG follows the tab's light or dark look, ICO for older browsers).

@@ -1,6 +1,13 @@
+import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Logo } from "@/components/brand";
 import { getBrand } from "@/server/branding";
+
+/** Sign-in pages: "<page> · <name>", the only titles that carry the name. */
+export async function generateMetadata(): Promise<Metadata> {
+  const { name } = await getBrand();
+  return { title: { default: name, template: `%s · ${name}` } };
+}
 
 /** The login wall's page: the brand over a card with the form (visitors here came for an app, not for Serve). */
 export default async function GateLayout({ children }: { children: React.ReactNode }) {

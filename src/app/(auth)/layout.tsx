@@ -1,9 +1,16 @@
+import type { Metadata } from "next";
 import { connection } from "next/server";
 import { DatabaseBackup, GitBranch, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { getBrand } from "@/server/branding";
 import { DEFAULT_PRODUCT_NAME } from "@/lib/branding";
 import pkg from "../../../package.json";
+
+/** Sign-in pages: "<page> · <name>", the only titles that carry the name. */
+export async function generateMetadata(): Promise<Metadata> {
+  const { name } = await getBrand();
+  return { title: { default: name, template: `%s · ${name}` } };
+}
 
 const points = [
   { icon: GitBranch, title: "Push to deploy", body: "Build from Git, Docker images or Compose, with zero-downtime rollouts." },

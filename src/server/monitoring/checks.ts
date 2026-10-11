@@ -17,7 +17,8 @@ import { alertsFor } from "./config";
 type Monitor = typeof schema.monitor.$inferSelect;
 type Service = typeof schema.service.$inferSelect;
 
-export type CheckResult = { ok: boolean; latencyMs: number | null; statusCode: number | null; error: string | null };
+/** `waiting`: nothing to check yet (an HTTP check of a service without a domain); not a failure. */
+export type CheckResult = { ok: boolean; latencyMs: number | null; statusCode: number | null; error: string | null; waiting?: boolean };
 
 const MAX_BODY = 512 * 1024;
 const CONCURRENCY = 8;
@@ -41,7 +42,7 @@ export async function monitorUrl(m: Pick<Monitor, "url" | "path">, serviceId: st
 /** One HTTP check. Private addresses are refused, like every URL Serve fetches for users. */
 export async function httpCheck(m: Pick<Monitor, "url" | "path" | "expectedStatus" | "keyword" | "timeoutMs">, serviceId: string): Promise<CheckResult> {
   const url = await monitorUrl(m, serviceId);
-  if (!url) return { ok: false, latencyMs: null, statusCode: null, error: "The service has no domain to check. Add one or set a URL." };
+  if (!url) return { ok: false, latencyMs: null, statusCode: null, error: "Waiting for a domain: add one, or set a URL to check.", waiting: true };
   const accept = parseExpectedStatus(m.expectedStatus) ?? parseExpectedStatus("200-399")!;
   const started = Date.now();
   try {
@@ -101,6 +102,11 @@ export async function containerCheck(service: Service): Promise<CheckResult> {
 /** Store a check: raw row, daily rollup and the monitor's state. Opens or resolves the down incident. */
 export async function recordCheck(m: Monitor, service: Service, result: CheckResult) {
   const now = new Date();
+  // Nothing to check yet (no domain): the service is not down, and the history stays clean.
+  if (result.waiting) {
+    await db.update(schema.monitor).set({ status: "pending", consecutiveFailures: 0, lastCheckedAt: now, lastError: result.error }).where(eq(schema.monitor.id, m.id));
+    return;
+  }
   await db.insert(schema.monitorCheck).values({ id: newId(), monitorId: m.id, ok: result.ok, latencyMs: result.latencyMs, statusCode: result.statusCode, error: result.error });
   await db
     .insert(schema.monitorDaily)

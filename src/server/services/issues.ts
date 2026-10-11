@@ -37,7 +37,7 @@ export async function serviceIssues(serviceIds: string[]): Promise<Map<string, S
       .where(inArray(schema.deployment.serviceId, serviceIds))
       .orderBy(schema.deployment.serviceId, desc(schema.deployment.createdAt)),
     db
-      .select({ serviceId: schema.incident.serviceId, title: schema.incident.title, severity: schema.incident.severity })
+      .select({ serviceId: schema.incident.serviceId, title: schema.incident.title, detail: schema.incident.detail, severity: schema.incident.severity })
       .from(schema.incident)
       .where(and(inArray(schema.incident.serviceId, serviceIds), isNull(schema.incident.resolvedAt))),
     db
@@ -76,7 +76,8 @@ export async function serviceIssues(serviceIds: string[]): Promise<Map<string, S
       add(s.id, { tone: "bad", text: `The proxy on ${s.serverName} is stopped, so no domain answers. Start it in Servers → ${s.serverName} → Proxy`, tab: "domains" });
     }
   }
-  for (const i of incidents) add(i.serviceId, { tone: i.severity === "warning" ? "warn" : "bad", text: i.title, tab: "overview" });
+  // With its reason: "is down" alone reads like the deploy broke it, when it may be the check that cannot reach it.
+  for (const i of incidents) add(i.serviceId, { tone: i.severity === "warning" ? "warn" : "bad", text: i.detail ? `${i.title}: ${i.detail}` : i.title, tab: "overview" });
   for (const d of domains) {
     if (d.wantsTunnel && !d.tunnelId) add(d.serviceId, { tone: "bad", text: `${d.hostname} is offline: it waits for a Cloudflare Tunnel`, tab: "domains" });
     else if (d.tunnelError) add(d.serviceId, { tone: "bad", text: `${d.hostname}: ${d.tunnelError}`, tab: "domains" });

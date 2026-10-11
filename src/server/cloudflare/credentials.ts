@@ -1,7 +1,7 @@
 import { and, eq, notExists } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
-import type { Cloudflare } from "@/server/cloudflare/api";
+import { Cloudflare } from "@/server/cloudflare/api";
 import { revokeOauth } from "@/server/cloudflare/oauth";
 
 export type FoundAccount = { id: string; name: string; zones: number };
@@ -33,6 +33,7 @@ export async function linkAccounts(input: { organizationId: string; credentialId
     .select({
       id: schema.cloudflareAccount.id,
       name: schema.cloudflareAccount.name,
+      nameFromCloudflare: schema.cloudflareAccount.nameFromCloudflare,
       cfAccountId: schema.cloudflareAccount.cfAccountId,
       authType: schema.cloudflareCredential.authType,
     })
@@ -46,18 +47,45 @@ export async function linkAccounts(input: { organizationId: string; credentialId
     if (row && row.authType === "token" && input.authType === "oauth") {
       linked.push({ id: row.id, name: row.name, added: false });
     } else if (row) {
-      await db.update(schema.cloudflareAccount).set({ credentialId: input.credentialId }).where(eq(schema.cloudflareAccount.id, row.id));
-      linked.push({ id: row.id, name: row.name, added: false });
+      // A login that may not list accounts only knows a stand-in name for some.
+      const name = row.nameFromCloudflare && a.name !== "Cloudflare" ? a.name : row.name;
+      await db.update(schema.cloudflareAccount).set({ credentialId: input.credentialId, name }).where(eq(schema.cloudflareAccount.id, row.id));
+      linked.push({ id: row.id, name, added: false });
     } else {
       const id = newId();
       // A name typed in the form only fits a login that reaches one account.
-      const name = (input.accounts.length === 1 && input.name?.trim()) || a.name;
-      await db.insert(schema.cloudflareAccount).values({ id, organizationId: input.organizationId, name, credentialId: input.credentialId, cfAccountId: a.id });
+      const typed = (input.accounts.length === 1 && input.name?.trim()) || "";
+      const name = typed || a.name;
+      await db
+        .insert(schema.cloudflareAccount)
+        .values({ id, organizationId: input.organizationId, name, nameFromCloudflare: !typed || typed === a.name, credentialId: input.credentialId, cfAccountId: a.id });
       linked.push({ id, name, added: true });
     }
   }
   await dropUnusedCredentials(input.organizationId);
   return linked;
+}
+
+/**
+ * Bring account names up to date with Cloudflare, for accounts renamed there. Names someone typed
+ * stay. A login that may not list accounts keeps the names it has.
+ */
+export async function refreshAccountNames(rows: (typeof schema.cloudflareAccount.$inferSelect)[]) {
+  const byLogin = Map.groupBy(
+    rows.filter((r) => r.nameFromCloudflare && r.cfAccountId),
+    (r) => r.credentialId,
+  );
+  await Promise.all(
+    [...byLogin.values()].map(async (group) => {
+      const listed = await (await Cloudflare.forRow(group[0])).accounts().catch(() => []);
+      for (const row of group) {
+        const name = listed.find((a) => a.id === row.cfAccountId)?.name;
+        if (!name || name === row.name) continue;
+        await db.update(schema.cloudflareAccount).set({ name }).where(eq(schema.cloudflareAccount.id, row.id));
+        row.name = name;
+      }
+    }),
+  );
 }
 
 /** Remove logins no account uses, and give up their Cloudflare access. */

@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
+import { refreshAccountNames } from "@/server/cloudflare/credentials";
 import type { AccountSummary } from "./accounts";
 
 /** The organization's Cloudflare accounts, with how each is connected and who shares its login. */
@@ -11,6 +12,7 @@ export async function accountSummaries(organizationId: string) {
       .from(schema.cloudflareCredential)
       .where(eq(schema.cloudflareCredential.organizationId, organizationId)),
   ]);
+  await refreshAccountNames(accounts);
   return accounts.map((row) => ({
     row,
     summary: {

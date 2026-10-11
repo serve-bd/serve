@@ -1039,6 +1039,8 @@ export const cloudflareAccount = pgTable("cloudflare_account", {
   id: id(),
   organizationId: orgRef(),
   name: text("name").notNull(),
+  /** The name follows the account's name in Cloudflare; false once someone typed their own. */
+  nameFromCloudflare: boolean("name_from_cloudflare").notNull().default(true),
   /** The login this account is reached with (shared with the other accounts of the same login). */
   credentialId: text("credential_id")
     .notNull()

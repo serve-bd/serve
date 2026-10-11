@@ -1,0 +1,1 @@
+ALTER TABLE "cloudflare_account" ADD COLUMN "name_from_cloudflare" boolean DEFAULT true NOT NULL;

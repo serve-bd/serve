@@ -50,15 +50,19 @@ function LineCopy({ text }: { text: string }) {
   );
 }
 
-function lineTone(text: string) {
+// A count or field that says nothing went wrong: "failed":0, "error":null, errors=0, warnings: [].
+const NOTHING_WRONG = /["']?\b(errors?|fatal|panics?|exceptions?|failed|failures?|warn(ings?)?)\b["']?\s*[:=]\s*(0|null|nil|none|false|\[\]|\{\}|""|'')(?![\w.])/gi;
+
+export function lineTone(text: string) {
   if (text.startsWith("==> ")) {
     if (/failed/i.test(text)) return "step-bad";
     if (/successfully/i.test(text)) return "step-ok";
     return "step";
   }
   // Many apps log normally to stderr, so only the content decides the tone.
-  if (/\b(error|fatal|panic|exception|failed)\b/i.test(text)) return "err";
-  if (/\bwarn(ing)?\b/i.test(text)) return "warn";
+  const said = text.replace(NOTHING_WRONG, "");
+  if (/\b(error|fatal|panic|exception|failed)\b/i.test(said)) return "err";
+  if (/\bwarn(ing)?\b/i.test(said)) return "warn";
   return "";
 }
 

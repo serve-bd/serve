@@ -486,6 +486,20 @@ function buildVariables(ctx: BuildContext) {
   return vars;
 }
 
+/**
+ * Start commands Railpack does not find on its own: a SvelteKit app built with the Node adapter
+ * (node build), and a production start script next to a development one (NestJS's start:prod).
+ */
+export async function railpackStartFor(dir: string) {
+  const pkg = await readJson<PackageJson>(path.join(dir, "package.json"));
+  if (!pkg) return null;
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+  const run = runFor[await detectPackageManager(dir, pkg)];
+  if (pkg.scripts?.["start:prod"]) return `${run} start:prod`;
+  if (deps["@sveltejs/kit"] && deps["@sveltejs/adapter-node"] && !pkg.scripts?.start) return "node build";
+  return null;
+}
+
 /** Railpack: it writes a build plan, which BuildKit builds with Railpack's frontend. */
 async function railpackBuild(ctx: BuildContext) {
   const bin = await railpackBin(ctx.log);
@@ -496,7 +510,9 @@ async function railpackBuild(ctx: BuildContext) {
   for (const [k, v] of Object.entries(vars)) args.push("--env", `${k}=${v}`);
   if (ctx.build.installCommand) args.push("--env", `RAILPACK_INSTALL_CMD=${ctx.build.installCommand}`);
   if (ctx.build.buildCommand) args.push("--build-cmd", ctx.build.buildCommand);
-  if (ctx.build.startCommand) args.push("--start-cmd", ctx.build.startCommand);
+  const start = ctx.build.startCommand || (await railpackStartFor(ctx.contextDir));
+  if (start) args.push("--start-cmd", start);
+  if (start && !ctx.build.startCommand) ctx.log(`Start command: ${start}`);
   ctx.log(`Building with Railpack ${RAILPACK_VERSION}`);
   await run(bin, args, { onLine: ctx.log, signal: ctx.signal, redact: ctx.redact, cwd: ctx.contextDir });
   try {
@@ -670,7 +686,14 @@ export async function buildImage(ctx: BuildContext): Promise<BuildResult> {
   let builder = build.builder;
   if (builder === "auto") {
     if (hasDockerfile) builder = "dockerfile";
-    else if (await commandExists("nixpacks")) builder = "nixpacks";
+    // Apps that deployed with Nixpacks before Railpack became the default keep it (when it is there).
+    else if (build.autoBuilder === "nixpacks" && (await commandExists("nixpacks"))) {
+      builder = "nixpacks";
+      ctx.log("No Dockerfile: building with Nixpacks, as this app did before. Pick Railpack in Settings → Build to switch.");
+    } else {
+      builder = "railpack";
+      ctx.log("No Dockerfile: Railpack detects the framework and builds it.");
+    }
   }
 
   if (builder === "dockerfile") {

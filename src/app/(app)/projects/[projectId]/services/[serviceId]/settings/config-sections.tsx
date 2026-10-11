@@ -83,7 +83,15 @@ export function BuildSection({
                     router.push(composeHref);
                 }}
                 options={[
-                  { value: "auto", label: "Automatic", description: "Dockerfile if present, otherwise detect" },
+                  {
+                    value: "auto",
+                    label: "Automatic",
+                    // Apps that deployed before Railpack became the default keep Nixpacks.
+                    description:
+                      build.autoBuilder === "nixpacks" && nixpacks
+                        ? "Dockerfile if present, otherwise Nixpacks (as before). Pick Railpack to switch"
+                        : "Dockerfile if present, otherwise Railpack detects the framework",
+                  },
                   { value: "dockerfile", label: "Dockerfile" },
                   { value: "nixpacks", label: "Nixpacks", description: nixpacks ? undefined : "Not installed yet" },
                   { value: "railpack", label: "Railpack", description: "Detects the language and builds with BuildKit" },

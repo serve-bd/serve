@@ -428,6 +428,34 @@ async function loop() {
 
 /** `runNow`: true runs the first tick at once, a number of milliseconds runs it that much later. */
 function every(ms: number, name: string, fn: () => Promise<unknown>, runNow: boolean | number = false) {
+  const tick = ticker(ms, name, fn);
+  if (runNow === true) void tick();
+  else if (runNow) setTimeout(() => void tick(), runNow).unref();
+  return setInterval(tick, ms);
+}
+
+/**
+ * For cron schedules: a tick just after the start of every minute, like cron itself, so a job set
+ * for 12:15 starts at 12:15:00 and not up to a minute later (an interval drifts with the worker's
+ * start time). The half second keeps a timer that fires a little early inside the new minute.
+ */
+function everyMinute(name: string, fn: () => Promise<unknown>) {
+  const tick = ticker(60_000, name, fn);
+  const next = () => {
+    setTimeout(
+      () => {
+        if (stopping) return;
+        void tick();
+        next();
+      },
+      60_000 - (Date.now() % 60_000) + 500,
+    );
+  };
+  next();
+}
+
+/** One run of a scheduler: never two at once, never stuck for more than an hour, recorded for the dashboard. */
+function ticker(ms: number, name: string, fn: () => Promise<unknown>) {
   let busy = false;
   const tick = async () => {
     if (stopping) return;
@@ -457,9 +485,7 @@ function every(ms: number, name: string, fn: () => Promise<unknown>, runNow: boo
       void recordSchedulerRun(name, ms, startedAt, failure);
     }
   };
-  if (runNow === true) void tick();
-  else if (runNow) setTimeout(() => void tick(), runNow).unref();
-  return setInterval(tick, ms);
+  return tick;
 }
 
 const lastProbe = new Map<string, number>();
@@ -899,12 +925,13 @@ async function main() {
   every(CHECK_INTERVAL_MS, "load-balancing", () => checkBalances((...a) => log(...a)), true);
   every(60_000, "metrics-agents", syncMetricsAgents, true);
   every(5 * 60_000, "metric-rollups", rollupRecent, true);
-  every(60_000, "backups", scheduleBackups);
-  every(60_000, "instance-backups", () => scheduleInstanceBackups((backupId) => enqueue("instance.backup", { backupId }, { concurrencyKey: "instance-backup" })));
+  // Cron schedules (backups, tasks, update checks) tick at the start of each minute, like cron.
+  everyMinute("backups", scheduleBackups);
+  everyMinute("instance-backups", () => scheduleInstanceBackups((backupId) => enqueue("instance.backup", { backupId }, { concurrencyKey: "instance-backup" })));
   every(15_000, "update-status", reconcileUpdate, true);
   // Every minute: the check and auto-update schedules are cron expressions.
   every(60_000, "update-check", () => periodicUpdateCheck((to) => enqueue("instance.update", { to }, { concurrencyKey: "instance-update" })), true);
-  every(60_000, "tasks", scheduleTasks);
+  everyMinute("tasks", scheduleTasks);
   every(20_000, "analytics", ingestAccessLog, true);
   // Its own job, hourly: cleanup can be turned off, and the request log must still expire.
   every(60 * 60_000, "request-log", pruneRequestLog, true);

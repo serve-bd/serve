@@ -145,6 +145,11 @@ export type BuildConfig = {
   submodules?: boolean;
   /** Only auto-deploy pushes that change a matching path (globs). Empty deploys every push. */
   watchPaths?: string[];
+  /**
+   * What "auto" builds with when there is no Dockerfile. Unset: Railpack. Apps that had deployed
+   * before Railpack became the default were set to Nixpacks when Serve was updated, so they keep it.
+   */
+  autoBuilder?: "railpack" | "nixpacks";
 };
 
 export type KeyValue = { key: string; value: string };

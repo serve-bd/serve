@@ -103,7 +103,6 @@ function StatusBars({ series, picked, setPicked }: { series: Req["series"]; pick
 
 export function ServiceMetrics({
   serviceId,
-  memoryLimit,
   hasDomains,
   resources,
   requestLog,
@@ -112,7 +111,6 @@ export function ServiceMetrics({
   serviceId: string;
   /** From the address (?tab=traffic), else Resources (Traffic when the server records no resources). */
   initialTab: "traffic" | "resources";
-  memoryLimit: number | null;
   hasDomains: boolean;
   /** The request log of the service: whether it is on, what it keeps, where to set it up. */
   requestLog: { enabled: boolean; statuses: number[]; settingsHref: string } | null;
@@ -134,7 +132,6 @@ export function ServiceMetrics({
   const last = series.at(-1);
   const rx = counterRate(series, "netRx");
   const tx = counterRate(series, "netTx");
-  const limit = memoryLimit ? memoryLimit * 1024 * 1024 : last?.memoryLimit || undefined;
   // Docker reports a limit (the host's RAM at least) whenever it can measure memory; none means it cannot.
   // Docker on some servers never reports memory (limit 0); judged by the latest point, so a change mid-window shows.
   const memUnknown = series.length > 0 && !series.at(-1)!.memoryLimit;
@@ -244,7 +241,7 @@ export function ServiceMetrics({
                   Docker on this server does not report memory use. This happens when Docker runs inside another container.
                 </p>
               ) : (
-                <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={limit} format={(v) => formatBytes(v)} height={160} />
+                <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" format={(v) => formatBytes(v)} height={160} />
               )}
             </Panel>
             <Panel title="Network in" value={rx.at(-1)?.v != null ? `${formatBytes(rx.at(-1)!.v!)}/s` : "—"}>

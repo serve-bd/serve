@@ -61,8 +61,9 @@ export function lineTone(text: string) {
   }
   // Many apps log normally to stderr, so only the content decides the tone.
   const said = text.replace(NOTHING_WRONG, "");
-  if (/\b(error|fatal|panic|exception|failed)\b/i.test(said)) return "err";
-  if (/\bwarn(ing)?\b/i.test(said)) return "warn";
+  // A word inside a path or a name (/admin/error-logs, fatal_handler) says nothing about the line.
+  if (/(?<![\w/-])(error|fatal|panic|exception|failed)(?![\w/-])/i.test(said)) return "err";
+  if (/(?<![\w/-])warn(ing)?(?![\w/-])/i.test(said)) return "warn";
   return "";
 }
 

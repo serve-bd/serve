@@ -204,7 +204,7 @@ export const defaultSettings: Settings = {
   instanceBackupS3DestinationId: null,
   instanceBackups: [],
   updateCheckEnabled: true,
-  updateCheckSchedule: "0 */6 * * *",
+  updateCheckSchedule: "0 * * * *",
   updateCheck: null,
   autoUpdateEnabled: false,
   autoUpdateSchedule: "0 3 * * *",

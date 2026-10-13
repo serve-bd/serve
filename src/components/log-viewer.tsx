@@ -53,13 +53,71 @@ function LineCopy({ text }: { text: string }) {
 // A count or field that says nothing went wrong: "failed":0, "error":null, errors=0, warnings: [].
 const NOTHING_WRONG = /["']?\b(errors?|fatal|panics?|exceptions?|failed|failures?|warn(ings?)?)\b["']?\s*[:=]\s*(0|null|nil|none|false|\[\]|\{\}|""|'')(?![\w.])/gi;
 
+const ERR_LEVELS = new Set(["error", "err", "fatal", "critical", "crit", "panic", "emerg", "emergency", "alert", "severe", "failed", "failure"]);
+const WARN_LEVELS = new Set(["warn", "warning"]);
+const QUIET_LEVELS = new Set(["info", "debug", "trace", "notice", "verbose", "log", "http", "silly", "hint", "fine", "finer", "finest", "config"]);
+
+function toneOfLevel(level: string) {
+  const n = Number(level);
+  // pino and bunyan: 10 trace … 30 info, 40 warn, 50 error, 60 fatal.
+  if (level !== "" && Number.isFinite(n)) return n >= 50 ? "err" : n >= 40 ? "warn" : "";
+  const l = level.toLowerCase();
+  if (ERR_LEVELS.has(l)) return "err";
+  if (WARN_LEVELS.has(l)) return "warn";
+  if (QUIET_LEVELS.has(l)) return "";
+  return null;
+}
+
+// What goes before a level word: a server prefix ([eu-1]), a BuildKit step (#12 3.40), timestamps,
+// a Ruby logger's "E, [time #pid]", a time zone and process id (Postgres: UTC [42]), and a tool's name (npm).
+const LEAD =
+  /^\s*(?:\[[\w.-]+\]\s+)?(?:#\d+\s+(?:\d+(?:\.\d+)?\s+)?)?(?:[DIWEFA],\s+\[[^\]]*\]\s+)?(?:\[?\d{4}-\d\d-\d\d(?:[T ][\d:.,]+(?:Z|[+-]\d\d:?\d\d)?)?\]?\s+|\[?\d\d:\d\d:\d\d(?:[.,]\d+)?\]?\s+)*(?:(?:[A-Z]{3,4}\s+)?\[\d+\]\s+)?(?:npm\s+)?/;
+
+/**
+ * The level a line states about itself, when it states one: a JSON or logfmt field, or a level
+ * word in front ("ERROR", "[warn]", "info:"). A lowercase word only counts in brackets or before a
+ * colon, so a sentence that starts with "Error handling…" is not taken for one.
+ */
+function statedTone(text: string): string | null {
+  const field = /["']?\b(?:level|severity|lvl|log\.level)["']?\s*[:=]\s*["']?([A-Za-z]+|\d+)/.exec(text);
+  if (field) {
+    const tone = toneOfLevel(field[1]);
+    if (tone !== null) return tone;
+  }
+  // MongoDB: "s":"E" (F fatal, E error, W warning, I info, D1-D5 debug).
+  const mongo = /"s"\s*:\s*"(F|E|W|I|D\d)"/.exec(text);
+  if (mongo) return mongo[1] === "F" || mongo[1] === "E" ? "err" : mongo[1] === "W" ? "warn" : "";
+  const rest = text.replace(LEAD, "");
+  const word = /^[[(<]?([A-Za-z]+)([\])>]|!|:|\s+--|\s)?/.exec(rest);
+  if (word) {
+    const [, w, after] = word;
+    const marked = after !== undefined && after.trim() !== "";
+    if (w === w.toUpperCase() ? after !== undefined || rest.length === w.length : marked) {
+      const tone = toneOfLevel(w);
+      if (tone !== null) return tone;
+    }
+  }
+  // Errors the runtimes and tools print themselves.
+  if (/^\s*ERR_[A-Z_]+\b/.test(rest)) return "err";
+  if (/^(?:Uncaught\s+)?[\w.$]*(?:Error|Exception)\b(?::|$)/.test(rest) || /^Exception in thread\b/.test(rest)) return "err";
+  if (/^Traceback \(most recent call last\)/.test(rest)) return "err";
+  return null;
+}
+
 export function lineTone(text: string) {
   if (text.startsWith("==> ")) {
     if (/failed/i.test(text)) return "step-bad";
     if (/successfully/i.test(text)) return "step-ok";
     return "step";
   }
-  // Many apps log normally to stderr, so only the content decides the tone.
+  // A BuildKit step header names the command it starts ("#5 [2/4] RUN …"); its outcome comes on later lines.
+  if (/^(?:\[[\w.-]+\]\s+)?#\d+ \[[^\]]*\d+\/\d+\] /.test(text)) return "";
+  // The commit's message is someone's prose ("new error pages"), not the build reporting a problem.
+  if (/^Checked out [0-9a-f]{7,} — /.test(text)) return "";
+  // A level the line states (a logger's field or prefix, Serve's own "Warning:") decides it.
+  const stated = statedTone(text);
+  if (stated !== null) return stated;
+  // No stated level: the words decide. Many apps log normally to stderr, so the stream does not.
   const said = text.replace(NOTHING_WRONG, "");
   // A word inside a path or a name (/admin/error-logs, fatal_handler) says nothing about the line.
   if (/(?<![\w/-])(error|fatal|panic|exception|failed)(?![\w/-])/i.test(said)) return "err";

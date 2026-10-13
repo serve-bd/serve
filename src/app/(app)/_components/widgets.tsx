@@ -78,7 +78,7 @@ function Hint({ children }: { children: React.ReactNode }) {
 
 function Glance({ data }: { data: DashboardData }) {
   const services = data.projects.flatMap((p) => p.services);
-  const running = services.filter((s) => s.status === "running").length;
+  const running = services.filter((s) => s.up).length;
   const online = data.servers.filter(serverReachable).length;
   const now = Date.now();
   const since = (days: number) => data.buckets.filter((b) => b.t >= now - days * 86_400_000);

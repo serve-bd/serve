@@ -24,7 +24,7 @@ export const ROW_PAD = "px-5 group-data-[frame=plain]/frame:-mx-2 group-data-[fr
 /** One project: a status light per service, like the lamps on a rack unit. */
 export function ProjectRow({ project }: { project: ProjectSummary }) {
   const total = project.services.length;
-  const running = project.services.filter((s) => s.status === "running").length;
+  const running = project.services.filter((s) => s.up).length;
   return (
     <Link href={`/projects/${project.id}`} className={cn("flex items-center gap-3 py-3 transition-colors hover:bg-hover/60", ROW_PAD)}>
       <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg">{project.name}</span>

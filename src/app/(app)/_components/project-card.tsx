@@ -10,7 +10,8 @@ export type ProjectSummary = {
   description: string | null;
   color: string;
   updatedAt: Date;
-  services: { id: string; name: string; type: string; status: string }[];
+  /** `up`: running, or building over a version that still runs. */
+  services: { id: string; name: string; type: string; status: string; up: boolean }[];
 };
 
 const typeIcon = { app: Box, database: Database, compose: Layers } as const;

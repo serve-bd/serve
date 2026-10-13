@@ -80,7 +80,11 @@ async function setDeployment(id: string, patch: Partial<Deployment>) {
 }
 
 export async function setServiceStatus(id: string, status: ServiceStatus) {
-  await db.update(schema.service).set({ status }).where(eq(schema.service.id, id));
+  const busy = status === "building" || status === "deploying";
+  await db
+    .update(schema.service)
+    .set({ status, ...(busy ? {} : { upDuringDeploy: false }) })
+    .where(eq(schema.service.id, id));
 }
 
 /**
@@ -1019,7 +1023,7 @@ async function runOnServer(opts: {
   }
 
   // Switch traffic.
-  if (primary) await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
+  if (primary) await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running", upDuringDeploy: false }).where(eq(schema.service.id, service.id));
   // An extra server counts as switched only now: until then its replicas' private addresses keep the
   // previous version, so the load balancing never sends visitors to containers still starting up.
   if (opts.onSwitch) await opts.onSwitch();
@@ -1736,7 +1740,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   } catch (error) {
     log.line(`Could not record the images of this deployment, so it cannot be rolled back to: ${(error as Error).message}`);
   }
-  await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
+  await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running", upDuringDeploy: false }).where(eq(schema.service.id, service.id));
   await meshAfterStart(server.id, log.line);
   log.step("Routing traffic");
   try {
@@ -1851,7 +1855,9 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
   }
   if (!slot.value) return;
   await queueCommitStatus(dep.id);
-  await setServiceStatus(service.id, "building");
+  // A deploy that replaced one still in progress keeps what that one knew about the previous version.
+  const up = previousStatus === "running" || ((previousStatus === "building" || previousStatus === "deploying") && service.upDuringDeploy);
+  await db.update(schema.service).set({ status: "building", upDuringDeploy: up }).where(eq(schema.service.id, service.id));
   log.line(`Deployment ${dep.id} started (${dep.trigger})`);
 
   // A service whose move never finished (it failed, then was deployed again) still takes over from

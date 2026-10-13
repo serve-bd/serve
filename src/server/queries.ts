@@ -18,6 +18,7 @@ export async function projectSummaries(orgId: string, projectIds: string[] | nul
       name: schema.service.name,
       type: schema.service.type,
       status: schema.service.status,
+      upDuringDeploy: schema.service.upDuringDeploy,
       projectId: schema.service.projectId,
       updatedAt: schema.service.updatedAt,
       serverStatus: schema.server.status,
@@ -34,7 +35,11 @@ export async function projectSummaries(orgId: string, projectIds: string[] | nul
   return projects.map((p) => {
     const own = services
       .filter((s) => s.projectId === p.id)
-      .map(({ serverStatus, serverIsLocal, ...s }) => ({ ...s, status: shownServiceStatus(s.status, { status: serverStatus, isLocal: serverIsLocal }) }));
+      .map(({ serverStatus, serverIsLocal, upDuringDeploy, ...s }) => {
+        const status = shownServiceStatus(s.status, { status: serverStatus, isLocal: serverIsLocal });
+        // A build over a running version: the previous one still serves.
+        return { ...s, status, up: status === "running" || ((status === "building" || status === "deploying") && upDuringDeploy) };
+      });
     const latest = own.reduce((acc, s) => (s.updatedAt > acc ? s.updatedAt : acc), p.updatedAt);
     return { id: p.id, name: p.name, description: p.description, color: p.color, updatedAt: latest, services: own };
   });

@@ -33,7 +33,7 @@ export default async function ServersPage() {
       lastSeenAt: schema.server.lastSeenAt,
       mesh: sql<boolean>`coalesce((${schema.server.mesh}->>'enabled')::boolean, false)`,
       services: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id")`,
-      running: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id" and s.status = 'running')`,
+      running: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id" and (s.status = 'running' or s.up_during_deploy))`,
       alerts: sql<number>`(select count(*)::int from incident i where i.server_id = "server"."id" and i.resolved_at is null)`,
       owner: sql<string | null>`(select o.name from organization o where o.id = "server"."owner_organization_id")`,
     })
@@ -52,7 +52,7 @@ export default async function ServersPage() {
       ownerOrganizationId: schema.server.ownerOrganizationId,
       organizationIds: schema.server.organizationIds,
       services: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${ctx.org.id})`,
-      running: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${ctx.org.id} and s.status = 'running')`,
+      running: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${ctx.org.id} and (s.status = 'running' or s.up_during_deploy))`,
     })
     .from(schema.server)
     .orderBy(asc(schema.server.createdAt))

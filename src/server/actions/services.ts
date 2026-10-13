@@ -1444,7 +1444,7 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
           extraServerIds: (service.distribution.extraServerIds ?? []).filter((id) => id !== target.id),
         }
       : null;
-    await db.update(schema.service).set({ serverId: target.id, status: "deploying", distribution }).where(eq(schema.service.id, serviceId));
+    await db.update(schema.service).set({ serverId: target.id, status: "deploying", upDuringDeploy: false, distribution }).where(eq(schema.service.id, serviceId));
 
     // A database starts empty there: its replicas copy it again (those on the old server move with
     // it), and the public side of its pooler and replicas (ports and DNS of the old servers) is off

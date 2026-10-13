@@ -535,6 +535,8 @@ export const service = pgTable(
     type: text("type").$type<ServiceType>().notNull(),
     icon: text("icon"),
     status: text("status").$type<ServiceStatus>().notNull().default("idle"),
+    /** While building or deploying: the previous version still runs and serves (it was running when the deploy began). */
+    upDuringDeploy: boolean("up_during_deploy").notNull().default(false),
     source: jsonb("source").$type<SourceConfig>(),
     build: jsonb("build").$type<BuildConfig>(),
     runtime: jsonb("runtime").$type<RuntimeConfig>().notNull(),

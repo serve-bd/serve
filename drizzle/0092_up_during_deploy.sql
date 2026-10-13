@@ -1,0 +1,1 @@
+ALTER TABLE "service" ADD COLUMN "up_during_deploy" boolean DEFAULT false NOT NULL;

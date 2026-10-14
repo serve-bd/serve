@@ -311,7 +311,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                 {memUnknown ? (
                   <div className="h-[44px]" />
                 ) : (
-                  <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={memLimit ?? undefined} format={(v) => formatBytes(v)} height={44} />
+                  <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" format={(v) => formatBytes(v)} height={44} />
                 )}
               </Stat>
               <Stat

@@ -76,7 +76,9 @@ export async function serviceIssues(serviceIds: string[]): Promise<Map<string, S
     if (s.proxyStopped && domains.some((d) => d.serviceId === s.id)) {
       add(s.id, { tone: "bad", text: `The proxy on ${s.serverName} is stopped, so no domain answers. Start it in Servers → ${s.serverName} → Proxy`, tab: "domains" });
     } else if (s.proxyError && domains.some((d) => d.serviceId === s.id)) {
-      add(s.id, { tone: "bad", text: `The proxy on ${s.serverName} is not running, so no domain answers: ${s.proxyError}`, tab: "domains" });
+      // The server may be shared: a container named in the reason can be another organization's.
+      const reason = /\bthe container\b/.test(s.proxyError) ? "another container uses its port" : s.proxyError;
+      add(s.id, { tone: "bad", text: `The proxy on ${s.serverName} is not running, so no domain answers: ${reason}`, tab: "domains" });
     }
   }
   // With its reason: "is down" alone reads like the deploy broke it, when it may be the check that cannot reach it.

@@ -32,11 +32,15 @@ vi.mock("@/server/monitoring/containers", () => ({ withTimeout: (p: Promise<unkn
 vi.mock("@/server/servers/context", () => ({
   getServer: async (id: string) => ({
     docker: {
-      df: async () => {
-        const r = state.df[id];
-        if (r instanceof Error) throw r;
-        if (r === undefined) throw new Error(`asked ${id}`);
-        return r;
+      modem: {
+        // Only the volumes are asked for: measuring containers too fails while one is being removed.
+        dial: (opts: { path: string; options: { type?: string } }, done: (err: unknown, data?: unknown) => void) => {
+          const r = state.df[id];
+          if (opts.path !== "/system/df?" || opts.options.type !== "volume") return done(new Error(`asked for ${opts.path} ${JSON.stringify(opts.options)}`));
+          if (r instanceof Error) return done(r);
+          if (r === undefined) return done(new Error(`asked ${id}`));
+          done(null, r);
+        },
       },
     },
   }),

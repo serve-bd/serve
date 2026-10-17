@@ -23,7 +23,15 @@ export async function measureVolumeSizes() {
         try {
           await withTimeout(
             getServer(s.id).then(async (ctx) => {
-              const answer = (await ctx.docker.df()) as { Volumes?: DfVolume[] | null };
+              // Volumes only: measuring containers too fails while one is created or removed
+              // ("rw layer snapshot not found"), and takes longer. Docker before API 1.42 ignores
+              // the type and answers everything, as before.
+              const answer = await new Promise<{ Volumes?: DfVolume[] | null }>((resolve, reject) =>
+                ctx.docker.modem.dial(
+                  { path: "/system/df?", method: "GET", options: { type: "volume" }, statusCodes: { 200: true, 500: "server error" } },
+                  (err: unknown, data: unknown) => (err ? reject(err) : resolve(data as { Volumes?: DfVolume[] | null })),
+                ),
+              );
               // Docker writes no volumes as null; an answer without the field at all says nothing,
               // and the sizes kept so far stay.
               if ("Volumes" in answer) await saveSizes(s.id, answer.Volumes ?? []);

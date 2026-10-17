@@ -14,6 +14,7 @@ import { and, sql as dsql, eq, inArray, isNotNull, isNull, notInArray } from "dr
 import type { ProxyKind } from "@/server/proxy/config";
 import { CronExpressionParser } from "cron-parser";
 import { db, schema, sql } from "@/server/db";
+import { connectProxyToAll } from "@/server/docker/networks";
 import { runMigrations } from "@/server/db/migrate";
 import { fullBuildServers } from "@/lib/server-limits";
 import { JobTimeout, jobTimeoutMinutes } from "@/lib/job-timeouts";
@@ -606,10 +607,15 @@ async function checkServiceContainers(s: typeof schema.service.$inferSelect, rep
   }
 }
 
-/** Restarts a stopped or missing proxy on every reachable server. */
+/**
+ * Restarts a stopped or missing proxy on every reachable server, and keeps a running one on every
+ * environment and stack network (a proxy started by hand after a reboot joins none of them).
+ * Why one cannot run is kept on the server, for the services' issues.
+ */
 async function checkProxies() {
   const reachable = await reachableServers();
   for (const id of reachable) {
+    let problem: string | null = null;
     try {
       const server = await getServer(id);
       const info = await server.docker
@@ -617,9 +623,16 @@ async function checkProxies() {
         .inspect()
         .catch(() => null);
       if (!info?.State.Running) await ensureServerProxy(server, (l) => log(`[${server.name}] ${l}`));
+      else await connectProxyToAll(server);
     } catch (error) {
-      log(`proxy check on ${id} failed:`, (error as Error).message);
+      problem = (error as Error).message;
+      log(`proxy check on ${id} failed:`, problem);
     }
+    await db
+      .update(schema.server)
+      .set({ proxyError: problem })
+      .where(and(eq(schema.server.id, id), problem ? dsql`true` : isNotNull(schema.server.proxyError)))
+      .catch(() => {});
   }
 }
 

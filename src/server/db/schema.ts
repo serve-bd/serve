@@ -445,6 +445,8 @@ export const server = pgTable("server", {
   proxySwitch: jsonb("proxy_switch").$type<ProxySwitchState | null>(),
   /** Stopped by an admin: Serve must not start the proxy again on its own. */
   proxyStopped: boolean("proxy_stopped").notNull().default(false),
+  /** Why the proxy could not run at the last check (another program on its port, say); null while it runs. */
+  proxyError: text("proxy_error"),
   /** Ports were saved in Serve (the local server otherwise uses SERVE_PROXY_HTTP(S)_PORT). */
   proxyPortsCustomized: boolean("proxy_ports_customized").notNull().default(false),
   /** A CDN or load balancer in front of the proxy whose visitor IP header is believed. Null: only Cloudflare Tunnel traffic. */

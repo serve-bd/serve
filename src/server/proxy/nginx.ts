@@ -476,13 +476,15 @@ export async function busyProxyPorts(ctx: ServerCtx, ports: number[]) {
     }
   }
   // Programs on the host itself (a system nginx on :80, for example). Inside a container this only sees its own namespace.
-  const res = await ctx.exec("ss -ltnH 2>/dev/null || netstat -ltn 2>/dev/null", { timeoutMs: 5000 }).catch(() => null);
+  const res = await ctx.exec("ss -ltnpH 2>/dev/null || ss -ltnH 2>/dev/null || netstat -ltn 2>/dev/null", { timeoutMs: 5000 }).catch(() => null);
   if (res?.code === 0) {
     for (const line of res.stdout.split("\n")) {
       // ss: "LISTEN 0 4096 0.0.0.0:80 0.0.0.0:*"; netstat: "tcp 0 0 0.0.0.0:80 0.0.0.0:* LISTEN". Local address is the 4th column.
       const local = line.trim().split(/\s+/)[3] ?? "";
       const port = Number(local.slice(local.lastIndexOf(":") + 1));
-      if (ports.includes(port) && !ownPorts.has(port) && !busy.has(port)) busy.set(port, "another program");
+      // ss -p names the program: users:(("nginx",pid=812,fd=6)).
+      const program = /users:\(\("([^"]+)"/.exec(line)?.[1];
+      if (ports.includes(port) && !ownPorts.has(port) && !busy.has(port)) busy.set(port, program ? `the program ${program}` : "another program");
     }
   }
   return busy;
@@ -490,7 +492,13 @@ export async function busyProxyPorts(ctx: ServerCtx, ports: number[]) {
 
 function portError(ctx: ServerCtx, busy: Map<number, string>) {
   const [[port, who]] = [...busy];
-  return new ProxyConfigError(`Port ${port} is already used on ${ctx.name} (by ${who}). Choose another port.`);
+  // A web server installed on the host itself: it starts again at every boot until it is disabled.
+  const system = /^the program (nginx|apache2|httpd|caddy|lighttpd)$/.exec(who)?.[1];
+  if (system)
+    return new ProxyConfigError(
+      `Port ${port} is already used on ${ctx.name} by its own ${system}. Stop it for good with: sudo systemctl disable --now ${system}. Serve's proxy then starts on its own.`,
+    );
+  return new ProxyConfigError(`Port ${port} is already used on ${ctx.name} (by ${who}). Stop it, or choose another port.`);
 }
 
 /**
@@ -674,6 +682,10 @@ async function ensureProxyContainer(ctx: ServerCtx, log?: Log): Promise<Awaited<
       await ctx.docker.getContainer(ctx.proxyContainer).start();
       log?.("Proxy container restarted");
     } catch (error) {
+      // Another program took a port while the proxy was down (a system nginx started at boot):
+      // recreating would only delete the proxy. It stays, and starts on a later check.
+      const busy = await busyProxyPorts(ctx, hostPorts);
+      if (busy.size) throw portError(ctx, busy);
       // Broken mounts (for example after the data directory was wiped): start over.
       log?.(`Proxy did not start (${(error as Error).message.split(":")[0]}); recreating it`);
       await removeContainer(ctx, ctx.proxyContainer);

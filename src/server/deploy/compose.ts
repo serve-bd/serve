@@ -68,7 +68,16 @@ export function composeServicePorts(content: string): Record<string, number[]> {
  */
 export function transformCompose(content: string, slug: string, serviceId: string, subnet?: string | null, extraPorts: ComposePort[] = [], isolated = false): string {
   const doc = parseCompose(content);
+  // Jobs other services wait to finish (migrations, seeds): they run once, so they keep Docker's "no".
+  const oneShot = new Set<string>();
+  for (const svc of Object.values(doc.services ?? {})) {
+    const deps = svc.depends_on;
+    if (deps && typeof deps === "object" && !Array.isArray(deps))
+      for (const [dep, cond] of Object.entries(deps as Record<string, { condition?: string } | null>)) if (cond?.condition === "service_completed_successfully") oneShot.add(dep);
+  }
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
+    // Back after a reboot or a crash, like an app's containers, unless the file says otherwise.
+    if (svc.restart === undefined && !(svc.deploy as { restart_policy?: unknown } | undefined)?.restart_policy && !oneShot.has(name)) svc.restart = "unless-stopped";
     // Ports published from the dashboard (Domains & ports).
     const mine = extraPorts.filter((p) => p.service === name);
     if (mine.length) {

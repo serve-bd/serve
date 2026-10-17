@@ -652,6 +652,13 @@
       "when": 1791881284293,
       "tag": "0092_up_during_deploy",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1792260958537,
+      "tag": "0093_proxy_error",
+      "breakpoints": true
     }
   ]
 }

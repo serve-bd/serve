@@ -198,6 +198,31 @@ describe("templates with more than one domain", () => {
     expect(vars.SERVE_PUBLIC_DOMAIN_ADMIN_CONSOLE).toBe("admin.example.com");
   });
 
+  it("give a stack the private names its containers answer to", async () => {
+    const { providedVars } = await import("@/server/services/variables");
+    const { stackMainService } = await import("@/server/deploy/compose");
+    const content = "services:\n  garage: {image: x}\n  web: {image: y}\n";
+    const stack = (compose: object) =>
+      ({ id: "s2", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {}, database: null, compose: { content, ...compose } }) as never;
+    // The stack's own name (its main service answers to it) and each service's.
+    expect(providedVars(stack({}))).toMatchObject({
+      SERVE_PRIVATE_DOMAIN: "garage-pam8yp",
+      SERVE_PRIVATE_DOMAIN_GARAGE: "garage-pam8yp-garage",
+      SERVE_PRIVATE_DOMAIN_WEB: "garage-pam8yp-web",
+    });
+    // An isolated stack is not on the environment network at all.
+    expect(providedVars(stack({ isolated: true })).SERVE_PRIVATE_DOMAIN).toBeUndefined();
+    // The main service: the one with the main domain, else the first.
+    expect(stackMainService(content, "web")).toBe("web");
+    expect(stackMainService(content, null)).toBe("garage");
+    expect(stackMainService(content, "gone")).toBe("garage");
+  });
+
+  it("put a template's prefix in front of a generated value", async () => {
+    const { templateVarValue } = await import("@/server/services/custom-templates");
+    expect(templateVarValue({ key: "ACCESS_KEY_ID", generate: "hex16", prefix: "GK" } as never, false)).toMatch(/^GK[0-9a-f]{32}$/);
+  });
+
   it("are checked by the catalog builder", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tpl-"));
     const write = (id: string, meta: object, compose: string) => {

@@ -14,6 +14,8 @@ import { branchVars } from "@/server/databases/branches";
 import { SECRETS_SCOPE } from "@/lib/secret-providers";
 import { composeVariables } from "@/lib/compose-vars";
 import { composeSecurityIssues } from "@/server/security";
+import { composeServiceNames } from "@/server/deploy/compose";
+import { composeAlias } from "@/server/proxy/names";
 import { UserError } from "@/server/action";
 
 type Service = typeof schema.service.$inferSelect;
@@ -33,6 +35,14 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
   }
   // A stack whose services have domains of their own (an API next to the web app) gets each one too.
   if (service.type === "compose") {
+    // A stack's containers answer on the environment network as <slug>-<service> only (an
+    // isolated stack not at all). The stack's own name leads to the service with its main domain,
+    // else to the first one.
+    if (service.compose && !service.compose.isolated) {
+      const names = composeServiceNames(service.compose.content);
+      for (const name of names) vars[`SERVE_PRIVATE_DOMAIN_${composeVarSuffix(name)}`] = composeAlias(service.slug, name);
+      // The stack's own name leads to its main service (see stackMainService); SERVE_PRIVATE_DOMAIN stays it.
+    } else if (service.compose?.isolated) delete vars.SERVE_PRIVATE_DOMAIN;
     const byService = new Map<string, Domain[]>();
     for (const d of domains) if (d.composeService) byService.set(d.composeService, [...(byService.get(d.composeService) ?? []), d]);
     for (const [name, list] of byService) {

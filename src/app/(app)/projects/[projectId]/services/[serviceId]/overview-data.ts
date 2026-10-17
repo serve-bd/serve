@@ -7,7 +7,8 @@ import { and, count, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { getServerRow } from "@/server/servers/context";
 import { publishedPorts } from "@/server/services/ports";
-import { composeServiceNames } from "@/server/deploy/compose";
+import { composeServiceNames, composeServicePorts, stackMainService } from "@/server/deploy/compose";
+import { composeAlias } from "@/server/proxy/names";
 import { getTemplate } from "@/server/services/templates";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { readComposeMounts } from "@/lib/compose-mounts";
@@ -106,6 +107,8 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
       memoryLimit: service.runtime.memoryLimit ?? null,
       /** Services in the compose file (stacks from git too, whose source is the repository). */
       composeServiceCount: service.compose ? composeServiceNames(service.compose.content).length : 0,
+      /** What other services of the environment connect to: a stack answers per service (none when isolated). */
+      privateAddresses: privateAddresses(service, primaryDomain?.composeService),
       volumes: service.compose ? composeMountCount(service.compose.content) : service.runtime.volumes.length,
       healthcheckPath: service.runtime.healthcheckPath ?? null,
       builder: service.build?.builder ?? null,
@@ -166,4 +169,20 @@ function composeMountCount(content: string) {
   } catch {
     return 0;
   }
+}
+
+function privateAddresses(service: typeof schema.service.$inferSelect, primaryComposeService?: string | null): { name: string | null; address: string }[] {
+  if (service.type !== "compose") {
+    const host = privateHost(service);
+    return [{ name: null, address: service.runtime.port ? `${host}:${service.runtime.port}` : host }];
+  }
+  if (!service.compose || service.compose.isolated) return [];
+  const ports = composeServicePorts(service.compose.content);
+  const names = composeServiceNames(service.compose.content);
+  // The main service answers to the stack's own name too.
+  const main = stackMainService(service.compose.content, primaryComposeService);
+  return names.map((n) => {
+    const host = n === main ? privateHost(service) : composeAlias(service.slug, n);
+    return { name: names.length > 1 ? n : null, address: ports[n]?.[0] ? `${host}:${ports[n][0]}` : host };
+  });
 }

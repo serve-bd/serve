@@ -33,6 +33,15 @@ export function parseCompose(content: string): ComposeFile {
   return doc;
 }
 
+/**
+ * The service a stack's own name leads to on the environment network: the one with the stack's
+ * main domain, else the first in the file. The others answer only as <slug>-<service>.
+ */
+export function stackMainService(content: string, primaryComposeService?: string | null): string | null {
+  const names = composeServiceNames(content);
+  return primaryComposeService && names.includes(primaryComposeService) ? primaryComposeService : (names[0] ?? null);
+}
+
 export function composeServiceNames(content: string): string[] {
   try {
     return Object.keys(parseCompose(content).services ?? {});
@@ -183,6 +192,8 @@ export type ComposeRun = {
   server?: ServerCtx;
   /** The environment network the stack's services join (not for isolated stacks). */
   envNetwork?: string;
+  /** The stack's main service and the stack's own names it answers to there too (see stackMainService). */
+  main?: { service: string; aliases: string[] } | null;
 };
 
 export async function writeComposeFiles(opts: ComposeRun & { content: string }) {
@@ -209,7 +220,7 @@ export async function composeUp(opts: ComposeRun) {
       : run("docker", [...composeArgs(opts), ...args], { isolatedEnv: true, cwd: opts.dir, onLine: opts.log, signal: opts.signal, redact: opts.redact });
   if (opts.envNetwork) {
     await compose(["up", "--no-start", "--build", "--remove-orphans"]);
-    await joinEnvNetwork(opts.server?.docker ?? docker, opts.projectName, opts.envNetwork);
+    await joinEnvNetwork(opts.server?.docker ?? docker, opts.projectName, opts.envNetwork, opts.main);
     await compose(UP_ARGS);
   } else {
     await compose([...UP_ARGS, "--build"]);
@@ -222,7 +233,7 @@ export async function composeUp(opts: ComposeRun) {
  * two stacks with a `db` would answer for each other. Docker keeps the connection across
  * restarts; compose recreating a container drops it, hence this after every create.
  */
-export async function joinEnvNetwork(d: Docker, projectName: string, network: string) {
+export async function joinEnvNetwork(d: Docker, projectName: string, network: string, main?: ComposeRun["main"]) {
   const containers = await d.listContainers({ all: true, filters: { label: [`com.docker.compose.project=${projectName}`, `${LABEL.kind}=compose`] } });
   for (const c of containers) {
     const service = c.Labels["com.docker.compose.service"];
@@ -230,15 +241,17 @@ export async function joinEnvNetwork(d: Docker, projectName: string, network: st
     const info = await d.getContainer(c.Id).inspect();
     const mode = info.HostConfig.NetworkMode ?? "";
     if (mode === "host" || mode === "none" || mode.startsWith("container:") || mode.startsWith("service:")) continue;
-    const alias = composeAlias(projectName, service);
+    const aliases = [composeAlias(projectName, service), ...(main?.service === service ? main.aliases : [])];
     const current = info.NetworkSettings.Networks?.[network];
     if (current) {
-      // Attached by an older version of Serve, through the compose file: with the bare names.
-      const own = new Set([alias, info.Name.replace(/^\//, ""), c.Id.slice(0, 12)]);
-      if (((current.Aliases ?? []) as string[]).every((a) => own.has(a))) continue;
+      // Attached by an older version of Serve, through the compose file: with the bare names. Or
+      // without the stack's own name, which its main service answers to now (or no longer).
+      const has = (current.Aliases ?? []) as string[];
+      const own = new Set([...aliases, info.Name.replace(/^\//, ""), c.Id.slice(0, 12)]);
+      if (has.every((a) => own.has(a)) && aliases.every((a) => has.includes(a))) continue;
       await d.getNetwork(network).disconnect({ Container: c.Id, Force: true });
     }
-    await d.getNetwork(network).connect({ Container: c.Id, EndpointConfig: { Aliases: [alias] } });
+    await d.getNetwork(network).connect({ Container: c.Id, EndpointConfig: { Aliases: aliases } });
   }
 }
 

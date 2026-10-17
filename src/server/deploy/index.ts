@@ -20,7 +20,8 @@ import { resolveEnv } from "@/server/services/variables";
 import { composeVariables } from "@/lib/compose-vars";
 import { networkAliases } from "@/lib/hostname";
 import { repoUrlWithoutLogin } from "@/lib/repo-url";
-import { parseCompose } from "@/server/deploy/compose";
+import { parseCompose, stackMainService } from "@/server/deploy/compose";
+import { pickPrimaryDomain } from "@/lib/domains";
 import { engines } from "@/server/databases/engines";
 import { logActivity } from "@/server/activity";
 import { notify, orgOfService } from "@/server/notify";
@@ -1679,8 +1680,11 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   const stackNet = declared || stackNetworkName(service.slug);
   // Compose may recreate the stack network; the proxy must not hold it while that happens.
   await disconnectProxy(stackNet, server).catch(() => {});
+  const primary = pickPrimaryDomain(await db.select().from(schema.domain).where(eq(schema.domain.serviceId, service.id)));
+  const mainService = stackMainService(content, primary?.composeService);
   const run = {
     projectName: service.slug,
+    main: mainService ? { service: mainService, aliases: networkAliases(service) } : null,
     dir,
     file: ".serve-compose.yml",
     vars: composeVars(env.runtime, env.literal),

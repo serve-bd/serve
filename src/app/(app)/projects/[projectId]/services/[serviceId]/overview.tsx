@@ -447,10 +447,19 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                 {data.redirects} redirect{data.redirects === 1 ? "" : "s"} to other URLs
               </p>
             )}
-            <div className="border-t border-line pt-3">
-              <p className="mb-1.5 text-xs text-muted">Private address · for services in {data.environment}</p>
-              <CopyField value={service.port ? `${service.slug}:${service.port}` : service.slug} />
-            </div>
+            {service.privateAddresses.length > 0 && (
+              <div className="space-y-2 border-t border-line pt-3">
+                <p className="text-xs text-muted">
+                  Private address{service.privateAddresses.length > 1 ? "es" : ""} · for services in {data.environment}
+                </p>
+                {service.privateAddresses.map((a) => (
+                  <div key={a.address}>
+                    {a.name && <p className="mb-1 font-mono text-[11px] text-faint">{a.name}</p>}
+                    <CopyField value={a.address} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </Card>
 

@@ -26,7 +26,7 @@ export function composeVarSuffix(composeService: string) {
 export const REF = /\$\{\{\s*([A-Za-z0-9_.\-/:+=@]+)\s*\}\}/g;
 
 /** Variables that hold private names: they only work on the same server or across a shared private network. */
-export const PRIVATE_VARS = /^(HOST|PORT|DATABASE_URL|REDIS_URL|MONGO_URL|POSTGRES_URL|MYSQL_URL|SERVE_PRIVATE_DOMAIN)$/;
+export const PRIVATE_VARS = /^(HOST|PORT|DATABASE_URL|REDIS_URL|MONGO_URL|POSTGRES_URL|MYSQL_URL|SERVE_PRIVATE_DOMAIN(_\w+)?)$/;
 
 /** Names that mean shared variables, not a service: they win over services with the same name. */
 export const SCOPE_NAMES = new Set(["shared", "environment", "project", "org", "team", "replica", "secrets"]);

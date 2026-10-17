@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   records: [] as { id: string; type: string; name: string; content: string; comment?: string }[],
   upserts: [] as unknown[][],
   upsertError: null as Error | null,
+  dnsError: null as Error | null,
   admin: true,
   certs: [] as Record<string, unknown>[],
 }));
@@ -40,7 +41,10 @@ vi.mock("@/server/cloudflare/api", () => ({
         state.upserts.push(args);
         return { id: "r-new" };
       },
-      dnsRecords: async () => state.records,
+      dnsRecords: async () => {
+        if (state.dnsError) throw state.dnsError;
+        return state.records;
+      },
       removeDnsRecord: async (_zone: string, id: string) =>
         void state.records.splice(
           state.records.findIndex((r) => r.id === id),
@@ -58,6 +62,7 @@ describe("a status page's A record", () => {
     state.account = "cf1";
     state.serverIp = "203.0.113.7";
     state.records = [];
+    state.dnsError = null;
     state.upserts = [];
     state.upsertError = null;
     state.admin = true;
@@ -106,5 +111,12 @@ describe("a status page's A record", () => {
     ];
     expect(await deleteStatusPage("pg")).toEqual({ ok: true, data: null });
     expect(state.records.map((r) => r.id)).toEqual(["theirs"]);
+  });
+
+  it("says so when Cloudflare refuses, on either route", async () => {
+    state.dnsError = new Error("rate limited");
+    expect(await deleteStatusPage("pg")).toEqual({ ok: true, data: { warning: expect.stringContaining("rate limited") } });
+    state.page = { ...state.page, tunnelId: "t1" };
+    expect(await deleteStatusPage("pg")).toEqual({ ok: true, data: { warning: expect.stringContaining("rate limited") } });
   });
 });

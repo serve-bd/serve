@@ -112,17 +112,22 @@ export async function deleteStatusPage(pageId: string) {
     const ctx = await requireStatusManager();
     const page = await pageInOrg(pageId, ctx.org.id);
     await db.delete(schema.statusPage).where(eq(schema.statusPage.id, pageId));
+    const warnings: string[] = [];
     if (page.tunnelId && page.domain) {
-      await dropTunnelRecord(page.tunnelId, page.domain);
-      await syncTunnelIngress(page.tunnelId).catch(() => {});
+      const w = await dropTunnelRecord(page.tunnelId, page.domain);
+      if (w) warnings.push(w);
+      await syncTunnelIngress(page.tunnelId).catch((e) => warnings.push(`The tunnel still routes ${page.domain}: ${(e as Error).message}. Use Sync routes on the tunnel.`));
     }
-    const warning = page.domain && !page.tunnelId ? await dropStatusARecord(ctx.org.id, page.domain) : null;
+    if (page.domain && !page.tunnelId) {
+      const w = await dropStatusARecord(ctx.org.id, page.domain);
+      if (w) warnings.push(w);
+    }
     if (page.domain) {
       await retireCertificateFor(page.domain, LOCAL_SERVER_ID, ctx.org.id);
       await enqueue("proxy.sync", {});
     }
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "status-page.delete", message: `Deleted the status page ${page.name}` });
-    return warning ? { warning } : null;
+    return warnings.length ? { warning: warnings.join(" ") } : null;
   });
 }
 
@@ -340,7 +345,10 @@ export async function setStatusDomain(pageId: string, input: { domain: string; h
     }
     if (page.domain && page.domain !== domain) await retireCertificateFor(page.domain, LOCAL_SERVER_ID, ctx.org.id);
     // Off the tunnel, or to another name: the record Serve made for the old route goes.
-    if (page.tunnelId && page.domain && (page.tunnelId !== tunnelId || page.domain !== domain)) await dropTunnelRecord(page.tunnelId, page.domain);
+    if (page.tunnelId && page.domain && (page.tunnelId !== tunnelId || page.domain !== domain)) {
+      const w = await dropTunnelRecord(page.tunnelId, page.domain);
+      if (w) warnings.push(w);
+    }
     await db
       .update(schema.statusPage)
       .set({ domain, https: tunnel ? false : https, tunnelId: tunnel?.id ?? null, certificateId, updatedAt: new Date() })
@@ -373,17 +381,20 @@ async function localTunnel(tunnelId: string, organizationId: string) {
   return tunnel;
 }
 
-/** Remove the CNAME Serve made to point a name at a tunnel. Records someone else made stay. */
-async function dropTunnelRecord(tunnelId: string, hostname: string) {
+/** Remove the CNAME Serve made to point a name at a tunnel. Records someone else made stay. Returns why it could not, or null. */
+async function dropTunnelRecord(tunnelId: string, hostname: string): Promise<string | null> {
   const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
-  if (!tunnel) return;
-  await (async () => {
+  if (!tunnel) return null;
+  try {
     const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
     const zone = await cf.zoneFor(hostname);
-    if (!zone) return;
+    if (!zone) return null;
     for (const r of await cf.dnsRecords(zone.id, { name: hostname }))
-      if (r.type === "CNAME" && r.content === `${tunnel.cfTunnelId}.cfargotunnel.com` && r.comment === "Managed by Serve") await cf.deleteDnsRecord(zone.id, r.id);
-  })().catch(() => {});
+      if (r.type === "CNAME" && r.content === `${tunnel.cfTunnelId}.cfargotunnel.com` && r.comment === "Managed by Serve") await cf.removeDnsRecord(zone.id, r.id);
+    return null;
+  } catch (e) {
+    return `The record Serve made for ${hostname} was not removed: ${(e as Error).message}. Remove it in Cloudflare.`;
+  }
 }
 
 /**

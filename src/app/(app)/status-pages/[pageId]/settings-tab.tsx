@@ -365,7 +365,13 @@ function EmbedCard({ data }: { data: EditorData }) {
 function DeleteCard({ data }: { data: EditorData }) {
   const confirm = useConfirm();
   const router = useRouter();
-  const remove = useAction(() => deleteStatusPage(data.page.id), { refresh: false, onSuccess: () => router.push("/status-pages") });
+  const remove = useAction(() => deleteStatusPage(data.page.id), {
+    refresh: false,
+    onSuccess: (d) => {
+      if (d?.warning) toast.warning("Page deleted", d.warning);
+      router.push("/status-pages");
+    },
+  });
   return (
     <Card>
       <CardHeader title="Delete page" description="The address stops working. Services and their checks stay." />

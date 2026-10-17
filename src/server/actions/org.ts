@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { isEmailConfigured } from "@/server/email/send";
 import { sendInviteEmail } from "@/server/email/messages";
 import { preferHttps, publicBaseUrl } from "@/server/git/github-app";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { authFor, isInstanceAdmin, type OrgContext, requireOrg, requireOrgAdmin, requireUser, requirePermission } from "@/server/auth";
@@ -80,6 +80,12 @@ export async function deleteOrg() {
       if (servers > 0) throw new UserError("Remove this organization's servers first.");
       const [{ networks }] = await tx.select({ networks: sql<number>`count(*)::int` }).from(schema.privateNetwork).where(eq(schema.privateNetwork.organizationId, ctx.org.id));
       if (networks > 0) throw new UserError("Delete this organization's private networks first.");
+      // Deleting a page removes the DNS record Serve made for its domain; a cascade would leave it.
+      const [{ pages }] = await tx
+        .select({ pages: sql<number>`count(*)::int` })
+        .from(schema.statusPage)
+        .where(and(eq(schema.statusPage.organizationId, ctx.org.id), isNotNull(schema.statusPage.domain)));
+      if (pages > 0) throw new UserError("Delete this organization's status pages with a domain first.");
       await tx.delete(schema.privateKey).where(eq(schema.privateKey.organizationId, ctx.org.id));
       await tx.delete(schema.organization).where(eq(schema.organization.id, ctx.org.id));
     });

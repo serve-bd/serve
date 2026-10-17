@@ -691,6 +691,7 @@ export const serviceTag = pgTable(
 export type CustomTemplateVar = {
   key: string;
   generate?: "password" | "strongPassword" | "secret" | "hex32" | "hex16" | "base64key";
+  prefix?: string;
   value?: string;
   publicUrl?: boolean;
   publicHost?: boolean;

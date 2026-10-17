@@ -62,7 +62,7 @@ export function templateVarValue(v: TemplateVar, hasDomain: boolean): string {
   if (v.publicHost) return hasDomain ? "${{SERVE_PUBLIC_DOMAIN}}" : "localhost";
   if (v.serviceUrl) return hasDomain ? `\${{SERVE_PUBLIC_URL_${composeVarSuffix(v.serviceUrl)}}}` : "http://localhost";
   if (v.serviceHost) return hasDomain ? `\${{SERVE_PUBLIC_DOMAIN_${composeVarSuffix(v.serviceHost)}}}` : "localhost";
-  return v.generate ? generatedValue(v.generate) : (v.value ?? "");
+  return v.generate ? `${v.prefix ?? ""}${generatedValue(v.generate)}` : (v.value ?? "");
 }
 
 export { strongPassword } from "@/server/services/generated-values";

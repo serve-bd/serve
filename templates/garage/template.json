@@ -5,8 +5,8 @@
   "website": "https://garagehq.deuxfleurs.fr",
   "color": "#FF9329",
   "fullColorLogo": true,
-  "minVersion": "0.1.9",
-  "note": "The domain is the S3 endpoint (region garage, path-style). The access key ID is GK followed by the key ID in the Variables tab.",
+  "minVersion": "0.6.1",
+  "note": "The domain is the S3 endpoint (region garage, path-style). Other services in the environment reach it at the private address on the Overview. The access key ID and secret key are in the Variables tab.",
   "expose": {
     "service": "garage",
     "port": 3900
@@ -27,7 +27,8 @@
     {
       "key": "ACCESS_KEY_ID",
       "generate": "hex16",
-      "label": "Access key ID (after GK)"
+      "label": "Access key ID",
+      "prefix": "GK"
     },
     {
       "key": "SECRET_KEY",

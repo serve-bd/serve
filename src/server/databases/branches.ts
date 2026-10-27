@@ -49,7 +49,8 @@ type BranchCreds = { database: string; username: string; password: string };
 /* ------------------------------------------------------------- MySQL / MariaDB */
 
 function mysqlScripts(cli: "mysql" | "mariadb") {
-  const dump = cli === "mysql" ? "mysqldump" : "mariadb-dump";
+  // No GTID set: MySQL 9 writes one by default, and the server refuses it when the copy is loaded back.
+  const dump = cli === "mysql" ? "mysqldump --set-gtid-purged=OFF" : "mariadb-dump";
   const run = (database?: string) => `${cli} -uroot${database ? ` ${q(database)}` : ""}`;
   const user = (b: BranchCreds) => `${literal(b.username)}@'%'`;
   return {

@@ -56,12 +56,12 @@ const CONTAINERS: Record<string, { image: string; args: string[]; ready: string 
     ready: `pg_isready -U app -d app -h 127.0.0.1`,
   },
   "zz-explorer-mysql": {
-    image: "mysql:8.4",
+    image: "mysql:9.7",
     args: ["-e", `MYSQL_ROOT_PASSWORD=${PASS}`, "-e", "MYSQL_DATABASE=app", "-e", "MYSQL_USER=app", "-e", `MYSQL_PASSWORD=${PASS}`],
     ready: `MYSQL_PWD=${PASS} mysql -uroot -h 127.0.0.1 -e 'select 1'`,
   },
   "zz-explorer-mariadb": {
-    image: "mariadb:11",
+    image: "mariadb:12",
     args: ["-e", `MARIADB_ROOT_PASSWORD=${PASS}`, "-e", "MARIADB_DATABASE=app", "-e", "MARIADB_USER=app", "-e", `MARIADB_PASSWORD=${PASS}`],
     ready: `MYSQL_PWD=${PASS} mariadb -uroot -h 127.0.0.1 -e 'select 1'`,
   },
@@ -81,12 +81,12 @@ const CONTAINERS: Record<string, { image: string; args: string[]; ready: string 
     ready: `REDISCLI_AUTH=${PASS} redis-cli --no-auth-warning ping | grep -q PONG`,
   },
   "zz-explorer-valkey": {
-    image: "valkey/valkey:8-alpine",
+    image: "valkey/valkey:9-alpine",
     args: ["valkey-server", "--requirepass", PASS, "--appendonly", "yes"],
     ready: `REDISCLI_AUTH=${PASS} valkey-cli --no-auth-warning ping | grep -q PONG`,
   },
   "zz-explorer-ch": {
-    image: "clickhouse/clickhouse-server:25.8-alpine",
+    image: "clickhouse/clickhouse-server:26.8-alpine",
     args: ["-e", "CLICKHOUSE_USER=default", "-e", `CLICKHOUSE_PASSWORD=${PASS}`, "-e", "CLICKHOUSE_DB=default", "-e", "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1"],
     ready: `clickhouse-client -u default --password ${PASS} -q 'SELECT 1'`,
   },

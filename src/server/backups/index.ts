@@ -577,7 +577,7 @@ async function restoreTables(t: Commands, file: string, log: (line: string) => v
       const dump = t.engine === "mariadb" ? "$(command -v mariadb-dump || echo mysqldump)" : "mysqldump";
       await runIn(
         t,
-        `(set -o pipefail) 2>/dev/null && set -o pipefail; export MYSQL_PWD=${shq(t.password)}; ${dump} -uroot --single-transaction ${shq(tmp)} ${tables.map(shq).join(" ")} | ${t.engine} -uroot ${shq(final)}`,
+        `(set -o pipefail) 2>/dev/null && set -o pipefail; export MYSQL_PWD=${shq(t.password)}; ${dump} -uroot --single-transaction${t.engine === "mysql" ? " --set-gtid-purged=OFF" : ""} ${shq(tmp)} ${tables.map(shq).join(" ")} | ${t.engine} -uroot ${shq(final)}`,
         Readable.from([]),
         false,
         log,

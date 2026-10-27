@@ -125,7 +125,7 @@ export function dumpCommands(engine: Engine, c: ComposeCreds): { backup: string;
       const env = c.password ? `MYSQL_PWD=${sh(c.password)} ` : "";
       const auth = `-u${sh(c.username)}`;
       return {
-        backup: `${env}${dump} ${auth} --single-transaction --routines --triggers${c.root ? "" : " --no-tablespaces"} --databases ${sh(c.database)}`,
+        backup: `${env}${dump} ${auth} --single-transaction${engine === "mysql" ? " --set-gtid-purged=OFF" : ""} --routines --triggers${c.root ? "" : " --no-tablespaces"} --databases ${sh(c.database)}`,
         restore: `${env}${cli} ${auth}${c.database ? ` ${sh(c.database)}` : ""}`,
       };
     }

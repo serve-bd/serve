@@ -11,6 +11,8 @@ import { generatedHostname, newWebhookSecret, uniqueServiceName, uniqueServiceSl
 type Service = typeof schema.service.$inferSelect;
 
 export type CloneServiceOptions = {
+  /** The person cloning may see secrets: only then do copied values keep their mark (see envVar.mayBorrow). */
+  seesSecrets?: boolean;
   environmentId: string;
   serverId: string;
   name?: string | null;
@@ -148,7 +150,9 @@ export async function cloneService(source: Service, opts: CloneServiceOptions): 
           runtime: v.runtime,
           literal: v.literal,
           multiline: v.multiline,
-          mayBorrow: v.mayBorrow,
+          // Bound to the same rows the original reads: kept only when the person cloning may see secrets.
+          // In another environment, other services answer to the same names: it starts unbound.
+          borrows: opts.seesSecrets && opts.environmentId === source.environmentId ? v.borrows : [],
         })),
       );
     if (tasks.length)

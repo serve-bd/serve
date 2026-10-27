@@ -23,6 +23,8 @@ type Service = typeof schema.service.$inferSelect;
 /* -------------------------------------------------------------------------- */
 
 export type CloneOptions = {
+  /** The person cloning may see secrets: only then do copied values keep their mark (see envVar.mayBorrow). */
+  seesSecrets?: boolean;
   sourceEnvironmentId: string;
   name: string;
   userId?: string | null;
@@ -138,8 +140,11 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
       rows[i].previewDatabase = { ...s.previewDatabase, sourceServiceId: idMap.get(s.previewDatabase.sourceServiceId)! };
   }
 
+  // References are bound to rows: the copies are bound to the copies of those rows (when the person
+  // cloning may see secrets); rows outside the environment are not copied, so they drop out.
+  const rowMap = new Map(vars.map((v) => [v.id, newId()]));
   const newVars = vars.map((v) => ({
-    id: newId(),
+    id: rowMap.get(v.id)!,
     serviceId: idMap.get(v.serviceId)!,
     key: v.key,
     // A literal value is copied as written: its ${{…}} are text, not references.
@@ -148,7 +153,7 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
     runtime: v.runtime,
     literal: v.literal,
     multiline: v.multiline,
-    mayBorrow: v.mayBorrow,
+    borrows: opts.seesSecrets ? v.borrows.map((id) => rowMap.get(id)).filter((id): id is string => !!id) : [],
   }));
   const newShared = shared.map((v) => ({ id: newId(), environmentId, key: v.key, value: encrypt(rewriteValue(decrypt(v.value), slugMap, passwordMap)) }));
 
@@ -419,7 +424,7 @@ export async function createPreviewDatabase(preview: Service, parent: Service, p
   await db
     .insert(schema.envVar)
     .values({ id: newId(), serviceId: preview.id, key: cfg.variable, value, buildTime: false, runtime: true })
-    .onConflictDoUpdate({ target: [schema.envVar.serviceId, schema.envVar.key], set: { value, literal: false } });
+    .onConflictDoUpdate({ target: [schema.envVar.serviceId, schema.envVar.key], set: { value, literal: false, borrows: [] } });
   return id;
 }
 

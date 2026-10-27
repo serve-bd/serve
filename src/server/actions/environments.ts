@@ -47,6 +47,7 @@ export async function cloneEnvironmentAction(environmentId: string, input: { nam
       name,
       userId: ctx.user.id,
       hostAccess: ctx.isInstanceAdmin && ctx.isRoot,
+      seesSecrets: ctx.can("variables.view-secrets"),
       generatedDomains: input.generatedDomains !== false,
       copyData: input.copyData === true,
     });

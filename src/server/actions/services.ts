@@ -1130,7 +1130,7 @@ export async function cloneServiceAction(serviceId: string, input: { name?: stri
     await requireRoomFor(ctx.org.id, [{ type: service.type, runtime: service.runtime, distribution: data.serverId === service.serverId ? service.distribution : null }]);
     // Reading the data to copy it is a backup's right too.
     if (data.copyData && !ctx.can("databases.backups")) throw new UserError(cannotMessage("databases.backups"));
-    return cloneService(service, { ...data, userId: ctx.user.id, hostAccess: ctx.isInstanceAdmin && ctx.isRoot });
+    return cloneService(service, { ...data, userId: ctx.user.id, hostAccess: ctx.isInstanceAdmin && ctx.isRoot, seesSecrets: ctx.can("variables.view-secrets") });
   });
 }
 
@@ -1569,7 +1569,9 @@ export async function deleteService(serviceId: string, removeVolumes: boolean, p
 /* -------------------------------------------------------------------------- */
 
 /** `keep`: keep the stored value of that key (the editor did not receive it). */
-type VarInput = { key: string; value: string; buildTime: boolean; runtime: boolean; literal?: boolean; multiline?: boolean; keep?: string; mayBorrow?: boolean };
+type VarInput = { key: string; value: string; buildTime: boolean; runtime: boolean; literal?: boolean; multiline?: boolean; keep?: string };
+/** A variable to write: `id` keeps the row (and what references to it were bound to), `borrows` see envVar.borrows. */
+type VarRow = VarInput & { id?: string; borrows?: string[] };
 
 /** Variables as the forms send them: names and values with a size cap, at most a few hundred. */
 const varsSchema = z
@@ -1605,7 +1607,7 @@ async function assertMayReference(ctx: { can: (p: Permission) => boolean }, serv
     );
 }
 
-async function writeEnvVars(serviceId: string, vars: VarInput[]) {
+async function writeEnvVars(serviceId: string, vars: VarRow[]) {
   const keys = new Set<string>();
   for (const v of vars) {
     if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(v.key)) throw new UserError(`"${v.key}" is not a valid variable name.`);
@@ -1617,7 +1619,7 @@ async function writeEnvVars(serviceId: string, vars: VarInput[]) {
     if (vars.length) {
       await tx.insert(schema.envVar).values(
         vars.map((v) => ({
-          id: newId(),
+          id: v.id ?? newId(),
           serviceId,
           key: v.key,
           value: encrypt(v.value),
@@ -1625,7 +1627,7 @@ async function writeEnvVars(serviceId: string, vars: VarInput[]) {
           runtime: v.runtime,
           literal: v.literal ?? false,
           multiline: v.multiline ?? false,
-          mayBorrow: v.mayBorrow ?? false,
+          borrows: v.borrows ?? [],
         })),
       );
     }
@@ -1641,17 +1643,17 @@ export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (hasHostAccess(service.runtime)) assertHostAccess(ctx, "Changing the variables of a service that has host-level access");
     const stored = await db
-      .select({ key: schema.envVar.key, value: schema.envVar.value, mayBorrow: schema.envVar.mayBorrow })
+      .select({ id: schema.envVar.id, key: schema.envVar.key, value: schema.envVar.value, borrows: schema.envVar.borrows, literal: schema.envVar.literal })
       .from(schema.envVar)
       .where(eq(schema.envVar.serviceId, serviceId));
     const { decryptOrNull } = await import("@/server/crypto");
     const next = vars
       .map((v) => {
         const flags = { buildTime: v.buildTime, runtime: v.runtime, literal: v.literal, multiline: v.multiline };
-        if (v.keep === undefined) return { key: v.key.trim(), value: v.value, ...flags };
+        if (v.keep === undefined) return { key: v.key.trim(), value: v.value, ...flags, from: null as string | null };
         const kept = stored.find((s) => s.key === v.keep);
         if (!kept) throw new UserError(`${v.keep} no longer exists. Reload the page.`);
-        return { key: v.key.trim(), value: decryptOrNull(kept.value) ?? "", ...flags };
+        return { key: v.key.trim(), value: decryptOrNull(kept.value) ?? "", ...flags, from: v.keep };
       })
       .filter((v) => v.key);
     // A compose file a Root admin allowed host options for: its variables can point those options
@@ -1671,13 +1673,26 @@ export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy
       next.map((v) => v.value),
       stored.map((v) => decryptOrNull(v.value) ?? ""),
     );
-    // Who wrote each value: someone who may see secrets marks it; a value left as it was keeps its mark.
+    // A row stays the same row (its id: what other services' references are bound to) only when the
+    // same variable is saved again; a value moved here from another name is a new row. A value left
+    // as it was keeps its binding; one changed in this save is bound to what its references reach
+    // now, when the person saving may see secrets (turning "literal" off changes how it is read).
     const seesSecrets = ctx.can("variables.view-secrets");
-    const marked = next.map((v) => {
-      const was = stored.find((s) => s.key === v.key);
-      return { ...v, mayBorrow: seesSecrets || (!!was?.mayBorrow && decryptOrNull(was.value) === v.value) };
-    });
-    await writeEnvVars(serviceId, marked);
+    const { referenceBindings } = await import("@/server/services/variables");
+    const bindings = seesSecrets
+      ? await referenceBindings(
+          service,
+          next.map((v) => v.value),
+        )
+      : [];
+    const { variableRows } = await import("@/server/services/variables");
+    const rows = variableRows(
+      stored.map((s) => ({ ...s, value: decryptOrNull(s.value) ?? "" })),
+      next,
+      seesSecrets,
+      bindings,
+    );
+    await writeEnvVars(serviceId, rows);
     let deploymentId: string | null = null;
     if (redeploy && service.status !== "idle") deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
     return { deploymentId };

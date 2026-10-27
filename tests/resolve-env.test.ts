@@ -24,7 +24,7 @@ vi.mock("@/server/databases/branches", () => ({ branchVars: () => ({}) }));
 vi.mock("@/server/security", () => ({ composeSecurityIssues: () => [] }));
 
 const { encrypt } = await import("@/server/crypto");
-const { resolveEnv, ownVariableRefs } = await import("@/server/services/variables");
+const { resolveEnv, ownVariableRefs, referenceBindings } = await import("@/server/services/variables");
 
 const service = (patch: Row = {}) =>
   ({
@@ -50,9 +50,12 @@ const postgres = service({
   runtime: {},
   database: { engine: "postgres", username: "app", password: encrypt("db-password-123"), database: "appdb" },
 });
-const v = (key: string, value: string, o: { build?: boolean; runtime?: boolean; literal?: boolean; serviceId?: string; mayBorrow?: boolean } = {}) => ({
+// Garage's rows, which the web service's sample values are bound to (as if saved by an admin).
+const GARAGE_ROWS = ["ACCESS_KEY_ID", "SECRET_KEY", "BUCKET", "SERVE_PRIVATE_DOMAIN", "COMPOSED"].map((k) => `svc-g:${k}`);
+const v = (key: string, value: string, o: { build?: boolean; runtime?: boolean; literal?: boolean; serviceId?: string; borrows?: string[] } = {}) => ({
+  id: `${o.serviceId ?? "svc-web"}:${key}`,
   serviceId: o.serviceId ?? "svc-web",
-  mayBorrow: o.mayBorrow ?? true,
+  borrows: o.borrows ?? (o.serviceId ? [] : GARAGE_ROWS),
   key,
   value: encrypt(value),
   buildTime: o.build ?? false,
@@ -146,14 +149,48 @@ describe("references", () => {
   it("fills in another service's own variable only from values saved by someone allowed to see secrets", async () => {
     const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {} });
     // Saved without the right (the reference may have pointed nowhere then): it stays empty, also once it would resolve.
-    setup([v("STOLEN", "${{garage.SECRET_KEY}}", { mayBorrow: false }), v("VIA_MARKED", "${{STOLEN}}"), v("SECRET_KEY", "s3cr3t-value-long", { serviceId: "svc-g" })], {
+    setup([v("STOLEN", "${{garage.SECRET_KEY}}", { borrows: [] }), v("VIA_MARKED", "${{STOLEN}}"), v("SECRET_KEY", "s3cr3t-value-long", { serviceId: "svc-g" })], {
       siblings: [service(), garage],
     });
     const env = await resolveEnv(service());
     expect(env.runtime.STOLEN).toBe("");
     // A marked value that reaches the unmarked one gets nothing through it either.
     expect(env.runtime.VIA_MARKED).toBe("");
-    expect(env.missing).toEqual([expect.stringContaining("saved by someone allowed to view secrets")]);
+    expect(env.missing).toEqual([expect.stringContaining("only for the variable it was saved for")]);
+  });
+
+  it("reads only the exact rows a value was bound to: a swap, rename or new variable gets nothing", async () => {
+    const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {} });
+    // Bound to ACCESS_KEY_ID's row; SECRET_KEY was renamed into that name, so it is another row.
+    setup(
+      [
+        v("KEY", "${{garage.ACCESS_KEY_ID}}", { borrows: ["svc-g:OLD_ACCESS_KEY_ID"] }),
+        { ...v("ACCESS_KEY_ID", "s3cr3t-value-long", { serviceId: "svc-g" }), id: "svc-g:moved-secret" },
+      ],
+      { siblings: [service(), garage] },
+    );
+    const env = await resolveEnv(service());
+    expect(env.runtime.KEY).toBe("");
+    expect(env.missing).toEqual([expect.stringContaining("only for the variable it was saved for")]);
+  });
+
+  it("keeps a service named server protected when the server's variables are merged in", async () => {
+    const named = service({ id: "svc-s", name: "server", slug: "server", type: "compose", runtime: {} });
+    setup([v("X", "${{server.SECRET_KEY}}", { borrows: [] }), v("SECRET_KEY", "s3cr3t-value-long", { serviceId: "svc-s" })], {
+      siblings: [service(), named],
+      server: [{ key: "REGION", value: encrypt("eu") }],
+    });
+    const env = await resolveEnv(service());
+    expect(env.runtime.X).toBe("");
+  });
+
+  it("binds a saved value to the rows its references reach now", async () => {
+    const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {} });
+    setup([v("SECRET_KEY", "x", { serviceId: "svc-g" }), v("BUCKET", "b", { serviceId: "svc-g" })], { siblings: [service(), garage, postgres] });
+    expect(await referenceBindings(service(), ["${{garage.SECRET_KEY}}/${{Garage.BUCKET}}", "${{postgres-x1.DATABASE_URL}} ${{garage.MISSING}}"])).toEqual([
+      ["svc-g:SECRET_KEY", "svc-g:BUCKET"],
+      [],
+    ]);
   });
 
   it("sees references inside replica.pick the way a deploy reads them", async () => {
@@ -270,5 +307,35 @@ describe("secrets to redact", () => {
     const env = await resolveEnv(service());
     expect(env.runtime.CONN).toBe("user:hunter22@host");
     expect(env.secrets).toContain("hunter22");
+  });
+});
+
+describe("saving variables", () => {
+  it("keeps rows and bindings only for what stayed the same", async () => {
+    const { variableRows } = await import("@/server/services/variables");
+    const stored = [
+      { id: "r1", key: "A", value: "${{garage.SECRET_KEY}}", literal: false, borrows: ["g1"] },
+      { id: "r2", key: "B", value: "${{garage.SECRET_KEY}}", literal: true, borrows: [] },
+      { id: "r3", key: "C", value: "plain", literal: false, borrows: [] },
+    ];
+    const next = [
+      // Left as it was, saved by someone without the right: keeps row and binding.
+      { key: "A", value: "${{garage.SECRET_KEY}}", literal: false, from: "A" },
+      // Literal turned off: read differently now, so no binding from someone without the right.
+      { key: "B", value: "${{garage.SECRET_KEY}}", literal: false, from: "B" },
+      // Moved in from another name: a new row.
+      { key: "D", value: "plain", literal: false, from: "C" },
+      { key: "C", value: "${{garage.SECRET_KEY}}", literal: false, from: null },
+    ];
+    const withoutRight = variableRows(stored, next, false, []);
+    expect(withoutRight.map((r) => [r.key, r.id, r.borrows])).toEqual([
+      ["A", "r1", ["g1"]],
+      ["B", "r2", []],
+      ["D", undefined, []],
+      ["C", "r3", []],
+    ]);
+    // Someone allowed to see secrets binds what changed in this save, and only that.
+    const withRight = variableRows(stored, next, true, [["x"], ["g1"], [], ["g1"]]);
+    expect(withRight.map((r) => r.borrows)).toEqual([["g1"], ["g1"], [], ["g1"]]);
   });
 });

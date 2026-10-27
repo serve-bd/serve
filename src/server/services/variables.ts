@@ -181,6 +181,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   // Another service's own values, by service. One that holds references of its own is filled in
   // where that service deploys, not here: it is reported, so the reference points at the source.
   const ownOf = new Map<string, Record<string, string>>();
+  /** Row ids of those values: a reference reads one only when its holder was bound to that row (see envVar.borrows). */
+  const idOf = new Map<string, Record<string, string>>();
   const referencing = new Map<string, Set<string>>();
   /** Values of their secret-looking variables, redacted where they end up. */
   const siblingValues = new Set<string>();
@@ -191,6 +193,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       continue;
     }
     ownOf.set(v.serviceId, { ...(ownOf.get(v.serviceId) ?? {}), [v.key]: value });
+    idOf.set(v.serviceId, { ...(idOf.get(v.serviceId) ?? {}), [v.key]: v.id });
     if (/SECRET|TOKEN|PASS|KEY|URL|DSN|AUTH|PRIVATE|CREDENTIAL/i.test(v.key)) siblingValues.add(value);
   }
   const referencingByName = new Map<string, Set<string>>();
@@ -206,8 +209,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const remoteOnly = new Map<string, Set<string>>();
   // Slugs are unique and always win over a name that happens to match one.
   const slugs = new Set(siblings.map((s) => s.slug.toLowerCase()));
-  /** Per service scope: the keys that are its own variables, not values Serve gives it (see `trusted` below). */
-  const borrowable = new WeakMap<object, Set<string>>();
+  /** Per service scope: its own variables (not values Serve gives it), by key, with their row ids (see `allowed` below). */
+  const borrowable = new WeakMap<object, Record<string, string>>();
   for (const s of siblings) {
     const served = {
       ...providedVars(s, domainsBy.get(s.id) ?? []),
@@ -218,14 +221,14 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     };
     // Serve's own names win over a variable of the same name.
     let provided: Record<string, string> = { ...(ownOf.get(s.id) ?? {}), ...served };
-    const ownKeys = new Set(Object.keys(ownOf.get(s.id) ?? {}).filter((k) => !(k in served)));
+    const ownIds = Object.fromEntries(Object.entries(idOf.get(s.id) ?? {}).filter(([k]) => !(k in served)));
     if (s.id !== service.id && !reachesPrivately(mesh, mine, { serverId: s.serverId, servers: runsOn(s) })) {
       // Branch variables are named branches.<name>.KEY: their last part says whether they are private.
       const hidden = new Set(Object.keys(provided).filter((k) => PRIVATE_VARS.test(k.split(".").pop() ?? k)));
       provided = Object.fromEntries(Object.entries(provided).filter(([k]) => !hidden.has(k)));
       for (const name of [s.slug, s.name, referenceName(s.name)]) remoteOnly.set(name.toLowerCase(), hidden);
     }
-    borrowable.set(provided, ownKeys);
+    borrowable.set(provided, ownIds);
     lookup.set(s.slug.toLowerCase(), provided);
     const refs = referencing.get(s.id);
     if (refs) for (const name of [s.slug, s.name, referenceName(s.name)]) referencingByName.set(name.toLowerCase(), refs);
@@ -257,10 +260,18 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   lookup.set("org", orgMap);
   lookup.set("team", orgMap);
   // A service named "server" keeps answering for the keys the server has no variable for.
-  lookup.set("server", { ...(lookup.get("server") ?? {}), ...serverMap });
+  // The merged scope keeps the protection of the service's own variables the server does not cover.
+  const named = lookup.get("server");
+  const merged = { ...(named ?? {}), ...serverMap };
+  const namedIds = named ? borrowable.get(named) : undefined;
+  if (namedIds) borrowable.set(merged, Object.fromEntries(Object.entries(namedIds).filter(([k]) => !(k in serverMap))));
+  lookup.set("server", merged);
 
-  const ownRaw: Record<string, { value: string; build: boolean; runtime: boolean; literal: boolean; mayBorrow: boolean }> = {};
-  for (const v of own) ownRaw[v.key] = { value: decrypt(v.value), build: v.buildTime, runtime: v.runtime, literal: v.literal, mayBorrow: v.mayBorrow };
+  // A pull request preview runs the pull request's code: it reads no other service's own variables.
+  const NONE: ReadonlySet<string> = new Set();
+  const ownRaw: Record<string, { value: string; build: boolean; runtime: boolean; literal: boolean; allowed: ReadonlySet<string> }> = {};
+  for (const v of own)
+    ownRaw[v.key] = { value: decrypt(v.value), build: v.buildTime, runtime: v.runtime, literal: v.literal, allowed: service.parentServiceId ? NONE : new Set(v.borrows) };
 
   const self = providedVars(service, domainsBy.get(service.id) ?? []);
   const missing = new Set<string>();
@@ -269,24 +280,25 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   // value with commas or brackets stays one value.
   // Each reference expands once (a value made of thousands of references to itself would
   // otherwise multiply at every level), and everything expanded stays under a megabyte.
-  // `trusted`: the text is this service's own (its variables, and own variables they reach), where
-  // saving a reference to another service's own variable needs the right to see secrets. Shared and
-  // server variables are saved without that check: through them such a reference stays empty.
+  // `allowed`: the rows of other services' own variables this text may read. Someone allowed to see
+  // secrets binds a value to the rows its references reach when saving it (envVar.borrows); shared,
+  // server and per-replica values are bound to none. A rename, a move or a variable added later
+  // reaches another row, which stays empty.
   const expanded = new Map<string, string>();
   let budget = 1024 * 1024;
-  const expand = (value: string, depth = 0, trusted = true): string => {
+  const expand = (value: string, depth: number, allowed: ReadonlySet<string>): string => {
     let out = "";
     let last = 0;
     for (const m of value.matchAll(REPLICA_REF)) {
-      out += expandRefs(value.slice(last, m.index), depth, trusted);
-      out += m[2] !== undefined ? replicaPick(pickList(m[2]).map((item) => expandRefs(item, depth, trusted))) : m[0];
+      out += expandRefs(value.slice(last, m.index), depth, allowed);
+      out += m[2] !== undefined ? replicaPick(pickList(m[2]).map((item) => expandRefs(item, depth, allowed))) : m[0];
       last = m.index + m[0].length;
     }
-    return out + expandRefs(value.slice(last), depth, trusted);
+    return out + expandRefs(value.slice(last), depth, allowed);
   };
-  const expandRefs = (value: string, depth: number, trusted: boolean): string =>
+  const expandRefs = (value: string, depth: number, allowed: ReadonlySet<string>): string =>
     value.replace(REF, (_match, ref: string) => {
-      let childTrusted = false;
+      let childAllowed = NONE;
       // Filled in per container when replicas start (replicaEnv).
       if (/^replica\.(index|number|count)$/i.test(ref)) return _match;
       const dot = ref.indexOf(".");
@@ -297,12 +309,14 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
         // Serve's own names win: SERVE_PUBLIC_URL=${{SERVE_PUBLIC_URL}} is the domain, not itself.
         const serveOwn = ref.startsWith("SERVE_") && self[ref] !== undefined;
         result = serveOwn ? self[ref] : (ownRaw[ref]?.value ?? sharedMap[ref] ?? self[ref]);
-        childTrusted = trusted && !serveOwn && !!ownRaw[ref]?.mayBorrow;
+        // An own variable's value is read with its own binding: it is in this service's environment already.
+        if (!serveOwn && ownRaw[ref]) childAllowed = ownRaw[ref].allowed;
       } else {
         const scope = lookup.get(ref.slice(0, dot).toLowerCase());
         result = scope?.[ref.slice(dot + 1)];
-        if (result !== undefined && !trusted && scope && borrowable.get(scope)?.has(ref.slice(dot + 1))) {
-          missing.add(`${ref} (another service's own variable is filled in only from this service's own variables, saved by someone allowed to view secrets)`);
+        const row = scope ? borrowable.get(scope)?.[ref.slice(dot + 1)] : undefined;
+        if (result !== undefined && row && !allowed.has(row)) {
+          missing.add(`${ref} (another service's own variable is filled in only for the variable it was saved for, by someone allowed to view secrets: save this value again)`);
           return "";
         }
         if (result === undefined && referencingByName.get(ref.slice(0, dot).toLowerCase())?.has(ref.slice(dot + 1))) {
@@ -318,10 +332,10 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
         missing.add(ref);
         return "";
       }
-      const key = `${childTrusted ? "t" : "u"}:${ref}`;
+      const key = `${[...childAllowed].sort().join(",")}|${ref}`;
       const cached = expanded.get(key);
       if (cached !== undefined) return cached;
-      const value = depth < 5 ? expand(result, depth + 1, childTrusted) : result;
+      const value = depth < 5 ? expand(result, depth + 1, childAllowed) : result;
       budget -= value.length;
       if (budget < 0) {
         missing.add(`${ref} (the variables expand to more than 1 MB)`);
@@ -338,7 +352,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const literal: string[] = [];
   for (const [k, v] of Object.entries(ownRaw)) {
     if (v.literal) literal.push(k);
-    const value = v.literal ? v.value : expand(v.value, 0, v.mayBorrow);
+    const value = v.literal ? v.value : expand(v.value, 0, v.allowed);
     if (v.runtime) runtime[k] = value;
     if (v.build) build[k] = value;
   }
@@ -352,7 +366,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   for (const [n, vars] of Object.entries(service.replicaVars ?? {})) {
     const out: Record<string, string> = {};
     // Per-replica values carry no mark of who wrote them: they never fill in another service's own variables.
-    for (const [k, v] of Object.entries(vars)) out[k] = expand(decryptOrNull(v) ?? "", 0, false);
+    for (const [k, v] of Object.entries(vars)) out[k] = expand(decryptOrNull(v) ?? "", 0, NONE);
     if (Object.keys(out).length) replicas[Number(n)] = out;
   }
 
@@ -543,4 +557,71 @@ export async function ownVariableRefs(service: Service, values: string[]): Promi
     if (s && vars.some((v) => v.serviceId === s.id && v.key === key) && providedVars(s)[key] === undefined) found.push(ref);
   }
   return [...new Set(found)];
+}
+
+/**
+ * For each value, the rows of other services' own variables its references reach right now, found
+ * by the same names a deploy uses: what a value saved by someone allowed to see secrets is bound to
+ * (envVar.borrows). A later rename, move or new variable reaches other rows, which stay empty.
+ */
+export async function referenceBindings(service: Service, values: string[]): Promise<string[][]> {
+  const [siblings, rows] = await Promise.all([
+    db.select().from(schema.service).where(eq(schema.service.environmentId, service.environmentId)),
+    db
+      .select({ envVar: schema.envVar })
+      .from(schema.envVar)
+      .innerJoin(schema.service, eq(schema.envVar.serviceId, schema.service.id))
+      .where(eq(schema.service.environmentId, service.environmentId))
+      .then((r) => r.map((x) => x.envVar)),
+  ]);
+  const previews = new Set(siblings.filter((s) => s.parentServiceId).map((s) => s.id));
+  // The names a reference may use for a service, with the precedence resolveEnv gives them.
+  const byName = new Map<string, string>();
+  const count = new Map<string, number>();
+  for (const s of siblings) count.set(referenceName(s.name), (count.get(referenceName(s.name)) ?? 0) + 1);
+  const slugs = new Set(siblings.map((s) => s.slug.toLowerCase()));
+  for (const s of siblings) {
+    byName.set(s.slug.toLowerCase(), s.id);
+    if ((count.get(referenceName(s.name)) ?? 0) > 1) continue;
+    if (!slugs.has(s.name.toLowerCase())) byName.set(s.name.toLowerCase(), s.id);
+    if (!byName.has(referenceName(s.name)) && !slugs.has(referenceName(s.name))) byName.set(referenceName(s.name), s.id);
+  }
+  for (const scope of ["shared", "environment", "project", "org", "team"]) byName.delete(scope);
+  return values.map((value) => {
+    const texts = [value, ...[...value.matchAll(REPLICA_REF)].flatMap((m) => (m[2] !== undefined ? pickList(m[2]) : []))];
+    const ids = new Set<string>();
+    for (const text of texts)
+      for (const m of text.matchAll(REF)) {
+        const ref = m[1];
+        const dot = ref.indexOf(".");
+        if (dot === -1) continue;
+        const target = byName.get(ref.slice(0, dot).toLowerCase());
+        // A pull request preview's rows take the parent's values on their own: never a target.
+        if (!target || target === service.id || previews.has(target)) continue;
+        const row = rows.find((r) => r.serviceId === target && r.key === ref.slice(dot + 1));
+        if (row) ids.add(row.id);
+      }
+    return [...ids];
+  });
+}
+
+/**
+ * The rows a save of a service's variables writes. A row stays the same row (its id, which other
+ * services' references are bound to) only when the same variable is saved again: a value moved in
+ * from another name (`from`) is a new row. A value left as it was keeps its binding; one changed in
+ * this save is bound to what its references reach now (`bindings`, by position) when the person
+ * saving may see secrets, and to nothing otherwise. Turning "literal" off changes how a value is read.
+ */
+export function variableRows<V extends { key: string; value: string; literal?: boolean; from: string | null }>(
+  stored: { id: string; key: string; value: string; literal: boolean; borrows: string[] }[],
+  next: V[],
+  seesSecrets: boolean,
+  bindings: string[][],
+): (V & { id?: string; borrows: string[] })[] {
+  return next.map((v, i) => {
+    const was = stored.find((s) => s.key === v.key);
+    const sameRow = !!was && (v.from === null || v.from === v.key);
+    const unchanged = sameRow && was.value === v.value && was.literal === (v.literal ?? false);
+    return { ...v, id: sameRow ? was.id : undefined, borrows: unchanged ? was.borrows : seesSecrets && !v.literal ? (bindings[i] ?? []) : [] };
+  });
 }

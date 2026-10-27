@@ -1,0 +1,1 @@
+ALTER TABLE "env_var" DROP COLUMN "may_borrow";

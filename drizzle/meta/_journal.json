@@ -673,6 +673,20 @@
       "when": 1793133780866,
       "tag": "0095_env_var_may_borrow",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1793134485701,
+      "tag": "0096_env_var_borrows",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1793134486831,
+      "tag": "0097_env_var_drop_may_borrow",
+      "breakpoints": true
     }
   ]
 }

@@ -118,8 +118,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     .from(schema.environment)
     .innerJoin(schema.project, eq(schema.environment.projectId, schema.project.id))
     .where(eq(schema.environment.id, service.environmentId));
-  const [own, shared, siblings, siblingDomains, mesh, branches, serverVars] = await Promise.all([
-    db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, service.id)),
+  const [shared, siblings, siblingDomains, mesh, branches, serverVars, envVars] = await Promise.all([
     db
       .select()
       .from(schema.sharedVar)
@@ -150,7 +149,15 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
           .from(schema.serverVar)
           .where(and(eq(schema.serverVar.serverId, service.serverId), eq(schema.serverVar.organizationId, scope.organizationId)))
       : Promise.resolve([]),
+    // Every service's own variables: this one's, and the others' for ${{garage.SECRET_KEY}}.
+    db
+      .select({ envVar: schema.envVar })
+      .from(schema.envVar)
+      .innerJoin(schema.service, eq(schema.envVar.serviceId, schema.service.id))
+      .where(eq(schema.service.environmentId, service.environmentId)),
   ]);
+  const own = envVars.map((r) => r.envVar).filter((v) => v.serviceId === service.id);
+  const siblingVars = envVars.map((r) => r.envVar).filter((v) => v.serviceId !== service.id);
 
   const domainsBy = new Map<string, Domain[]>();
   for (const { domain } of siblingDomains) {
@@ -168,6 +175,23 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const serverMap: Record<string, string> = {};
   for (const v of serverVars) serverMap[v.key] = decryptOrNull(v.value) ?? "";
 
+  // Another service's own values, by service. One that holds references of its own is filled in
+  // where that service deploys, not here: it is reported, so the reference points at the source.
+  const ownOf = new Map<string, Record<string, string>>();
+  const referencing = new Map<string, Set<string>>();
+  /** Values of their secret-looking variables, redacted where they end up. */
+  const siblingValues = new Set<string>();
+  for (const v of siblingVars) {
+    const value = decryptOrNull(v.value) ?? "";
+    if (!v.literal && /\$\{\{/.test(value)) {
+      referencing.set(v.serviceId, (referencing.get(v.serviceId) ?? new Set()).add(v.key));
+      continue;
+    }
+    ownOf.set(v.serviceId, { ...(ownOf.get(v.serviceId) ?? {}), [v.key]: value });
+    if (/SECRET|TOKEN|PASS|KEY|URL|DSN|AUTH|PRIVATE|CREDENTIAL/i.test(v.key)) siblingValues.add(value);
+  }
+  const referencingByName = new Map<string, Set<string>>();
+
   const lookup = new Map<string, Record<string, string>>();
   const nameCount = new Map<string, number>();
   for (const s of siblings) nameCount.set(referenceName(s.name), (nameCount.get(referenceName(s.name)) ?? 0) + 1);
@@ -180,7 +204,9 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   // Slugs are unique and always win over a name that happens to match one.
   const slugs = new Set(siblings.map((s) => s.slug.toLowerCase()));
   for (const s of siblings) {
+    // Serve's own names win over a variable of the same name.
     let provided = {
+      ...(ownOf.get(s.id) ?? {}),
       ...providedVars(s, domainsBy.get(s.id) ?? []),
       ...branchVars(
         s,
@@ -194,6 +220,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       for (const name of [s.slug, s.name, referenceName(s.name)]) remoteOnly.set(name.toLowerCase(), hidden);
     }
     lookup.set(s.slug.toLowerCase(), provided);
+    const refs = referencing.get(s.id);
+    if (refs) for (const name of [s.slug, s.name, referenceName(s.name)]) referencingByName.set(name.toLowerCase(), refs);
     // Two services with the same name: neither answers to it, only to its unique slug.
     if (ambiguous.has(referenceName(s.name))) continue;
     if (!slugs.has(s.name.toLowerCase())) lookup.set(s.name.toLowerCase(), provided);
@@ -260,6 +288,10 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       } else {
         const scope = lookup.get(ref.slice(0, dot).toLowerCase());
         result = scope?.[ref.slice(dot + 1)];
+        if (result === undefined && referencingByName.get(ref.slice(0, dot).toLowerCase())?.has(ref.slice(dot + 1))) {
+          missing.add(`${ref} (its value is made of references: reference what it refers to instead)`);
+          return "";
+        }
         if (result === undefined && remoteOnly.get(ref.slice(0, dot).toLowerCase())?.has(ref.slice(dot + 1))) {
           missing.add(`${ref} (runs on another server: put both servers in the same private network, or use its public domain or port)`);
           return "";
@@ -314,6 +346,9 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   for (const [k, v] of [...Object.entries(sharedMap), ...Object.entries(projectMap), ...Object.entries(orgMap), ...Object.entries(serverMap)]) {
     if (v.length >= 6 && secretKey.test(k) && values.some(([, x]) => x.includes(v))) secrets.push(v);
   }
+
+  // Another service's values that ended up here are redacted like its secrets.
+  for (const v of siblingValues) if (v.length >= 6 && values.some(([, x]) => x.includes(v))) secrets.push(v);
 
   // Values from a secret manager are always redacted.
   for (const v of secretRefs.found.values()) if (v.length >= 4) secrets.push(v);

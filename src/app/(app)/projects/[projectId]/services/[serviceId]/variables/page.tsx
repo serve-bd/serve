@@ -19,7 +19,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   const canSeeSecrets = ctx.can("variables.view-secrets");
-  const [vars, shared, siblings, scoped, servers, mesh, domains, serverKeys] = await Promise.all([
+  const [vars, shared, siblings, scoped, servers, mesh, domains, serverKeys, siblingVars] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId)).orderBy(asc(schema.envVar.key)),
     db.select({ key: schema.sharedVar.key }).from(schema.sharedVar).where(eq(schema.sharedVar.environmentId, service.environmentId)),
     db.select().from(schema.service).where(eq(schema.service.environmentId, service.environmentId)),
@@ -40,7 +40,16 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
       .from(schema.serverVar)
       .where(and(eq(schema.serverVar.serverId, service.serverId), eq(schema.serverVar.organizationId, ctx.org.id)))
       .orderBy(asc(schema.serverVar.key)),
+    // The other services' own variables (names only reach the page).
+    db
+      .select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value, literal: schema.envVar.literal })
+      .from(schema.envVar)
+      .innerJoin(schema.service, eq(schema.envVar.serviceId, schema.service.id))
+      .where(eq(schema.service.environmentId, service.environmentId))
+      .orderBy(asc(schema.envVar.key)),
   ]);
+  // A value made of references is filled in where its own service deploys, so it is not offered.
+  const ownVarKeys = (id: string) => siblingVars.filter((v) => v.serviceId === id && (v.literal || !(decryptOrNull(v.value) ?? "").includes("${{"))).map((v) => v.key);
   const domainsOf = (id: string) => domains.filter((d) => d.domain.serviceId === id).map((d) => d.domain);
   // The service's own values. PORT is set anyway, and a variable named like a value would hide it.
   const ownKeys = Object.keys(providedVars(service, domainsOf(service.id))).filter((k) => k.startsWith("SERVE_") && k !== "SERVE_SERVICE_NAME");
@@ -73,7 +82,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
         return {
           name: shared ? s.slug : s.name,
           label: shared ? `${s.name} (${s.slug})` : undefined,
-          keys: Object.keys(providedVars(s, domainsOf(s.id))).filter((k) => !k.startsWith("SERVE_SERVICE")),
+          keys: [...new Set([...Object.keys(providedVars(s, domainsOf(s.id))).filter((k) => !k.startsWith("SERVE_SERVICE")), ...ownVarKeys(s.id)])],
           note: elsewhere
             ? reachable
               ? `On ${serverName.get(s.serverId) ?? "another server"}, over the private network`

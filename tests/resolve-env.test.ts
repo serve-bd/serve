@@ -50,7 +50,8 @@ const postgres = service({
   runtime: {},
   database: { engine: "postgres", username: "app", password: encrypt("db-password-123"), database: "appdb" },
 });
-const v = (key: string, value: string, o: { build?: boolean; runtime?: boolean; literal?: boolean } = {}) => ({
+const v = (key: string, value: string, o: { build?: boolean; runtime?: boolean; literal?: boolean; serviceId?: string } = {}) => ({
+  serviceId: o.serviceId ?? "svc-web",
   key,
   value: encrypt(value),
   buildTime: o.build ?? false,
@@ -69,7 +70,7 @@ const shared = (scope: "environmentId" | "projectId" | "organizationId", key: st
 function setup(own: Row[], opts: { shared?: Row[]; siblings?: Row[]; domains?: Row[]; server?: Row[] } = {}) {
   db.tables = {
     environment: [{ projectId: "p1", organizationId: "o1" }],
-    envVar: own,
+    envVar: own.map((envVar) => ({ envVar })),
     sharedVar: opts.shared ?? [],
     service: opts.siblings ?? [service(), postgres],
     domain: (opts.domains ?? []).map((domain) => ({ domain })),
@@ -88,6 +89,34 @@ describe("references", () => {
     expect(env.runtime.B).toBe("app");
     expect(env.runtime.C).toBe("postgres-x1");
     expect(env.missing).toEqual([]);
+  });
+
+  it("reads another service's own variables, and keeps their secrets out of the logs", async () => {
+    const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {}, compose: { content: "services:\n  garage: {image: x}\n" } });
+    setup(
+      [
+        v("S3_KEY", "${{garage.ACCESS_KEY_ID}}"),
+        v("S3_SECRET", "${{garage-pam8yp.SECRET_KEY}}"),
+        v("S3_BUCKET", "${{Garage.BUCKET}}"),
+        v("HOST", "${{garage.SERVE_PRIVATE_DOMAIN}}"),
+        v("COMPOSED", "${{garage.COMPOSED}}"),
+        v("ACCESS_KEY_ID", "own-value"),
+        v("ACCESS_KEY_ID", "GK0123456789abcdef", { serviceId: "svc-g" }),
+        v("SECRET_KEY", "s3cr3t-value-long", { serviceId: "svc-g" }),
+        v("BUCKET", "agent-chat", { serviceId: "svc-g" }),
+        // Serve's own names win over a variable of the same name.
+        v("SERVE_PRIVATE_DOMAIN", "spoofed", { serviceId: "svc-g" }),
+        v("COMPOSED", "${{ACCESS_KEY_ID}}x", { serviceId: "svc-g" }),
+      ],
+      { siblings: [service(), garage] },
+    );
+    const env = await resolveEnv(service());
+    expect(env.runtime).toMatchObject({ S3_KEY: "GK0123456789abcdef", S3_SECRET: "s3cr3t-value-long", S3_BUCKET: "agent-chat", HOST: "garage-pam8yp", ACCESS_KEY_ID: "own-value" });
+    expect(env.secrets).toEqual(expect.arrayContaining(["GK0123456789abcdef", "s3cr3t-value-long"]));
+    expect(env.secrets).not.toContain("agent-chat");
+    // A value made of references is filled in where that service deploys.
+    expect(env.runtime.COMPOSED).toBe("");
+    expect(env.missing).toEqual([expect.stringContaining("garage.COMPOSED (its value is made of references")]);
   });
 
   it("reads every shared scope and the server's variables by name", async () => {

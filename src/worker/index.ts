@@ -963,6 +963,8 @@ async function main() {
   // Databases on domains: routes, certificates picked up after renewal, and containers that moved.
   every(5 * 60_000, "db-allowlists", async () => (await import("@/server/databases/allowlist")).syncDatabaseAllowlists(), true);
   every(5 * 60_000, "db-tunnels", async () => (await import("@/server/cloudflare/tunnels")).reattachDatabaseTunnels(), true);
+  // Newer builds and versions of the registry images services run: each service once a day.
+  every(60 * 60_000, "image-updates", async () => (await import("@/server/images/updates")).checkImageUpdates(), 5 * 60_000);
   every(5 * 60_000, "proxy-health", checkProxies, true);
   // Servers that trust Cloudflare's proxy follow its published ranges; a failed fetch keeps the last list.
   every(

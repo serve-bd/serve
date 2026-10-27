@@ -36,6 +36,7 @@ import { cn, formatBytes } from "@/lib/utils";
 import { useCan, useCannot } from "@/components/permissions";
 import type { OverviewData } from "./overview-data";
 import { UptimeCard } from "./uptime-card";
+import { ImageUpdatesCard } from "./image-updates-card";
 import { ContainerDialog } from "./container-dialog";
 
 type Series = { t: number; cpu: number; memory: number; memoryLimit: number; netRx: number | null; netTx: number | null }[];
@@ -143,6 +144,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <ImageUpdatesCard serviceId={service.id} base={base} check={service.imageCheck} isDatabase={false} className="lg:col-span-2" />
       <ContainerDialog
         serviceId={service.id}
         base={base}

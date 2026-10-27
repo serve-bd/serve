@@ -109,6 +109,8 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
       composeServiceCount: service.compose ? composeServiceNames(service.compose.content).length : 0,
       /** What other services of the environment connect to: a stack answers per service (none when isolated). */
       privateAddresses: privateAddresses(service, primaryDomain?.composeService),
+      /** Registry images it runs that have a newer build or version (none for images Serve builds). */
+      imageCheck: service.imageCheck ?? null,
       volumes: service.compose ? composeMountCount(service.compose.content) : service.runtime.volumes.length,
       healthcheckPath: service.runtime.healthcheckPath ?? null,
       builder: service.build?.builder ?? null,

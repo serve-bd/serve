@@ -539,6 +539,8 @@ export const service = pgTable(
     status: text("status").$type<ServiceStatus>().notNull().default("idle"),
     /** While building or deploying: the previous version still runs and serves (it was running when the deploy began). */
     upDuringDeploy: boolean("up_during_deploy").notNull().default(false),
+    /** The last look for newer builds and versions of the registry images it runs (see images/updates.ts). */
+    imageCheck: jsonb("image_check").$type<ImageCheck>(),
     source: jsonb("source").$type<SourceConfig>(),
     build: jsonb("build").$type<BuildConfig>(),
     runtime: jsonb("runtime").$type<RuntimeConfig>().notNull(),
@@ -750,6 +752,34 @@ export type ServiceConfigFile = {
   /** HTTP options it sets, and those an earlier file set that go back to their defaults. */
   httpKeys: string[];
   httpDropped: string[];
+  /*
+   * What the file set last time it was applied, for each kind of item. On the next deploy an item
+   * that differs from it now was changed in the dashboard, and the dashboard's value stays. Tasks,
+   * HTTP options and the uptime check are recorded once they apply (when the version is live).
+   */
+  variableValues?: Record<string, { value: string; build: boolean; runtime: boolean }>;
+  taskValues?: Record<string, { schedule: string; command: string; timeoutSeconds: number; enabled: boolean; composeService: string | null }>;
+  httpValues?: Record<string, unknown>;
+  monitorValues?: Record<string, unknown>;
+};
+
+/** What the registry has for each image a service runs: a newer build of the same tag, a newer version tag. */
+export type ImageCheck = {
+  checkedAt: string;
+  images: {
+    ref: string;
+    /** The stack service that runs it (null: the service itself). */
+    composeService: string | null;
+    /** The registry has another build of this tag than the one running. */
+    newerBuild: boolean;
+    /** The registry's digest of the tag, so a later build is told apart from one already reported. */
+    digest: string | null;
+    /** A higher version tag of the same form (9-alpine after 8-alpine), or null. */
+    newerVersion: string | null;
+    error: string | null;
+  }[];
+  /** What was last notified, so the same finding is not notified again. */
+  notified?: string;
 };
 
 export type DeploymentTrigger = "manual" | "webhook" | "rollback" | "redeploy" | "create" | "deploy-hook" | "api" | "cli";
@@ -828,6 +858,8 @@ export const deployment = pgTable(
     configHash: text("config_hash"),
     /** Compose stacks: the file and images it ran. Deployments from before it was recorded cannot be rolled back. */
     composeSnapshot: jsonb("compose_snapshot").$type<ComposeSnapshot>(),
+    /** Pull every image again, also ones already on the server: an image update (a newer build of the same tag). */
+    pullImages: boolean("pull_images").notNull().default(false),
     /** Who let a deployment that waited for approval go ahead, and when. */
     approvedBy: text("approved_by").references(() => user.id, { onDelete: "set null" }),
     approvedAt: timestamp("approved_at", { withTimezone: true }),

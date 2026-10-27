@@ -64,6 +64,8 @@ export async function queueDeployment(
     upload?: DeploymentUpload | null;
     /** The id to use (an upload names its archive after the deployment before it is queued). */
     id?: string;
+    /** Pull every image again: an image update. */
+    pullImages?: boolean;
   } = {},
 ) {
   const id = opts.id ?? newId();
@@ -98,6 +100,7 @@ export async function queueDeployment(
       branch: opts.branch ?? null,
       adopt: opts.adopt ?? null,
       upload: opts.upload ?? null,
+      pullImages: opts.pullImages ?? false,
     });
     return null;
   });

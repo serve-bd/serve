@@ -192,6 +192,8 @@ export type ComposeRun = {
   server?: ServerCtx;
   /** The environment network the stack's services join (not for isolated stacks). */
   envNetwork?: string;
+  /** Pull every image again (an image update); otherwise images already on the server are used. */
+  pull?: boolean;
   /** The stack's main service and the stack's own names it answers to there too (see stackMainService). */
   main?: { service: string; aliases: string[] } | null;
 };
@@ -214,16 +216,17 @@ const UP_ARGS = ["up", "-d", "--remove-orphans", "--wait", "--wait-timeout", "30
  * network, then started. Every path that (re)creates a stack's containers goes through here.
  */
 export async function composeUp(opts: ComposeRun) {
+  const pull = opts.pull ? ["--pull", "always"] : [];
   const compose = (args: string[]) =>
     opts.server && !opts.server.local
       ? remoteCompose(opts.server, opts, args, opts.log, opts.signal, opts.redact)
       : run("docker", [...composeArgs(opts), ...args], { isolatedEnv: true, cwd: opts.dir, onLine: opts.log, signal: opts.signal, redact: opts.redact });
   if (opts.envNetwork) {
-    await compose(["up", "--no-start", "--build", "--remove-orphans"]);
+    await compose(["up", "--no-start", "--build", "--remove-orphans", ...pull]);
     await joinEnvNetwork(opts.server?.docker ?? docker, opts.projectName, opts.envNetwork, opts.main);
     await compose(UP_ARGS);
   } else {
-    await compose([...UP_ARGS, "--build"]);
+    await compose([...UP_ARGS, "--build", ...pull]);
   }
 }
 

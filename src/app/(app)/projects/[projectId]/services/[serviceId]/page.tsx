@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { ImageUpdatesCard } from "./image-updates-card";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
 import { inRanges } from "@/lib/trusted-proxies";
@@ -88,6 +89,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           .orderBy(asc(schema.databaseBranch.createdAt));
     return (
       <PageBody className="flex flex-col gap-6">
+        <ImageUpdatesCard serviceId={service.id} base={`/projects/${projectId}/services/${service.id}`} check={service.imageCheck ?? null} isDatabase />
         <DatabaseOverview
           serviceId={service.id}
           projectId={projectId}

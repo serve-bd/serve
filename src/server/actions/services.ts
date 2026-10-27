@@ -9,6 +9,7 @@ import { normalizeTrustedRanges } from "@/lib/trusted-proxies";
 import { act, UserError } from "@/server/action";
 import { cannotMessage } from "@/lib/permissions";
 import { requirePermission } from "@/server/auth";
+import type { Permission } from "@/lib/permissions";
 import { requireDeleteProof } from "@/server/delete-proof";
 import { db, schema, sql } from "@/server/db";
 import { encrypt, randomPassword } from "@/server/crypto";
@@ -1585,6 +1586,25 @@ const varsSchema = z
   )
   .max(500);
 
+/**
+ * A new reference to another service's own variable hands its value to this service, where whoever
+ * runs it can read it: like seeing the value, so it needs the right to see secrets. References
+ * already there stay, whoever saves the list.
+ */
+async function assertMayReference(ctx: { can: (p: Permission) => boolean }, service: typeof schema.service.$inferSelect, values: string[], before: string[]) {
+  if (ctx.can("variables.view-secrets")) return;
+  const { ownVariableRefs } = await import("@/server/services/variables");
+  const had = new Set(await ownVariableRefs(service, before));
+  const added = (await ownVariableRefs(service, values)).filter((r) => !had.has(r));
+  if (added.length)
+    throw new UserError(
+      `Referencing another service's variables (${added
+        .slice(0, 3)
+        .map((r) => `\${{${r}}}`)
+        .join(", ")}) needs the right to view secrets.`,
+    );
+}
+
 async function writeEnvVars(serviceId: string, vars: VarInput[]) {
   const keys = new Set<string>();
   for (const v of vars) {
@@ -1641,6 +1661,12 @@ export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy
       const changed = used.filter((k) => before.get(k) !== after.get(k));
       if (changed.length) throw new UserError(`This compose file uses host options, so only admins of the Root organization can change ${changed.slice(0, 3).join(", ")}.`);
     }
+    await assertMayReference(
+      ctx,
+      service,
+      next.map((v) => v.value),
+      stored.map((v) => decryptOrNull(v.value) ?? ""),
+    );
     await writeEnvVars(serviceId, next);
     let deploymentId: string | null = null;
     if (redeploy && service.status !== "idle") deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
@@ -1661,6 +1687,13 @@ export async function saveReplicaVars(serviceId: string, replica: number, input:
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app") throw new UserError("Only apps have replicas.");
     if (!Number.isInteger(replica) || replica < 1) throw new UserError("Unknown replica.");
+    const { decryptOrNull } = await import("@/server/crypto");
+    await assertMayReference(
+      ctx,
+      service,
+      vars.filter((v) => v.keep === undefined).map((v) => v.value),
+      Object.values(service.replicaVars?.[replica] ?? {}).map((v) => decryptOrNull(v) ?? ""),
+    );
     await db.transaction(async (tx) => {
       // Locked, so two replica cards saved at the same moment both keep their change.
       const [row] = await tx.select({ replicaVars: schema.service.replicaVars }).from(schema.service).where(eq(schema.service.id, serviceId)).for("update");
@@ -1700,6 +1733,13 @@ export async function savePreviewVars(serviceId: string, input: { key: string; v
     const vars = varsSchema.parse(input);
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app" || service.parentServiceId) throw new UserError("Only apps with pull request previews have preview variables.");
+    const { decryptOrNull } = await import("@/server/crypto");
+    await assertMayReference(
+      ctx,
+      service,
+      vars.filter((v) => v.keep === undefined).map((v) => v.value),
+      Object.values(service.previewVars ?? {}).map((v) => decryptOrNull(v) ?? ""),
+    );
     let before: Record<string, string> = {};
     let after: Record<string, string> = {};
     await db.transaction(async (tx) => {
@@ -2543,5 +2583,31 @@ export async function retryCertificate(domainId: string) {
       await enqueue("certificate.issue", { certificateId: cert.id }, { concurrencyKey: `cert:${cert.id}` });
     }
     return null;
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                Image updates                               */
+/* -------------------------------------------------------------------------- */
+
+/** Look for newer builds and versions of the service's registry images now, instead of at the daily round. */
+export async function checkImageUpdatesNow(serviceId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.deploy");
+    await serviceInOrg(serviceId, ctx.org.id);
+    const { checkServiceImages } = await import("@/server/images/updates");
+    await checkServiceImages(serviceId);
+    return null;
+  });
+}
+
+/** Deploy again, pulling every image: the newer build of each tag replaces the running one. */
+export async function updateServiceImages(serviceId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.deploy");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (service.status === "idle") throw new UserError("Deploy the service first.");
+    const deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id, pullImages: true, commitMessage: "Image update" });
+    return { deploymentId };
   });
 }

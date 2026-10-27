@@ -200,7 +200,7 @@ async function prepareAppImage(
   const foreign = await foreignPlatform(platform, server, log.line);
   if (source.type === "image") {
     const ref = source.image.includes(":") || source.image.includes("@") ? source.image : `${source.image}:latest`;
-    if (service.runtime.pullPolicy === "missing" && (await imageExistsFor(ref, platform, d))) {
+    if (service.runtime.pullPolicy === "missing" && !dep.pullImages && (await imageExistsFor(ref, platform, d))) {
       log.step(`Using ${source.image} already on ${server.local ? "the server" : server.name} (pull policy: if missing)`);
     } else {
       log.step(`Pulling ${source.image}${platform ? ` for ${platform}` : ""}`);
@@ -454,7 +454,7 @@ async function dropForeignTag(ref: string, d: Docker) {
 }
 
 /** Login for pulling an image: its saved registry, else the credentials stored with the service. */
-async function imagePullAuth(source: ImageSource, log: (line: string) => void) {
+export async function imagePullAuth(source: ImageSource, log: (line: string) => void) {
   if (source.registryId) {
     const registry = await getRegistry(source.registryId);
     if (registry) return registryAuth(registry);
@@ -569,7 +569,7 @@ async function ensureImageOn(
     const ref = source.image.includes(":") || source.image.includes("@") ? source.image : `${source.image}:latest`;
     const platform = service.runtime.platform ?? null;
     const foreign = await foreignPlatform(platform, target, log.line);
-    if (service.runtime.pullPolicy === "missing" && (await imageExistsFor(ref, platform, d))) {
+    if (service.runtime.pullPolicy === "missing" && !dep.pullImages && (await imageExistsFor(ref, platform, d))) {
       log.line(`Using ${source.image} already on ${target.name}`);
     } else {
       log.line(`Pulling ${source.image}`);
@@ -1278,7 +1278,7 @@ async function pruneComposeImages(service: Service, server: ServerCtx, current: 
 /*                                 Databases                                  */
 /* -------------------------------------------------------------------------- */
 
-export async function deployDatabase(service: Service, log: DeployLogger | null, signal?: AbortSignal, handoff: Handoff | null = null) {
+export async function deployDatabase(service: Service, log: DeployLogger | null, signal?: AbortSignal, handoff: Handoff | null = null, pull = false) {
   // A copy leaves the container running: its data is dumped and restored once the database is up.
   const copyFrom = handoff?.mode === "copy" ? handoff : null;
   const adopt = copyFrom ? null : handoff;
@@ -1293,7 +1293,8 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   const line = log?.line ?? (() => {});
   log?.redact([plan.creds.password]);
 
-  if (!(await imageExists(image, d))) {
+  // An image update pulls a newer build of the same tag; otherwise the image on the server is used.
+  if (pull || !(await imageExists(image, d))) {
     log?.step(`Pulling ${image}`);
     await pullImage(image, line, null, d);
   }
@@ -1683,6 +1684,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   const primary = pickPrimaryDomain(await db.select().from(schema.domain).where(eq(schema.domain.serviceId, service.id)));
   const mainService = stackMainService(content, primary?.composeService);
   const run = {
+    pull: dep.pullImages,
     projectName: service.slug,
     main: mainService ? { service: mainService, aliases: networkAliases(service) } : null,
     dir,
@@ -1888,7 +1890,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     if (service.type === "app") await deployApp(service, dep, log, server, signal);
     else if (service.type === "database") {
       await setDeployment(dep.id, { status: "deploying" });
-      await deployDatabase(service, log, signal, dep.adopt ?? null);
+      await deployDatabase(service, log, signal, dep.adopt ?? null, dep.pullImages);
       await db.update(schema.service).set({ currentDeploymentId: dep.id }).where(eq(schema.service.id, service.id));
     } else ranCompose = await deployCompose(service, dep, log, server, signal);
 
@@ -1958,6 +1960,8 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       dedupKey: `deploy:${service.id}`,
       data: { ...details, durationSeconds: Number(seconds), commit: commitSha ?? null, commitMessage: commitMessage ?? null },
     });
+    // What it runs now may be the newer build: look again, so an update shown before goes away.
+    if (service.imageCheck) void import("@/server/images/updates").then((m) => m.checkServiceImages(service.id)).catch(() => {});
   } catch (thrown) {
     // A deploy the worker stopped for running too long failed; it was not cancelled by anyone.
     const timedOut = signal?.reason instanceof JobTimeout ? signal.reason : null;

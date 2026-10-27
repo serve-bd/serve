@@ -6,7 +6,8 @@ import { composeSecurityIssues } from "@/server/security";
 /** Tab of the service page that fixes the problem. */
 export type IssueTab = "overview" | "deployments" | "domains";
 
-export type ServiceIssue = { tone: "bad" | "warn"; text: string; tab: IssueTab };
+/** `onPage`: the service's page shows it already (the image updates strip): the banner leaves it out. */
+export type ServiceIssue = { tone: "bad" | "warn"; text: string; tab: IssueTab; onPage?: boolean };
 
 /**
  * Problems a service has right now that its status alone does not show:
@@ -47,6 +48,7 @@ export async function serviceIssues(serviceIds: string[]): Promise<Map<string, S
         serverName: schema.server.name,
         proxyStopped: schema.server.proxyStopped,
         proxyError: schema.server.proxyError,
+        imageCheck: schema.service.imageCheck,
         compose: schema.service.compose,
         organizationId: schema.project.organizationId,
       })
@@ -80,6 +82,17 @@ export async function serviceIssues(serviceIds: string[]): Promise<Map<string, S
       const reason = /\bthe container\b/.test(s.proxyError) ? "another container uses its port" : s.proxyError;
       add(s.id, { tone: "bad", text: `The proxy on ${s.serverName} is not running, so no domain answers: ${reason}`, tab: "domains" });
     }
+  }
+  // A newer build of a tag it runs: usually security fixes, and updating keeps the same version.
+  for (const s of services) {
+    const newer = s.imageCheck?.images.filter((i) => i.newerBuild) ?? [];
+    if (newer.length)
+      add(s.id, {
+        tone: "warn",
+        text: `A newer build of ${newer.map((i) => i.ref).join(", ")} is out (often security fixes). Update the image on the Overview`,
+        tab: "overview",
+        onPage: true,
+      });
   }
   // With its reason: "is down" alone reads like the deploy broke it, when it may be the check that cannot reach it.
   for (const i of incidents) add(i.serviceId, { tone: i.severity === "warning" ? "warn" : "bad", text: i.detail ? `${i.title}: ${i.detail}` : i.title, tab: "overview" });

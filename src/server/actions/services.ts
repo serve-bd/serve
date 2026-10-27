@@ -1569,7 +1569,7 @@ export async function deleteService(serviceId: string, removeVolumes: boolean, p
 /* -------------------------------------------------------------------------- */
 
 /** `keep`: keep the stored value of that key (the editor did not receive it). */
-type VarInput = { key: string; value: string; buildTime: boolean; runtime: boolean; literal?: boolean; multiline?: boolean; keep?: string };
+type VarInput = { key: string; value: string; buildTime: boolean; runtime: boolean; literal?: boolean; multiline?: boolean; keep?: string; mayBorrow?: boolean };
 
 /** Variables as the forms send them: names and values with a size cap, at most a few hundred. */
 const varsSchema = z
@@ -1625,6 +1625,7 @@ async function writeEnvVars(serviceId: string, vars: VarInput[]) {
           runtime: v.runtime,
           literal: v.literal ?? false,
           multiline: v.multiline ?? false,
+          mayBorrow: v.mayBorrow ?? false,
         })),
       );
     }
@@ -1639,7 +1640,10 @@ export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy
     const vars = varsSchema.parse(input);
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (hasHostAccess(service.runtime)) assertHostAccess(ctx, "Changing the variables of a service that has host-level access");
-    const stored = await db.select({ key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
+    const stored = await db
+      .select({ key: schema.envVar.key, value: schema.envVar.value, mayBorrow: schema.envVar.mayBorrow })
+      .from(schema.envVar)
+      .where(eq(schema.envVar.serviceId, serviceId));
     const { decryptOrNull } = await import("@/server/crypto");
     const next = vars
       .map((v) => {
@@ -1667,7 +1671,13 @@ export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy
       next.map((v) => v.value),
       stored.map((v) => decryptOrNull(v.value) ?? ""),
     );
-    await writeEnvVars(serviceId, next);
+    // Who wrote each value: someone who may see secrets marks it; a value left as it was keeps its mark.
+    const seesSecrets = ctx.can("variables.view-secrets");
+    const marked = next.map((v) => {
+      const was = stored.find((s) => s.key === v.key);
+      return { ...v, mayBorrow: seesSecrets || (!!was?.mayBorrow && decryptOrNull(was.value) === v.value) };
+    });
+    await writeEnvVars(serviceId, marked);
     let deploymentId: string | null = null;
     if (redeploy && service.status !== "idle") deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
     return { deploymentId };

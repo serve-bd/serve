@@ -1,0 +1,1 @@
+ALTER TABLE "env_var" ADD COLUMN "may_borrow" boolean DEFAULT false NOT NULL;

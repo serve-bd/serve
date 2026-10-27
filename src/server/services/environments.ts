@@ -148,6 +148,7 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
     runtime: v.runtime,
     literal: v.literal,
     multiline: v.multiline,
+    mayBorrow: v.mayBorrow,
   }));
   const newShared = shared.map((v) => ({ id: newId(), environmentId, key: v.key, value: encrypt(rewriteValue(decrypt(v.value), slugMap, passwordMap)) }));
 

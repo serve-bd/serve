@@ -208,6 +208,7 @@ async function deployPreviewLocked(parent: Service, pr: PullRequest) {
       runtime: v.runtime,
       literal: v.literal,
       multiline: v.multiline,
+      // A pull request's code runs here: another service's own variables are not filled in (mayBorrow false).
     }));
     const { encrypt } = await import("@/server/crypto");
     for (const [key, value] of [

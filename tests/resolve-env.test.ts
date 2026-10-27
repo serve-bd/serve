@@ -50,8 +50,9 @@ const postgres = service({
   runtime: {},
   database: { engine: "postgres", username: "app", password: encrypt("db-password-123"), database: "appdb" },
 });
-const v = (key: string, value: string, o: { build?: boolean; runtime?: boolean; literal?: boolean; serviceId?: string } = {}) => ({
+const v = (key: string, value: string, o: { build?: boolean; runtime?: boolean; literal?: boolean; serviceId?: string; mayBorrow?: boolean } = {}) => ({
   serviceId: o.serviceId ?? "svc-web",
+  mayBorrow: o.mayBorrow ?? true,
   key,
   value: encrypt(value),
   buildTime: o.build ?? false,
@@ -140,6 +141,19 @@ describe("references", () => {
     expect(env.missing).toEqual([expect.stringContaining("garage.SECRET_KEY (another service's own variable")]);
     // Through the service's own variables it works.
     expect(env.runtime.VIA_OWN).toBe("s3cr3t-value-long");
+  });
+
+  it("fills in another service's own variable only from values saved by someone allowed to see secrets", async () => {
+    const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {} });
+    // Saved without the right (the reference may have pointed nowhere then): it stays empty, also once it would resolve.
+    setup([v("STOLEN", "${{garage.SECRET_KEY}}", { mayBorrow: false }), v("VIA_MARKED", "${{STOLEN}}"), v("SECRET_KEY", "s3cr3t-value-long", { serviceId: "svc-g" })], {
+      siblings: [service(), garage],
+    });
+    const env = await resolveEnv(service());
+    expect(env.runtime.STOLEN).toBe("");
+    // A marked value that reaches the unmarked one gets nothing through it either.
+    expect(env.runtime.VIA_MARKED).toBe("");
+    expect(env.missing).toEqual([expect.stringContaining("saved by someone allowed to view secrets")]);
   });
 
   it("sees references inside replica.pick the way a deploy reads them", async () => {

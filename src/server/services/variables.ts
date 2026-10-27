@@ -259,8 +259,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   // A service named "server" keeps answering for the keys the server has no variable for.
   lookup.set("server", { ...(lookup.get("server") ?? {}), ...serverMap });
 
-  const ownRaw: Record<string, { value: string; build: boolean; runtime: boolean; literal: boolean }> = {};
-  for (const v of own) ownRaw[v.key] = { value: decrypt(v.value), build: v.buildTime, runtime: v.runtime, literal: v.literal };
+  const ownRaw: Record<string, { value: string; build: boolean; runtime: boolean; literal: boolean; mayBorrow: boolean }> = {};
+  for (const v of own) ownRaw[v.key] = { value: decrypt(v.value), build: v.buildTime, runtime: v.runtime, literal: v.literal, mayBorrow: v.mayBorrow };
 
   const self = providedVars(service, domainsBy.get(service.id) ?? []);
   const missing = new Set<string>();
@@ -297,12 +297,12 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
         // Serve's own names win: SERVE_PUBLIC_URL=${{SERVE_PUBLIC_URL}} is the domain, not itself.
         const serveOwn = ref.startsWith("SERVE_") && self[ref] !== undefined;
         result = serveOwn ? self[ref] : (ownRaw[ref]?.value ?? sharedMap[ref] ?? self[ref]);
-        childTrusted = trusted && !serveOwn && ownRaw[ref] !== undefined;
+        childTrusted = trusted && !serveOwn && !!ownRaw[ref]?.mayBorrow;
       } else {
         const scope = lookup.get(ref.slice(0, dot).toLowerCase());
         result = scope?.[ref.slice(dot + 1)];
         if (result !== undefined && !trusted && scope && borrowable.get(scope)?.has(ref.slice(dot + 1))) {
-          missing.add(`${ref} (another service's own variable is filled in only from this service's own variables, not from shared or server ones)`);
+          missing.add(`${ref} (another service's own variable is filled in only from this service's own variables, saved by someone allowed to view secrets)`);
           return "";
         }
         if (result === undefined && referencingByName.get(ref.slice(0, dot).toLowerCase())?.has(ref.slice(dot + 1))) {
@@ -338,7 +338,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const literal: string[] = [];
   for (const [k, v] of Object.entries(ownRaw)) {
     if (v.literal) literal.push(k);
-    const value = v.literal ? v.value : expand(v.value);
+    const value = v.literal ? v.value : expand(v.value, 0, v.mayBorrow);
     if (v.runtime) runtime[k] = value;
     if (v.build) build[k] = value;
   }
@@ -351,7 +351,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const replicas: Record<number, Record<string, string>> = {};
   for (const [n, vars] of Object.entries(service.replicaVars ?? {})) {
     const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(vars)) out[k] = expand(decryptOrNull(v) ?? "");
+    // Per-replica values carry no mark of who wrote them: they never fill in another service's own variables.
+    for (const [k, v] of Object.entries(vars)) out[k] = expand(decryptOrNull(v) ?? "", 0, false);
     if (Object.keys(out).length) replicas[Number(n)] = out;
   }
 

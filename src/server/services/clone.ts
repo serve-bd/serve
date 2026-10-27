@@ -138,11 +138,19 @@ export async function cloneService(source: Service, opts: CloneServiceOptions): 
       webhookSecret: newWebhookSecret(),
     });
     if (vars.length)
-      await tx
-        .insert(schema.envVar)
-        .values(
-          vars.map((v) => ({ id: newId(), serviceId: id, key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, literal: v.literal, multiline: v.multiline })),
-        );
+      await tx.insert(schema.envVar).values(
+        vars.map((v) => ({
+          id: newId(),
+          serviceId: id,
+          key: v.key,
+          value: v.value,
+          buildTime: v.buildTime,
+          runtime: v.runtime,
+          literal: v.literal,
+          multiline: v.multiline,
+          mayBorrow: v.mayBorrow,
+        })),
+      );
     if (tasks.length)
       await tx.insert(schema.scheduledTask).values(
         tasks.map((t) => ({

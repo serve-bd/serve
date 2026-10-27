@@ -608,6 +608,11 @@ export const envVar = pgTable(
     literal: boolean("literal").notNull().default(false),
     /** Edited in a multi-line field (keys, certificates). */
     multiline: boolean("multiline").notNull().default(false),
+    /**
+     * Saved by someone allowed to see secrets: only then may its value fill in another service's own
+     * variable (${{garage.SECRET_KEY}}). Fixed at save, so a later rename or new variable cannot open it.
+     */
+    mayBorrow: boolean("may_borrow").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

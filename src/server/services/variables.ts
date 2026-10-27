@@ -1,4 +1,4 @@
-import { replicaInstances } from "@/server/services/types";
+import { hasHostAccess, replicaInstances } from "@/server/services/types";
 import { and, eq, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
@@ -157,7 +157,10 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       .where(eq(schema.service.environmentId, service.environmentId)),
   ]);
   const own = envVars.map((r) => r.envVar).filter((v) => v.serviceId === service.id);
-  const siblingVars = envVars.map((r) => r.envVar).filter((v) => v.serviceId !== service.id);
+  // A service with host-level access takes no values others can edit: only Root admins change what
+  // reaches it (see saveEnvVars), and another service's variables are open to every editor.
+  const hostLevel = (service.type === "app" && hasHostAccess(service.runtime)) || !!service.compose?.hostAccess;
+  const siblingVars = hostLevel ? [] : envVars.map((r) => r.envVar).filter((v) => v.serviceId !== service.id);
 
   const domainsBy = new Map<string, Domain[]>();
   for (const { domain } of siblingDomains) {
@@ -495,4 +498,31 @@ export async function hostStackReachOf(s: Service, organizationId: string) {
   for (const v of shared) (v.environmentId ? maps.environment : v.projectId ? maps.project : maps.org)[v.key] = decryptOrNull(v.value) ?? "";
   for (const v of server) maps.server[v.key] = decryptOrNull(v.value) ?? "";
   return hostStackReach(s.compose?.content ?? "", Object.fromEntries(own.map((v) => [v.key, decryptOrNull(v.value) ?? ""])), maps);
+}
+
+/**
+ * The references in `values` to another service's own variables (not the values Serve gives it).
+ * Placing one hands that value to this service, so it needs the right to see secrets.
+ */
+export async function ownVariableRefs(service: Service, values: string[]): Promise<string[]> {
+  const refs = values.flatMap((v) => [...v.matchAll(REF)].map((m) => m[1])).filter((r) => r.includes("."));
+  if (!refs.length) return [];
+  const [siblings, vars] = await Promise.all([
+    db.select().from(schema.service).where(eq(schema.service.environmentId, service.environmentId)),
+    db
+      .select({ envVar: schema.envVar })
+      .from(schema.envVar)
+      .innerJoin(schema.service, eq(schema.envVar.serviceId, schema.service.id))
+      .where(eq(schema.service.environmentId, service.environmentId))
+      .then((rows) => rows.map((r) => r.envVar)),
+  ]);
+  const found: string[] = [];
+  for (const ref of refs) {
+    const dot = ref.indexOf(".");
+    const name = ref.slice(0, dot).toLowerCase();
+    const key = ref.slice(dot + 1);
+    const s = siblings.find((x) => x.id !== service.id && [x.slug, x.name, referenceName(x.name)].some((n) => n.toLowerCase() === name));
+    if (s && vars.some((v) => v.serviceId === s.id && v.key === key) && providedVars(s)[key] === undefined) found.push(ref);
+  }
+  return [...new Set(found)];
 }

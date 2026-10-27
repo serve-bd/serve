@@ -24,7 +24,7 @@ vi.mock("@/server/databases/branches", () => ({ branchVars: () => ({}) }));
 vi.mock("@/server/security", () => ({ composeSecurityIssues: () => [] }));
 
 const { encrypt } = await import("@/server/crypto");
-const { resolveEnv } = await import("@/server/services/variables");
+const { resolveEnv, ownVariableRefs } = await import("@/server/services/variables");
 
 const service = (patch: Row = {}) =>
   ({
@@ -35,7 +35,7 @@ const service = (patch: Row = {}) =>
     type: "app",
     environmentId: "env1",
     serverId: "local",
-    runtime: { port: 3000, replicas: 1 },
+    runtime: { port: 3000, replicas: 1, volumes: [], ports: [] },
     distribution: null,
     replicaVars: null,
     database: null,
@@ -117,6 +117,22 @@ describe("references", () => {
     // A value made of references is filled in where that service deploys.
     expect(env.runtime.COMPOSED).toBe("");
     expect(env.missing).toEqual([expect.stringContaining("garage.COMPOSED (its value is made of references")]);
+  });
+
+  it("gives a service with host-level access no other service's variables", async () => {
+    const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {} });
+    const host = service({ runtime: { port: 3000, replicas: 1, privileged: true, volumes: [], ports: [] } });
+    setup([v("K", "${{garage.SECRET_KEY}}"), v("SECRET_KEY", "s3cr3t-value-long", { serviceId: "svc-g" })], { siblings: [host, garage] });
+    const env = await resolveEnv(host);
+    expect(env.runtime.K).toBe("");
+    expect(env.missing).toEqual(["garage.SECRET_KEY"]);
+  });
+
+  it("tells which references point at another service's own variables", async () => {
+    const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {} });
+    setup([v("SECRET_KEY", "x", { serviceId: "svc-g" }), v("MINE", "y")], { siblings: [service(), garage, postgres] });
+    const refs = await ownVariableRefs(service(), ["${{garage.SECRET_KEY}} ${{postgres.DATABASE_URL}} ${{garage.SERVE_PRIVATE_DOMAIN}} ${{environment.X}} ${{MINE}}"]);
+    expect(refs).toEqual(["garage.SECRET_KEY"]);
   });
 
   it("reads every shared scope and the server's variables by name", async () => {

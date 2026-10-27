@@ -128,6 +128,26 @@ describe("references", () => {
     expect(env.missing).toEqual(["garage.SECRET_KEY"]);
   });
 
+  it("fills in another service's own variable only from this service's own text", async () => {
+    const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {} });
+    setup(
+      [v("VIA_SHARED", "${{environment.SNEAKY}}"), v("VIA_OWN", "${{INNER}}"), v("INNER", "${{garage.SECRET_KEY}}"), v("SECRET_KEY", "s3cr3t-value-long", { serviceId: "svc-g" })],
+      { siblings: [service(), garage], shared: [shared("environmentId", "SNEAKY", "${{garage.SECRET_KEY}}")] },
+    );
+    const env = await resolveEnv(service());
+    // A shared variable is saved without the check: through it, the value stays empty.
+    expect(env.runtime.VIA_SHARED).toBe("");
+    expect(env.missing).toEqual([expect.stringContaining("garage.SECRET_KEY (another service's own variable")]);
+    // Through the service's own variables it works.
+    expect(env.runtime.VIA_OWN).toBe("s3cr3t-value-long");
+  });
+
+  it("sees references inside replica.pick the way a deploy reads them", async () => {
+    const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {} });
+    setup([v("SECRET_KEY", "x", { serviceId: "svc-g" })], { siblings: [service(), garage] });
+    expect(await ownVariableRefs(service(), ["${{replica.pick($\\{{garage.SECRET_KEY}}, other)}}"])).toEqual(["garage.SECRET_KEY"]);
+  });
+
   it("tells which references point at another service's own variables", async () => {
     const garage = service({ id: "svc-g", name: "Garage", slug: "garage-pam8yp", type: "compose", runtime: {} });
     setup([v("SECRET_KEY", "x", { serviceId: "svc-g" }), v("MINE", "y")], { siblings: [service(), garage, postgres] });

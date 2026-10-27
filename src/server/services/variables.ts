@@ -206,22 +206,26 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const remoteOnly = new Map<string, Set<string>>();
   // Slugs are unique and always win over a name that happens to match one.
   const slugs = new Set(siblings.map((s) => s.slug.toLowerCase()));
+  /** Per service scope: the keys that are its own variables, not values Serve gives it (see `trusted` below). */
+  const borrowable = new WeakMap<object, Set<string>>();
   for (const s of siblings) {
-    // Serve's own names win over a variable of the same name.
-    let provided = {
-      ...(ownOf.get(s.id) ?? {}),
+    const served = {
       ...providedVars(s, domainsBy.get(s.id) ?? []),
       ...branchVars(
         s,
         branches.filter((b) => b.branch.serviceId === s.id).map((b) => b.branch),
       ),
     };
+    // Serve's own names win over a variable of the same name.
+    let provided: Record<string, string> = { ...(ownOf.get(s.id) ?? {}), ...served };
+    const ownKeys = new Set(Object.keys(ownOf.get(s.id) ?? {}).filter((k) => !(k in served)));
     if (s.id !== service.id && !reachesPrivately(mesh, mine, { serverId: s.serverId, servers: runsOn(s) })) {
       // Branch variables are named branches.<name>.KEY: their last part says whether they are private.
       const hidden = new Set(Object.keys(provided).filter((k) => PRIVATE_VARS.test(k.split(".").pop() ?? k)));
       provided = Object.fromEntries(Object.entries(provided).filter(([k]) => !hidden.has(k)));
       for (const name of [s.slug, s.name, referenceName(s.name)]) remoteOnly.set(name.toLowerCase(), hidden);
     }
+    borrowable.set(provided, ownKeys);
     lookup.set(s.slug.toLowerCase(), provided);
     const refs = referencing.get(s.id);
     if (refs) for (const name of [s.slug, s.name, referenceName(s.name)]) referencingByName.set(name.toLowerCase(), refs);
@@ -265,20 +269,24 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   // value with commas or brackets stays one value.
   // Each reference expands once (a value made of thousands of references to itself would
   // otherwise multiply at every level), and everything expanded stays under a megabyte.
+  // `trusted`: the text is this service's own (its variables, and own variables they reach), where
+  // saving a reference to another service's own variable needs the right to see secrets. Shared and
+  // server variables are saved without that check: through them such a reference stays empty.
   const expanded = new Map<string, string>();
   let budget = 1024 * 1024;
-  const expand = (value: string, depth = 0): string => {
+  const expand = (value: string, depth = 0, trusted = true): string => {
     let out = "";
     let last = 0;
     for (const m of value.matchAll(REPLICA_REF)) {
-      out += expandRefs(value.slice(last, m.index), depth);
-      out += m[2] !== undefined ? replicaPick(pickList(m[2]).map((item) => expandRefs(item, depth))) : m[0];
+      out += expandRefs(value.slice(last, m.index), depth, trusted);
+      out += m[2] !== undefined ? replicaPick(pickList(m[2]).map((item) => expandRefs(item, depth, trusted))) : m[0];
       last = m.index + m[0].length;
     }
-    return out + expandRefs(value.slice(last), depth);
+    return out + expandRefs(value.slice(last), depth, trusted);
   };
-  const expandRefs = (value: string, depth: number): string =>
+  const expandRefs = (value: string, depth: number, trusted: boolean): string =>
     value.replace(REF, (_match, ref: string) => {
+      let childTrusted = false;
       // Filled in per container when replicas start (replicaEnv).
       if (/^replica\.(index|number|count)$/i.test(ref)) return _match;
       const dot = ref.indexOf(".");
@@ -287,10 +295,16 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
         // A literal variable goes in as written, its own ${{…}} left alone.
         if (ownRaw[ref]?.literal && !(ref.startsWith("SERVE_") && self[ref] !== undefined)) return ownRaw[ref].value;
         // Serve's own names win: SERVE_PUBLIC_URL=${{SERVE_PUBLIC_URL}} is the domain, not itself.
-        result = ref.startsWith("SERVE_") && self[ref] !== undefined ? self[ref] : (ownRaw[ref]?.value ?? sharedMap[ref] ?? self[ref]);
+        const serveOwn = ref.startsWith("SERVE_") && self[ref] !== undefined;
+        result = serveOwn ? self[ref] : (ownRaw[ref]?.value ?? sharedMap[ref] ?? self[ref]);
+        childTrusted = trusted && !serveOwn && ownRaw[ref] !== undefined;
       } else {
         const scope = lookup.get(ref.slice(0, dot).toLowerCase());
         result = scope?.[ref.slice(dot + 1)];
+        if (result !== undefined && !trusted && scope && borrowable.get(scope)?.has(ref.slice(dot + 1))) {
+          missing.add(`${ref} (another service's own variable is filled in only from this service's own variables, not from shared or server ones)`);
+          return "";
+        }
         if (result === undefined && referencingByName.get(ref.slice(0, dot).toLowerCase())?.has(ref.slice(dot + 1))) {
           missing.add(`${ref} (its value is made of references: reference what it refers to instead)`);
           return "";
@@ -304,15 +318,16 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
         missing.add(ref);
         return "";
       }
-      const cached = expanded.get(ref);
+      const key = `${childTrusted ? "t" : "u"}:${ref}`;
+      const cached = expanded.get(key);
       if (cached !== undefined) return cached;
-      const value = depth < 5 ? expand(result, depth + 1) : result;
+      const value = depth < 5 ? expand(result, depth + 1, childTrusted) : result;
       budget -= value.length;
       if (budget < 0) {
         missing.add(`${ref} (the variables expand to more than 1 MB)`);
         return "";
       }
-      expanded.set(ref, value);
+      expanded.set(key, value);
       return value;
     });
 
@@ -505,7 +520,9 @@ export async function hostStackReachOf(s: Service, organizationId: string) {
  * Placing one hands that value to this service, so it needs the right to see secrets.
  */
 export async function ownVariableRefs(service: Service, values: string[]): Promise<string[]> {
-  const refs = values.flatMap((v) => [...v.matchAll(REF)].map((m) => m[1])).filter((r) => r.includes("."));
+  // The deploy also reads the items of replica.pick(...) unescaped (\$\{{ becomes ${{): so does this.
+  const texts = values.flatMap((v) => [v, ...[...v.matchAll(REPLICA_REF)].flatMap((m) => (m[2] !== undefined ? pickList(m[2]) : []))]);
+  const refs = texts.flatMap((v) => [...v.matchAll(REF)].map((m) => m[1])).filter((r) => r.includes("."));
   if (!refs.length) return [];
   const [siblings, vars] = await Promise.all([
     db.select().from(schema.service).where(eq(schema.service.environmentId, service.environmentId)),

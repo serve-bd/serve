@@ -22,7 +22,7 @@ export async function resetToServeConfig(serviceId: string) {
       await applyServeConfig(
         service,
         { path: file.path, text: file.text },
-        { deploymentId: file.deploymentId, commitSha: file.commitSha, organizationId: ctx.org.id, log: quiet, now: true },
+        { deploymentId: file.deploymentId, commitSha: file.commitSha, organizationId: ctx.org.id, log: quiet, now: true, force: true },
       );
     } catch (e) {
       throw new UserError((e as Error).message);
@@ -37,6 +37,37 @@ export async function resetToServeConfig(serviceId: string) {
       organizationId: ctx.org.id,
     });
     return { ok: true };
+  });
+}
+
+/** Puts the file's value back for one setting the dashboard changed; the other changes made there stay. */
+export async function restoreServeConfigValue(serviceId: string, field: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    const file = service.configFile;
+    if (!file) throw new UserError("This service has no serve.json applied.");
+    if (!file.settings.some((s) => s.field === field)) throw new UserError(`${file.path} does not set ${field}.`);
+    const quiet = { step: () => {}, line: () => {} };
+    try {
+      await applyServeConfig(
+        service,
+        { path: file.path, text: file.text },
+        { deploymentId: file.deploymentId, commitSha: file.commitSha, organizationId: ctx.org.id, log: quiet, now: true, only: field },
+      );
+    } catch (e) {
+      throw new UserError((e as Error).message);
+    }
+    await logActivity({
+      userId: ctx.user.id,
+      action: "service.config_reset",
+      message: `Put the ${file.path} value of ${field.split(".")[1]} back on ${service.name}`,
+      targetType: "service",
+      targetId: serviceId,
+      projectId: service.projectId,
+      organizationId: ctx.org.id,
+    });
+    return null;
   });
 }
 

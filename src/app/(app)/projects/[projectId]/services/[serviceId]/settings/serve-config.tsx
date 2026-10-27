@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { exportServeConfig, resetToServeConfig } from "@/server/actions/serve-config";
+import { exportServeConfig, resetToServeConfig, restoreServeConfigValue } from "@/server/actions/serve-config";
 import type { ServiceConfigFile } from "@/server/db/schema";
 import type { BuildConfig, RuntimeConfig } from "@/server/services/types";
 
@@ -43,7 +43,7 @@ const shown = (v: unknown) => (v === null || v === undefined || v === "" ? "noth
 
 /**
  * A mark next to a setting serve.json controls: "serve.json" while it has the file's value,
- * "Changed here" once the dashboard changed it (until the next new deploy puts the file's value back).
+ * "Changed here" once the dashboard changed it. A change made here stays on every deploy.
  */
 export function FromFile({ field }: { field: string | string[] }) {
   const ctx = React.useContext(ConfigFileContext);
@@ -55,14 +55,14 @@ export function FromFile({ field }: { field: string | string[] }) {
   const path = ctx.file.path;
   if (changed.length)
     return (
-      <Tooltip content={`${path} sets ${changed.map((s) => shown(s.value)).join(", ")}. The next deploy puts it back; a redeploy keeps this change.`}>
+      <Tooltip content={`${path} sets ${changed.map((s) => shown(s.value)).join(", ")}. Deploys keep this change; Settings → General puts the file's value back.`}>
         <Badge tone="warn" className="ml-2 align-middle">
           Changed here
         </Badge>
       </Tooltip>
     );
   return (
-    <Tooltip content={`Set in ${path}. Change it there to keep it; a change made here lasts until the next deploy.`}>
+    <Tooltip content={`Set in ${path}. A change made here stays: deploys no longer change it from the file.`}>
       <Badge tone="info" className="ml-2 align-middle font-mono">
         {path.split("/").pop()}
       </Badge>
@@ -76,6 +76,7 @@ export function ServeConfigCard({ serviceId, canManage }: { serviceId: string; c
   const confirm = useConfirm();
   const [open, setOpen] = React.useState(false);
   const reset = useAction(() => resetToServeConfig(serviceId));
+  const restore = useAction((field: string) => restoreServeConfigValue(serviceId, field));
   const download = useAction(() => exportServeConfig(serviceId), {
     onSuccess: (r) => {
       const url = URL.createObjectURL(new Blob([r.text], { type: "application/json" }));
@@ -116,8 +117,8 @@ export function ServeConfigCard({ serviceId, canManage }: { serviceId: string; c
         description={
           <>
             Applied <TimeAgo date={file.appliedAt} />
-            {file.commitSha ? ` from ${file.commitSha.slice(0, 7)}` : ""}. Its settings win on every deploy; a change made here lasts until the next deploy, and a redeploy keeps
-            it.
+            {file.commitSha ? ` from ${file.commitSha.slice(0, 7)}` : ""}. Each deploy applies it, except what you changed here: settings, variables and tasks changed, disabled or
+            deleted here stay that way.
           </>
         }
         actions={downloadButton}
@@ -137,9 +138,23 @@ export function ServeConfigCard({ serviceId, canManage }: { serviceId: string; c
         </div>
         {changed.length > 0 && canManage && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-2 px-3 py-2.5">
-            <span className="text-fg-2">
-              Changed here: <span className="font-mono text-[12px]">{changed.map((c) => c.field.split(".")[1]).join(", ")}</span>
-            </span>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-fg-2">Changed here, kept on deploy:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {changed.map((c) => (
+                  <Tooltip key={c.field} content={`Use the value in ${file.path}: ${shown(c.value)}`}>
+                    <button
+                      type="button"
+                      disabled={restore.pending}
+                      onClick={() => restore.run(c.field)}
+                      className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 font-mono text-[12px] text-fg-2 transition-colors hover:bg-hover"
+                    >
+                      {c.field.split(".")[1]} <RotateCcw className="size-3" />
+                    </button>
+                  </Tooltip>
+                ))}
+              </div>
+            </div>
             <Button
               size="sm"
               variant="secondary"
@@ -148,7 +163,7 @@ export function ServeConfigCard({ serviceId, canManage }: { serviceId: string; c
                 if (
                   await confirm({
                     title: `Put the ${file.path} values back?`,
-                    description: "The changes made here are replaced with the file's values. They apply on the next deploy.",
+                    description: "Every change made here is replaced with the file's values: settings, variables and tasks, also ones deleted here. They apply on the next deploy.",
                     confirmLabel: "Put back",
                   })
                 )

@@ -110,8 +110,22 @@ async function databaseIds(service: Service, names: string[], file: string) {
 }
 
 /**
- * Applies serve.json to the service before it is built: its settings and variables win over the
- * dashboard. Saves and updates `service` in place, so the rest of the deploy runs with them.
+ * Whether the dashboard changed a setting the file set: its value now differs from the one the file
+ * set last time. Mounts: one of the file's mounts was removed here.
+ */
+function changedHere(field: string, now: unknown, last: unknown) {
+  if (field === "runtime.volumes") {
+    const paths = ((now as { mountPath: string }[] | undefined) ?? []).map((v) => v.mountPath);
+    return !((last as string[] | undefined) ?? []).every((p) => paths.includes(p));
+  }
+  return JSON.stringify(now ?? null) !== JSON.stringify(last ?? null);
+}
+
+/**
+ * Applies serve.json to the service before it is built. An item the dashboard changed since the
+ * file last set it keeps the dashboard's value (the file's newer value is recorded, not applied);
+ * the rest takes the file's. `force` (putting the file's values back) applies every one.
+ * Saves and updates `service` in place, so the rest of the deploy runs with them.
  * Throws with every problem listed when the file is not valid. What only matters once the new
  * version runs (tasks, HTTP options, the uptime check) waits for it to be live (finishServeConfig),
  * so a failed deploy never changes them; `now` applies them at once (putting the file's values
@@ -120,7 +134,17 @@ async function databaseIds(service: Service, names: string[], file: string) {
 export async function applyServeConfig(
   service: Service,
   file: { path: string; text: string },
-  ctx: { deploymentId: string; commitSha: string | null; organizationId: string; log: Log; now?: boolean; composeServices?: string[] },
+  ctx: {
+    deploymentId: string;
+    commitSha: string | null;
+    organizationId: string;
+    log: Log;
+    now?: boolean;
+    force?: boolean;
+    /** Put the file's value back for this one setting ("runtime.replicas"); other dashboard changes stay. */
+    only?: string;
+    composeServices?: string[];
+  },
 ) {
   const { log } = ctx;
   log.step(`Applying ${file.path}`);
@@ -138,6 +162,21 @@ export async function applyServeConfig(
     plan.runtime.backupBeforeDeploy = await databaseIds(service, plan.backupBefore, file.path);
     plan.settings.push({ field: "runtime.backupBeforeDeploy", value: plan.runtime.backupBeforeDeploy });
   }
+  const previous = service.configFile;
+
+  // Settings changed in the dashboard since the file last set them keep the dashboard's value.
+  const kept: string[] = [];
+  if (previous && !ctx.force) {
+    for (const s of plan.settings) {
+      const [group, key] = s.field.split(".") as [string, string];
+      if (group !== "build" && group !== "runtime") continue;
+      const last = previous.settings.find((p) => p.field === s.field);
+      const now = (before[group] as Record<string, unknown> | null)?.[key];
+      if (!last || s.field === ctx.only || !changedHere(s.field, now, last.value)) continue;
+      (plan[group] as unknown as Record<string, unknown>)[key] = now;
+      kept.push(s.field);
+    }
+  }
 
   // The file is held to the organization's limits like the dashboard.
   const copies = { before: runCopies(service.type, before.runtime, service.distribution), after: runCopies(service.type, plan.runtime, service.distribution) };
@@ -146,6 +185,7 @@ export async function applyServeConfig(
   }
 
   const changed = plan.settings.filter((s) => {
+    if (kept.includes(s.field)) return false;
     const [group, key] = s.field.split(".") as [string, string];
     if (group !== "build" && group !== "runtime") return false;
     if (key === "volumes") return JSON.stringify(before.runtime.volumes) !== JSON.stringify(plan.runtime.volumes);
@@ -154,7 +194,6 @@ export async function applyServeConfig(
   });
   const mounts = plan.runtime.volumes.filter((m) => [...(settings.volumes ?? []), ...(settings.files ?? [])].some((f) => f.path === m.mountPath)).map((m) => m.mountPath);
   const httpKeys = HTTP_KEYS.filter((k) => plan.http && k in plan.http);
-  const previous = service.configFile;
   const httpDropped = [...new Set([...(previous?.httpKeys ?? []), ...(previous?.httpDropped ?? [])])].filter((k) => !(httpKeys as string[]).includes(k));
   const configFile: ServiceConfigFile = {
     path: file.path,
@@ -172,9 +211,14 @@ export async function applyServeConfig(
     generated: plan.generate.map((g) => g.key),
     httpKeys,
     httpDropped,
+    variableValues: Object.fromEntries(plan.values.map((v) => [v.key, { value: v.value, build: v.build, runtime: v.runtime }])),
+    // Recorded once they apply: a deploy that fails before going live must not count as applied.
+    taskValues: previous?.taskValues,
+    httpValues: previous?.httpValues,
+    monitorValues: previous?.monitorValues,
   };
 
-  const varLog = await syncVariables(service.id, plan, previous?.variables ?? []);
+  const varLog = await syncVariables(service.id, plan, previous?.variables ?? [], ctx.force ? undefined : previous?.variableValues);
   await db.update(schema.service).set({ build: plan.build, runtime: plan.runtime, configFile }).where(eq(schema.service.id, service.id));
   service.build = plan.build;
   service.runtime = plan.runtime;
@@ -189,9 +233,10 @@ export async function applyServeConfig(
     log.line(`  ${s.field}: ${show((before[group] as Record<string, unknown> | null)?.[key])} → ${show(s.value)}`);
   }
   if (changed.length > 15) log.line(`  and ${changed.length - 15} more`);
+  if (kept.length) log.line(`  Kept as changed in the dashboard: ${kept.map((k) => k.split(".")[1]).join(", ")}`);
   for (const l of varLog) log.line(`  ${l}`);
   if (ctx.now) {
-    for (const l of await finishPlan(service, plan, configFile)) log.line(`  ${l}`);
+    for (const l of await finishPlan(service, plan, configFile, ctx.force)) log.line(`  ${l}`);
   } else if (plan.tasks.length || plan.http || plan.monitor) {
     log.line("  Scheduled tasks, HTTP options and the uptime check are updated once the new version is live.");
   }
@@ -222,25 +267,41 @@ export async function finishServeConfig(serviceId: string, deploymentId: string,
   for (const l of await finishPlan(service, plan, file)) log.line(l);
 }
 
-async function finishPlan(service: Service, plan: ServeConfigPlan, file: ServiceConfigFile) {
+async function finishPlan(service: Service, plan: ServeConfigPlan, file: ServiceConfigFile, force = false) {
   const out: string[] = [];
   if (service.parentServiceId) {
     if (plan.tasks.length) out.push(`Scheduled tasks in ${file.path} are left out of pull request previews.`);
   } else {
-    out.push(...(await syncTasks(service.id, plan.tasks)));
+    out.push(...(await syncTasks(service.id, plan.tasks, force ? undefined : file.taskValues)));
   }
-  out.push(...(await applyHttp(service, plan.http, file)));
-  if (plan.monitor) out.push(...(await applyMonitor(service, plan.monitor)));
+  out.push(...(await applyHttp(service, plan.http, file, force)));
+  if (plan.monitor) out.push(...(await applyMonitor(service, plan.monitor, force ? undefined : file.monitorValues)));
+  // What the file set now counts as applied: the next deploy tells dashboard changes from it.
+  const recorded: ServiceConfigFile = {
+    ...file,
+    taskValues: Object.fromEntries(
+      plan.tasks.map((t) => [t.name, { schedule: t.schedule, command: t.command, timeoutSeconds: t.timeoutSeconds, enabled: t.enabled, composeService: t.composeService ?? null }]),
+    ),
+    httpValues: plan.http ? { ...plan.http } : {},
+    monitorValues: plan.monitor ? { ...plan.monitor } : {},
+  };
+  await db.update(schema.service).set({ configFile: recorded }).where(eq(schema.service.id, service.id));
+  service.configFile = recorded;
   return out;
 }
 
-/** HTTP options: the file's over the saved ones; options an earlier file set and this one dropped go back to their defaults. */
-async function applyHttp(service: Service, http: FileHttp | null, file: ServiceConfigFile) {
+/**
+ * HTTP options: the file's over the saved ones; options an earlier file set and this one dropped go
+ * back to their defaults. One changed in the dashboard since the file last set it stays.
+ */
+async function applyHttp(service: Service, http: FileHttp | null, file: ServiceConfigFile, force = false) {
   if (!http && !file.httpDropped.length) return [];
   const previous = service.proxy ?? null;
   const next: Record<string, unknown> = { ...(previous ?? {}) };
-  for (const k of file.httpDropped) delete next[k];
-  Object.assign(next, http ?? {});
+  const last = force ? undefined : file.httpValues;
+  const changedHere = (k: string) => !!last && k in last && JSON.stringify((previous as Record<string, unknown> | null)?.[k] ?? null) !== JSON.stringify(last[k] ?? null);
+  for (const k of file.httpDropped) if (!changedHere(k)) delete next[k];
+  for (const [k, v] of Object.entries(http ?? {})) if (!changedHere(k)) next[k] = v;
   if (JSON.stringify(next) === JSON.stringify(previous ?? {})) return [];
   await db.update(schema.service).set({ proxy: next }).where(eq(schema.service.id, service.id));
   try {
@@ -253,9 +314,17 @@ async function applyHttp(service: Service, http: FileHttp | null, file: ServiceC
   }
 }
 
-/** The uptime check: created, or updated where the file differs. A new setting starts a fresh status, like the dashboard. */
-async function applyMonitor(service: Service, m: NonNullable<ServeConfigPlan["monitor"]>) {
+/**
+ * The uptime check: created, or updated where the file differs. A new setting starts a fresh
+ * status, like the dashboard. A field changed in the dashboard since the file last set it stays,
+ * and a check deleted there is not made again.
+ */
+async function applyMonitor(service: Service, fileMonitor: NonNullable<ServeConfigPlan["monitor"]>, last?: Record<string, unknown>) {
   const [existing] = await db.select().from(schema.monitor).where(eq(schema.monitor.serviceId, service.id));
+  if (!existing && last && Object.keys(last).length) return ["Uptime check: deleted in the dashboard, so it stays deleted"];
+  const m = Object.fromEntries(
+    Object.entries(fileMonitor).filter(([k]) => !(existing && last && k in last && (existing as Record<string, unknown>)[k] !== last[k])),
+  ) as typeof fileMonitor;
   if (!existing) {
     const enabled = m.enabled ?? true;
     await db.insert(schema.monitor).values({ id: newId(), serviceId: service.id, ...m, enabled, status: enabled ? "pending" : "paused" });
@@ -281,12 +350,23 @@ async function applyMonitor(service: Service, m: NonNullable<ServeConfigPlan["mo
  * generated ones are made only while they have no value, and never removed: they are secrets
  * the app may have used to encrypt data.
  */
-async function syncVariables(serviceId: string, plan: ServeConfigPlan, previousKeys: string[]) {
+async function syncVariables(serviceId: string, plan: ServeConfigPlan, previousKeys: string[], last?: ServiceConfigFile["variableValues"]) {
   if (!plan.values.length && !plan.generate.length && !previousKeys.length) return [];
   const rows = await db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
   const out: string[] = [];
+  // Changed or deleted in the dashboard since the file last set it: the dashboard's stays.
+  const changedHere = (key: string) => {
+    const was = last?.[key];
+    if (!was) return false;
+    const row = rows.find((r) => r.key === key);
+    return !row || decryptOrNull(row.value) !== was.value || row.buildTime !== was.build || row.runtime !== was.runtime;
+  };
   for (const v of plan.values) {
     const row = rows.find((r) => r.key === v.key);
+    if (changedHere(v.key)) {
+      out.push(`${v.key} kept as ${row ? "changed" : "deleted"} in the dashboard`);
+      continue;
+    }
     if (!row) {
       await db.insert(schema.envVar).values({ id: newId(), serviceId, key: v.key, value: encrypt(v.value), buildTime: v.build, runtime: v.runtime, literal: true });
       out.push(`${v.key} set`);
@@ -307,7 +387,7 @@ async function syncVariables(serviceId: string, plan: ServeConfigPlan, previousK
     out.push(`${g.key} generated`);
   }
   // A key now generated stays: it holds the value the file set before, which the app may rely on.
-  const dropped = previousKeys.filter((k) => !plan.values.some((v) => v.key === k) && !plan.generate.some((g) => g.key === k));
+  const dropped = previousKeys.filter((k) => !plan.values.some((v) => v.key === k) && !plan.generate.some((g) => g.key === k) && !changedHere(k));
   if (dropped.length) {
     await db.delete(schema.envVar).where(and(eq(schema.envVar.serviceId, serviceId), inArray(schema.envVar.key, dropped)));
     for (const k of dropped) out.push(`${k} removed`);
@@ -332,12 +412,33 @@ export function missingRequired(required: string[], env: { runtime: Record<strin
   return required.filter((k) => !(env.runtime[k] ?? env.build[k]));
 }
 
-/** Tasks by name: the file's are created or updated (a dashboard task of the same name is taken over), the file's old ones removed. */
-async function syncTasks(serviceId: string, tasks: FileTask[]) {
+/**
+ * Tasks by name: the file's are created or updated (a dashboard task of the same name is taken
+ * over), the file's old ones removed. A task changed, disabled or deleted in the dashboard since
+ * the file last set it stays that way; one the file dropped but the dashboard changed stays too.
+ */
+async function syncTasks(serviceId: string, tasks: FileTask[], last?: ServiceConfigFile["taskValues"]) {
   const existing = await db.select().from(schema.scheduledTask).where(eq(schema.scheduledTask.serviceId, serviceId));
   const out: string[] = [];
+  const changedHere = (name: string) => {
+    const was = last?.[name];
+    if (!was) return false;
+    const row = existing.find((e) => e.name === name);
+    return (
+      !row ||
+      row.schedule !== was.schedule ||
+      row.command !== was.command ||
+      row.timeoutSeconds !== was.timeoutSeconds ||
+      row.enabled !== was.enabled ||
+      (row.composeService ?? null) !== was.composeService
+    );
+  };
   for (const t of tasks) {
     const row = existing.find((e) => e.name === t.name);
+    if (changedHere(t.name)) {
+      out.push(`Task "${t.name}" kept as ${row ? "changed" : "deleted"} in the dashboard`);
+      continue;
+    }
     const values = { schedule: t.schedule, command: t.command, timeoutSeconds: t.timeoutSeconds, enabled: t.enabled, composeService: t.composeService ?? null, fromFile: true };
     if (!row) {
       await db.insert(schema.scheduledTask).values({ id: newId(), serviceId, name: t.name, ...values });
@@ -355,7 +456,22 @@ async function syncTasks(serviceId: string, tasks: FileTask[]) {
     await db.update(schema.scheduledTask).set(values).where(eq(schema.scheduledTask.id, row.id));
     out.push(row.fromFile ? `Task "${t.name}" updated` : `Task "${t.name}" is now defined in ${SERVE_CONFIG_FILE}`);
   }
-  const gone = existing.filter((e) => e.fromFile && !tasks.some((t) => t.name === e.name));
+  const leaving = existing.filter((e) => e.fromFile && !tasks.some((t) => t.name === e.name));
+  // The file dropped it, but the dashboard changed it: it stays, owned by the dashboard now.
+  const keep = leaving.filter((e) => changedHere(e.name));
+  if (keep.length) {
+    await db
+      .update(schema.scheduledTask)
+      .set({ fromFile: false })
+      .where(
+        inArray(
+          schema.scheduledTask.id,
+          keep.map((k) => k.id),
+        ),
+      );
+    for (const k of keep) out.push(`Task "${k.name}" left ${SERVE_CONFIG_FILE}, but was changed in the dashboard: it stays`);
+  }
+  const gone = leaving.filter((e) => !keep.includes(e));
   if (gone.length) {
     await db.delete(schema.scheduledTask).where(
       inArray(

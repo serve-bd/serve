@@ -1,5 +1,6 @@
 "use client";
 
+import { openNewProject } from "@/components/new-project-dialog";
 import * as React from "react";
 import { useRouter } from "@/hooks/use-router";
 import { Command } from "cmdk";
@@ -134,7 +135,13 @@ export function CommandPalette({
                     heading="Go to"
                     className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase"
                   >
-                    <Command.Item onSelect={() => go("/projects/new")} className={itemClass}>
+                    <Command.Item
+                      onSelect={() => {
+                        setOpen(false);
+                        openNewProject();
+                      }}
+                      className={itemClass}
+                    >
                       <Plus /> New project
                     </Command.Item>
                     <Command.Item onSelect={() => go("/")} className={itemClass}>

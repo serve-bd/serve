@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, ArrowUpRight, Blocks, Plus, Rocket } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUpRight, Blocks, Rocket } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import { NewProjectButton as OpenNewProject } from "@/components/new-project-dialog";
 import { Card, CardBody, CardHeader, EmptyState } from "@/components/ui/misc";
 import { StatusDot, statusText } from "@/components/ui/status";
 import { serverReachable } from "@/lib/server-services";
@@ -159,11 +160,7 @@ function Attention({ widget, data }: { widget: Widget; data: DashboardData }) {
 }
 
 function NewProjectButton({ show }: { show: boolean }) {
-  return (
-    <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!show}>
-      <Plus /> New project
-    </Link>
-  );
+  return <OpenNewProject hidden={!show} />;
 }
 
 /** The widget's content in its frame, or null when it has nothing to show (it then stays hidden). */

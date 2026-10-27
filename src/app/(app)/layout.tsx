@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/server/auth";
+import { NewProjectDialog } from "@/components/new-project-dialog";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { AppShell } from "@/components/shell/app-shell";
@@ -53,6 +54,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         updateTo={ctx.isInstanceAdmin && updateAvailable(settings.updateCheck) ? settings.updateCheck?.latest : null}
       >
         {children}
+        {ctx.can("projects.manage") && <NewProjectDialog />}
       </AppShell>
     </TemplateBrandsProvider>
   );

@@ -64,3 +64,14 @@ export function settingsNav(s: SettingsNavInput): SettingsNavItem[] {
     { id: "danger", label: "Danger zone" },
   ];
 }
+
+/** The heading a settings section is listed under in the service's menu (none for the danger zone). */
+export function settingsGroup(id: string): string | undefined {
+  if (["general", "server", "servers", "details", "credentials"].includes(id)) return "Service";
+  if (["source", "previews", "build", "compose"].includes(id)) return "Source and build";
+  if (["deploy", "health", "runtime", "configuration", "initialization", "network", "networking", "resources", "advanced"].includes(id)) return "Runtime";
+  if (["storage", "replica", "pooling"].includes(id)) return "Data";
+  if (["public-access", "tls", "access", "webhooks", "maintenance"].includes(id)) return "Access";
+  if (["monitoring", "log-drains"].includes(id)) return "Observability";
+  return undefined;
+}

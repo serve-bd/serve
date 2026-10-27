@@ -7,6 +7,8 @@ import { serversForOrg } from "@/server/servers/access";
 import { publishedPorts } from "@/server/services/ports";
 import { serviceIssues } from "@/server/services/issues";
 import { ServiceHeader } from "./service-header";
+import { settingsGroup, settingsNav } from "./settings/settings-nav";
+import { engines } from "@/server/databases/engines";
 
 export default async function ServiceLayout(props: LayoutProps<"/projects/[projectId]/services/[serviceId]">) {
   const { projectId, serviceId } = await props.params;
@@ -106,8 +108,16 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
           sourceType: s.source?.type ?? null,
         }))}
         maintenance={service.type === "database" ? null : { enabled: !!service.maintenance?.enabled, since: service.maintenance?.since ?? null }}
-      />
-      {props.children}
+        subNav={{
+          ...(ctx.can("services.manage") ? { settings: settingsNavOf(service) } : {}),
+          // A database's backups, importing one and the schedule are pages of their own.
+          ...(service.database && ctx.can("databases.backups")
+            ? { backups: [{ id: "", label: "Backups" }, ...(ctx.isAdmin ? [{ id: "import", label: "Import backup" }] : []), { id: "auto", label: "Auto backup" }] }
+            : {}),
+        }}
+      >
+        {props.children}
+      </ServiceHeader>
     </>
   );
 }
@@ -119,4 +129,19 @@ function repoPath(url: string) {
     .replace(/^[^@\s]+@[^:]+:/, "")
     .replace(/\.git$/, "")
     .replace(/\/$/, "");
+}
+
+/** The settings sections of the service, shown under Settings in its menu. */
+function settingsNavOf(service: Awaited<ReturnType<typeof pageService>>["service"]) {
+  const settingsNavItems = (input: Parameters<typeof settingsNav>[0]) => settingsNav(input).map((s) => ({ ...s, group: settingsGroup(s.id) }));
+  const engine = service.database ? engines[service.database.engine] : null;
+  return settingsNavItems({
+    type: service.type,
+    hasSource: !!service.source,
+    gitSource: service.source?.type === "git" || service.source?.type === "upload",
+    hasBuild: !!service.build,
+    hasCompose: !!service.compose,
+    previews: service.type === "app" && (service.source?.type === "git" || service.source?.type === "image") && !service.parentServiceId,
+    db: service.database && engine ? { engine: service.database.engine, initScripts: !!engine.initScripts, tls: !!engine.tlsArgs } : null,
+  });
 }

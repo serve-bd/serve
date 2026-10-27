@@ -6,7 +6,35 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { AlertTriangle, ArrowLeft, ArrowUpRight, Construction, Copy, FolderInput, Play, Plug, Power, RotateCw, Rocket, Square } from "lucide-react";
+import {
+  Activity,
+  ArchiveRestore,
+  ArrowLeft,
+  ArrowUpRight,
+  Braces,
+  CalendarClock,
+  Construction,
+  Copy,
+  FolderInput,
+  FolderOpen,
+  GitBranch,
+  GitPullRequest,
+  Globe,
+  LayoutDashboard,
+  Play,
+  Plug,
+  Power,
+  RotateCw,
+  Rocket,
+  ScrollText,
+  Settings,
+  Square,
+  SquareTerminal,
+  Table2,
+  Users,
+} from "lucide-react";
+import { ServicePicker, type ServiceNavItem, ServiceSidebar } from "./service-nav";
+import { AlertTriangle } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
 import { ServiceSwitcher, type SiblingService } from "./service-switcher";
 import { MoveServicesDialog } from "@/components/move-services-dialog";
@@ -56,6 +84,9 @@ type Props = {
   maintenance: { enabled: boolean; since: string | null } | null;
   /** Problems that need attention (see serviceIssues), worst first. */
   issues: ServiceIssue[];
+  /** Pages of a page, by its path segment (settings sections, backup pages): they open under it in the menu. */
+  subNav: Record<string, { id: string; label: string; group?: string }[]>;
+  children: React.ReactNode;
 };
 
 export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
@@ -66,7 +97,7 @@ export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
   });
 }
 
-export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance, issues, siblings }: Props) {
+export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance, issues, siblings, subNav, children }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const confirm = useConfirm();
@@ -100,44 +131,56 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   const can = useCan();
   const cannot = useCannot();
   const tabHref = (tab: ServiceIssue["tab"]) => (tab === "overview" ? base : `${base}/${tab}`);
-  // `href` names the tab (and its issues); `to` is where it links when that differs.
-  const tabs: { href: string; to?: string; label: string; count?: number; exact?: boolean }[] = [
-    { href: base, label: "Overview", exact: true },
-    { href: `${base}/deployments`, label: "Deployments" },
-    ...(can("logs.view") ? [{ href: `${base}/logs`, label: "Logs" }] : []),
-    ...(can("console.access")
-      ? [
-          { href: `${base}/console`, label: "Console" },
-          { href: `${base}/files`, label: "Files" },
-        ]
-      : []),
-    // Request counts come from the proxy: only a service with a domain has them.
-    ...(service.metrics || live.domains.length > 0 ? [{ href: `${base}/metrics`, label: "Metrics" }] : []),
-    { href: `${base}/variables`, label: "Variables" },
-    ...(service.previews !== null ? [{ href: `${base}/previews`, label: "Previews", count: service.previews }] : []),
-    ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports" }] : []),
-    ...(service.type !== "database" ? [{ href: `${base}/tasks`, label: "Tasks" }] : []),
-    ...(can("databases.backups") && ["database", "compose", "app"].includes(service.type) ? [{ href: `${base}/backups`, label: "Backups" }] : []),
-    ...(service.type === "database" && !service.isPreview ? [{ href: `${base}/branches`, label: "Branches" }] : []),
-    ...(service.type === "database" && !service.isPreview && ["postgres", "mysql", "mariadb", "mongodb", "clickhouse"].includes(service.engine ?? "")
-      ? [{ href: `${base}/users`, label: "Users" }]
-      : []),
-    ...(service.type === "database" && can("console.access") ? [{ href: `${base}/data`, label: "Data" }] : []),
-    ...(can("services.manage") ? [{ href: `${base}/settings`, to: `${base}/settings/general`, label: "Settings" }] : []),
-  ];
-
-  // Brings the active tab into view on phones, only when it changes: live refreshes re-render the header.
-  const activeTab = tabs.find((t) => (t.exact ? pathname === t.href : pathname.startsWith(t.href)))?.href;
-  const nav = React.useRef<HTMLElement>(null);
-  React.useEffect(() => {
-    if (activeTab) nav.current?.querySelector(`a[data-tab="${activeTab}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activeTab]);
-
   /** Worst issue tone for a tab (the Overview tab only marks incidents). */
+  // What the page shows itself (the image updates strip) stays out of the banner.
+  const banner = issues.filter((i) => !i.onPage);
   const tabIssue = (href: string) => {
     const hit = issues.filter((i) => tabHref(i.tab) === href);
     return hit.length ? (hit.some((i) => i.tone === "bad") ? "bad" : "warn") : null;
   };
+  // `href` names the page (and its issues); `to` is where it links when that differs.
+  type Page = Omit<ServiceNavItem, "active" | "issue">;
+  const pages: Page[] = [
+    { href: base, label: "Overview", icon: LayoutDashboard, group: "Monitor" },
+    { href: `${base}/deployments`, label: "Deployments", icon: Rocket, group: "Monitor" },
+    ...(service.previews !== null ? [{ href: `${base}/previews`, label: "Previews", icon: GitPullRequest, group: "Monitor" as const, count: service.previews }] : []),
+    ...(can("logs.view") ? [{ href: `${base}/logs`, label: "Logs", icon: ScrollText, group: "Monitor" as const }] : []),
+    // Request counts come from the proxy: only a service with a domain has them.
+    ...(service.metrics || live.domains.length > 0 ? [{ href: `${base}/metrics`, label: "Metrics", icon: Activity, group: "Monitor" as const }] : []),
+    ...(can("console.access")
+      ? [
+          { href: `${base}/console`, label: "Console", icon: SquareTerminal, group: "Work with it" as const },
+          { href: `${base}/files`, label: "Files", icon: FolderOpen, group: "Work with it" as const },
+        ]
+      : []),
+    ...(service.type === "database" && can("console.access") ? [{ href: `${base}/data`, label: "Data", icon: Table2, group: "Work with it" as const }] : []),
+    { href: `${base}/variables`, label: "Variables", icon: Braces, group: "Configure" },
+    ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports", icon: Globe, group: "Configure" as const }] : []),
+    ...(service.type !== "database" ? [{ href: `${base}/tasks`, label: "Tasks", icon: CalendarClock, group: "Configure" as const }] : []),
+    ...(can("databases.backups") && ["database", "compose", "app"].includes(service.type)
+      ? [{ href: `${base}/backups`, label: "Backups", icon: ArchiveRestore, group: "Configure" as const }]
+      : []),
+    ...(service.type === "database" && !service.isPreview ? [{ href: `${base}/branches`, label: "Branches", icon: GitBranch, group: "Configure" as const }] : []),
+    ...(service.type === "database" && !service.isPreview && ["postgres", "mysql", "mariadb", "mongodb", "clickhouse"].includes(service.engine ?? "")
+      ? [{ href: `${base}/users`, label: "Users", icon: Users, group: "Configure" as const }]
+      : []),
+    ...(can("services.manage")
+      ? [{ href: `${base}/settings`, to: `${base}/settings/${subNav.settings?.[0]?.id ?? "general"}`, label: "Settings", icon: Settings, group: "Configure" as const }]
+      : []),
+  ];
+  // A page's own pages: "" is the page itself (Backups), others are segments below it.
+  const subPages = (segment: string) => {
+    const root = `${base}/${segment}`;
+    const here = pathname.startsWith(`${root}/`) ? pathname.slice(root.length + 1).split("/")[0] : "";
+    return (subNav[segment] ?? []).map((s) => ({ href: s.id ? `${root}/${s.id}` : root, label: s.label, group: s.group, active: s.id === here, danger: s.id === "danger" }));
+  };
+  const navItems: ServiceNavItem[] = pages.map((p) => ({
+    ...p,
+    active: p.href === base ? pathname === base : pathname.startsWith(p.href),
+    issue: tabIssue(p.href),
+    sub: subPages(p.href.slice(base.length + 1)),
+  }));
+
   const primary = pickPrimaryDomain(live.domains);
   const stopped = live.status === "stopped";
   const [moving, setMoving] = React.useState(false);
@@ -185,7 +228,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
           />
         </div>
       </header>
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-4 pt-7 sm:px-8">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-5 px-4 pt-7 sm:px-8">
         {service.parent && (
           <Link
             href={`/projects/${project.id}/services/${service.parent.id}`}
@@ -361,15 +404,15 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
             </div>
           )}
         </div>
-        {issues.length > 0 && (
+        {banner.length > 0 && (
           <div
             className={cn("flex items-start gap-3 rounded-xl border px-4 py-3 text-[13px]", issues[0].tone === "bad" ? "border-bad/30 bg-bad-soft" : "border-warn/30 bg-warn-soft")}
           >
             <AlertTriangle className={cn("mt-0.5 size-4 flex-none", issues[0].tone === "bad" ? "text-bad" : "text-warn")} />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <p className="font-medium text-fg">{issues.length === 1 ? "This service needs attention" : `${issues.length} problems need attention`}</p>
+              <p className="font-medium text-fg">{banner.length === 1 ? "This service needs attention" : `${banner.length} problems need attention`}</p>
               <ul className="flex flex-col gap-0.5">
-                {issues.map((i) => (
+                {banner.map((i) => (
                   <li key={`${i.tab}:${i.text}`} className="flex flex-wrap items-baseline gap-x-2 text-fg-2">
                     <span className="min-w-0">{i.text}</span>
                     {!(i.tab === "overview" ? pathname === base : pathname.startsWith(tabHref(i.tab))) && (
@@ -412,34 +455,12 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
             )}
           </div>
         )}
-        {/* Phones: tabs scroll sideways; the fade shows there are more. */}
-        <div className="-mx-4 border-b border-line sm:mx-0">
-          <nav
-            ref={nav}
-            className="scrollbar-none flex gap-1 overflow-x-auto px-1 pr-8 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] sm:px-0 sm:pr-0 sm:[mask-image:none] [&>a:first-child]:sm:pl-0 [&>a:first-child>span]:sm:left-0"
-          >
-            {tabs.map((t) => {
-              const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
-              return (
-                <Link
-                  key={t.href}
-                  href={t.to ?? t.href}
-                  data-tab={t.href}
-                  className={cn("relative px-3 pt-1 pb-3 text-[13px] font-medium whitespace-nowrap transition-colors", active ? "text-fg" : "text-muted hover:text-fg")}
-                >
-                  <span className="inline-flex items-center gap-1.5">
-                    {t.label}
-                    {!!t.count && (
-                      <span className="min-w-[18px] rounded-full bg-fg/[0.08] px-1.5 py-px text-center text-[11px] leading-4 font-semibold text-fg-2 tabular-nums">{t.count}</span>
-                    )}
-                    {tabIssue(t.href) && <AlertTriangle className={cn("size-3.5", tabIssue(t.href) === "bad" ? "text-bad" : "text-warn")} aria-label="Needs attention" />}
-                  </span>
-                  {active && <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-fg" />}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
+        <ServicePicker items={navItems} />
+      </div>
+      {/* Wide screens: the pages beside the content. Narrow ones use the picker above. */}
+      <div className="mx-auto flex w-full max-w-[1400px] lg:px-8">
+        <ServiceSidebar items={navItems} back={{ href: base }} />
+        <div className="min-w-0 flex-1">{children}</div>
       </div>
     </>
   );

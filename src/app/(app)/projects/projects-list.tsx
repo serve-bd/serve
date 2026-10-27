@@ -1,12 +1,11 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { Blocks, Plus } from "lucide-react";
+import { Blocks } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
-import { buttonVariants } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/misc";
 import { ViewToggle } from "@/components/view-toggle";
+import { NewProjectButton } from "@/components/new-project-dialog";
 import { ProjectCard, ProjectRow, type ProjectSummary } from "../_components/project-card";
 
 /** Remembers the chosen view; the page reads it on the server, so the first paint is already right. */
@@ -21,11 +20,7 @@ export function ProjectsScreen({ projects, initialView, canCreate }: { projects:
     // biome-ignore lint/suspicious/noDocumentCookie: the Cookie Store API is missing in older Safari and Firefox
     document.cookie = `${VIEW_COOKIE}=${v}; path=/; max-age=31536000; samesite=lax`;
   };
-  const newButton = (
-    <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
-      <Plus /> New project
-    </Link>
-  );
+  const newButton = <NewProjectButton hidden={!canCreate} />;
   return (
     <>
       <PageHeader

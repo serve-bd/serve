@@ -386,7 +386,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
     label: "MongoDB",
     image: "mongo",
     versions: ["9", "8", "7"],
-    defaultVersion: "8",
+    defaultVersion: "9",
     port: 27017,
     dataPath: "/data/db",
     defaultUser: "root",

@@ -43,12 +43,16 @@ const HTTP_KEYS = [
 const APP_ONLY = ["build", "deploy", "healthcheck", "resources", "volumes", "files"] as const;
 
 /**
- * The serve.json of a checked-out repository or upload: the one in the root directory first (a
- * monorepo app keeps its own), else the repository's. Null when there is none. A file reached
- * through a symlink that leaves the checkout is refused, like the Dockerfile.
+ * The serve.json of a checked-out repository or upload: the one next to the app's Dockerfile
+ * first, then the root directory's, else the repository's. Null when there is none. Next to the
+ * Dockerfile lets two apps built from one root (a web app and its worker, both building from "/")
+ * each keep their own. A file reached through a symlink that leaves the checkout is refused, like
+ * the Dockerfile.
  */
-export async function readServeConfigFile(workDir: string, rootDir: string): Promise<{ path: string; text: string } | null> {
-  const dirs = [...new Set([rootDir || "/", "/"])];
+export async function readServeConfigFile(workDir: string, rootDir: string, dockerfile?: string | null): Promise<{ path: string; text: string } | null> {
+  const root = rootDir || "/";
+  const beside = dockerfile ? path.posix.join(root, path.posix.dirname(dockerfile)) : null;
+  const dirs = [...new Set([...(beside ? [beside] : []), root, "/"].map((d) => path.posix.join("/", d)))];
   for (const dir of dirs) {
     const rel = path.posix.join(dir.replace(/^\/+/, ""), SERVE_CONFIG_FILE);
     const full = containedPath(workDir, rel, SERVE_CONFIG_FILE);

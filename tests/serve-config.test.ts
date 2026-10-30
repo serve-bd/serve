@@ -166,6 +166,13 @@ describe("finding serve.json", () => {
       await fs.writeFile(path.join(dir, "apps/web/serve.json"), '{"deploy":{"replicas":2}}');
       expect((await readServeConfigFile(dir, "/apps/web"))?.path).toBe("apps/web/serve.json");
 
+      // Two apps building from the root: each finds the file beside its own Dockerfile.
+      await fs.mkdir(path.join(dir, "apps/worker"), { recursive: true });
+      await fs.writeFile(path.join(dir, "apps/worker/serve.json"), '{"deploy":{"replicas":1}}');
+      expect((await readServeConfigFile(dir, "/", "apps/worker/Dockerfile"))?.path).toBe("apps/worker/serve.json");
+      expect((await readServeConfigFile(dir, "/", "apps/api/Dockerfile"))?.path).toBe("serve.json");
+      expect((await readServeConfigFile(dir, "/", "Dockerfile"))?.path).toBe("serve.json");
+
       const outside = await fs.mkdtemp(path.join(os.tmpdir(), "serve-json-out-"));
       await fs.writeFile(path.join(outside, "secret"), "{}");
       await fs.rm(path.join(dir, "serve.json"));

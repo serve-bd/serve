@@ -249,7 +249,7 @@ async function prepareAppImage(
   // dashboard since. A second build (another CPU type) builds with the same file's settings and
   // leaves saving them to the main build.
   const applyConfigFile = async (sha: string | null) => {
-    const file = await readServeConfigFile(workDir, saved.rootDir || "/");
+    const file = await readServeConfigFile(workDir, saved.rootDir || "/", saved.builder === "dockerfile" ? saved.dockerfile : null);
     if (workSuffix) {
       if (!file || dep.trigger === "redeploy") return;
       build = effective(await fileBuildSettings({ ...service, build: saved }, file));

@@ -120,7 +120,7 @@ export function TailscaleCard({ server, view, tailnets }: Props) {
           </p>
         )}
         {joined && view && (
-          <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
+          <dl className="grid gap-x-6 gap-y-4 @xl/page:grid-cols-3">
             <Item label="Status">
               <span className="flex items-center gap-2">
                 <span className={cn("size-2 flex-none rounded-full", view.online ? "bg-ok" : view.online === false ? "bg-bad" : "bg-idle")} />

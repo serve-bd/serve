@@ -78,7 +78,7 @@ export function ProxyPicker({
   return (
     <Card>
       <CardHeader title="Reverse proxy" description="The program that receives every request for this server's domains. Switch any time; settings for each proxy are kept." />
-      <div className={cn("grid grid-cols-1 gap-3 p-5 sm:grid-cols-3", kind === "none" && "@4xl/page:grid-cols-4")}>
+      <div className={cn("grid grid-cols-1 gap-3 p-5 @xl/page:grid-cols-3", kind === "none" && "@4xl/page:grid-cols-4")}>
         {/* No "none" choice: to run without a proxy, stop it. Only a server still set to none shows it. */}
         {OPTIONS.filter((o) => o.kind !== "none" || kind === "none").map((o) => {
           const active = o.kind === kind;

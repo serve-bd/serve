@@ -97,7 +97,7 @@ export function ResourcesView({
   return (
     <div className="flex flex-col gap-6">
       <Card className="overflow-hidden">
-        <div className="grid grid-cols-2 gap-px bg-line sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-px bg-line @2xl/page:grid-cols-4">
           <Tile
             icon={<Box />}
             label="Containers"

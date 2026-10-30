@@ -56,7 +56,7 @@ export function TunnelCard({ serverId, user, sshPort, tunnel }: { serverId: stri
             <span>Servers cannot connect: {tunnel.listenerError}</span>
           </p>
         )}
-        <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
+        <dl className="grid gap-x-6 gap-y-4 @xl/page:grid-cols-3">
           <div className="flex min-w-0 flex-col gap-1">
             <dt className="text-[11px] font-medium tracking-wide text-faint uppercase">Status</dt>
             <dd className="flex items-center gap-2 text-[13px] text-fg">

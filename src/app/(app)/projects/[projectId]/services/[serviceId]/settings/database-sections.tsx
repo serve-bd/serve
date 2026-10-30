@@ -579,7 +579,7 @@ function HealthSection(props: DatabaseSettingsProps) {
           <Field label="Command">
             <code className="block overflow-x-auto rounded-lg bg-sunken px-3 py-2 font-mono text-[12px] whitespace-pre text-fg-2">{props.engine.healthcheck}</code>
           </Field>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 @2xl/page:grid-cols-4">
             <Field label="Interval" description="Seconds">
               <Input value={v.interval} onChange={(e) => set({ interval: digits(e.target.value) })} inputMode="numeric" placeholder="5" />
             </Field>

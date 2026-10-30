@@ -83,7 +83,7 @@ export function JobsView({
             )
           }
         />
-        <div className="grid grid-cols-2 gap-px border-t border-line bg-line sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-px border-t border-line bg-line @2xl/page:grid-cols-4">
           {[
             { label: "Running now", value: running.length },
             { label: "Waiting", value: waiting.length },

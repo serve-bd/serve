@@ -195,7 +195,7 @@ function JoinForm({
       }}
     >
       {!joined && (
-        <ul className="grid gap-x-6 gap-y-4 border-b border-line bg-surface-2/40 px-5 py-4 sm:grid-cols-3">
+        <ul className="grid gap-x-6 gap-y-4 border-b border-line bg-surface-2/40 px-5 py-4 @xl/page:grid-cols-3">
           <Benefit icon={<Waypoints />} title="Same names everywhere">
             <code className="font-mono text-[11px]">{"${{postgres.DATABASE_URL}}"}</code> works across servers.
           </Benefit>
@@ -414,7 +414,7 @@ function Joined({ mesh, serverId, serverName, onEdit, refresh }: { mesh: MeshOve
     <>
       <CardBody className="flex flex-col gap-4 py-5">
         {problem && <p className="rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-3 text-[13px] leading-relaxed text-bad">{problem}</p>}
-        <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
+        <dl className="grid gap-x-6 gap-y-4 @xl/page:grid-cols-3">
           <Fact label="Private address">
             <span className="flex items-center gap-1.5">
               <span className="font-mono">{mesh.address}</span>
@@ -570,7 +570,7 @@ function Addresses({ mesh, services }: { mesh: MeshOverview; services: number })
   return (
     <Card>
       <CardHeader title="Services" description="Containers use the same names as on a single server. Only services of the same environment reach each other." />
-      <div className="grid divide-y divide-line @3xl/page:grid-cols-2 lg:divide-x lg:divide-y-0">
+      <div className="grid divide-y divide-line @3xl/page:grid-cols-2 @3xl/page:divide-x @3xl/page:divide-y-0">
         <section className="flex min-w-0 flex-col">
           <h4 className="px-5 pt-4 pb-2 text-[11px] font-medium tracking-wide text-faint uppercase">Reachable from other servers</h4>
           {exposed.length === 0 ? (

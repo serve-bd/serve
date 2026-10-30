@@ -515,7 +515,8 @@ export function FileManager({
             ))}
           </div>
         ) : (
-          <div className="h-full overflow-auto">
+          <div className="@container/files h-full overflow-auto">
+            {/* Columns follow the table's own width: it sits beside a menu on service and server pages. */}
             {error && <p className="border-b border-line bg-warn-soft px-4 py-2 text-xs text-fg-2">{error.message}</p>}
             <table className="w-full table-fixed text-[13px]">
               <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur">
@@ -530,10 +531,10 @@ export function FileManager({
                     />
                   </th>
                   <th className="py-2 pr-2 pl-1 font-medium">Name</th>
-                  <th className="hidden w-24 px-2 text-right font-medium sm:table-cell">Size</th>
-                  <th className="hidden w-44 px-2 font-medium md:table-cell">Modified</th>
-                  <th className="hidden w-32 px-2 font-medium lg:table-cell">Owner</th>
-                  <th className="hidden w-28 px-2 font-medium lg:table-cell">Mode</th>
+                  <th className="hidden w-24 px-2 text-right font-medium @md/files:table-cell">Size</th>
+                  <th className="hidden w-44 px-2 font-medium @xl/files:table-cell">Modified</th>
+                  <th className="hidden w-32 px-2 font-medium @3xl/files:table-cell">Owner</th>
+                  <th className="hidden w-28 px-2 font-medium @3xl/files:table-cell">Mode</th>
                   <th className="w-12" />
                 </tr>
               </thead>
@@ -581,13 +582,15 @@ export function FileManager({
                             )}
                           </button>
                         </td>
-                        <td className="hidden px-2 text-right font-mono text-[12px] text-muted tabular-nums sm:table-cell">{e.type === "file" ? formatBytes(e.size) : ""}</td>
-                        <td className="hidden truncate px-2 text-[12px] text-muted md:table-cell">{when.format(e.mtime)}</td>
-                        <td className="hidden truncate px-2 font-mono text-[12px] text-muted lg:table-cell">
+                        <td className="hidden px-2 text-right font-mono text-[12px] text-muted tabular-nums @md/files:table-cell">
+                          {e.type === "file" ? formatBytes(e.size) : ""}
+                        </td>
+                        <td className="hidden truncate px-2 text-[12px] text-muted @xl/files:table-cell">{when.format(e.mtime)}</td>
+                        <td className="hidden truncate px-2 font-mono text-[12px] text-muted @3xl/files:table-cell">
                           {e.owner}
                           {e.group !== e.owner && <span className="text-faint">:{e.group}</span>}
                         </td>
-                        <td className="hidden px-2 font-mono text-[12px] text-faint lg:table-cell">{e.mode}</td>
+                        <td className="hidden px-2 font-mono text-[12px] text-faint @3xl/files:table-cell">{e.mode}</td>
                         <td className="pr-2 text-right">
                           <Menu>
                             <MenuTrigger

@@ -185,7 +185,10 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
   );
 }
 
-/** One service as a row of the list view. */
+/**
+ * One service as a row of the list view. Its columns follow the list's own width (not the
+ * window's), so the name always keeps room: the domain, then the server, show only with space.
+ */
 function ServiceRow({ projectId, s }: { projectId: string; s: ServiceCardData }) {
   const issue = s.issues[0];
   return (
@@ -203,7 +206,7 @@ function ServiceRow({ projectId, s }: { projectId: string; s: ServiceCardData })
         </span>
         <span className="truncate text-xs text-muted">{s.source ?? (s.engine ? s.engine : s.type)}</span>
       </span>
-      <span className="hidden w-56 min-w-0 md:block">
+      <span className="hidden w-56 min-w-0 @2xl/list:block">
         {s.domain ? (
           <span role="link" onClick={(e) => openDomain(e, s)} className="inline-flex max-w-full items-center gap-1 text-[13px] text-accent hover:underline">
             <span className="truncate">{s.domain}</span>
@@ -213,9 +216,9 @@ function ServiceRow({ projectId, s }: { projectId: string; s: ServiceCardData })
           <span className="text-[13px] text-faint">{s.type === "database" ? "Private network only" : "No domain"}</span>
         )}
       </span>
-      <span className="hidden w-32 truncate text-[13px] text-fg-2 lg:block">{s.serverName}</span>
+      <span className="hidden w-32 truncate text-[13px] text-fg-2 @4xl/list:block">{s.serverName}</span>
       <StatusLabel status={s.status} className="w-24 flex-none text-xs" />
-      <span className="hidden w-20 flex-none text-right text-xs text-faint sm:block">
+      <span className="hidden w-20 flex-none text-right text-xs text-faint @md/list:block">
         {s.lastDeploy?.status === "waiting" ? <WaitingMark short /> : s.lastDeploy ? <TimeAgo date={s.lastDeploy.createdAt} /> : null}
       </span>
     </Link>
@@ -332,7 +335,7 @@ export function ProjectView({ project, environments, environment, initialService
                       </h2>
                     )}
                     {view === "list" ? (
-                      <Card className="divide-y divide-line overflow-hidden">
+                      <Card className="@container/list divide-y divide-line overflow-hidden">
                         {g.services.map((s) => (
                           <ServiceRow key={s.id} projectId={project.id} s={s} />
                         ))}

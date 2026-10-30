@@ -132,7 +132,7 @@ export function UpdatesView({
             <RefreshCw /> <span className="hidden sm:inline">Check now</span>
           </Button>
         </div>
-        <div className="grid grid-cols-2 gap-px border-y border-line bg-line sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-px border-y border-line bg-line @2xl/page:grid-cols-4">
           <Fact label="Running" value={<span className="font-medium">v{version}</span>} />
           <Fact
             label="Commit"

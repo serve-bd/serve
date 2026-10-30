@@ -171,12 +171,12 @@ export function ServerMetrics({ serverId, retentionHours, canManage }: { serverI
         ) : top.services.length === 0 ? (
           <EmptyState icon={<Activity />} title="No running services" description="Usage shows up here once services are running." />
         ) : (
-          <div className="grid grid-cols-1 @xl/page:grid-cols-2 md:divide-x md:divide-line">
+          <div className="grid grid-cols-1 @xl/page:grid-cols-2 @xl/page:divide-x @xl/page:divide-line">
             <div className="flex flex-col py-2">
               <p className="px-5 pt-1 pb-1.5 text-[11px] font-medium tracking-wide text-faint uppercase">By CPU</p>
               <TopList services={top.services} metric="cpu" />
             </div>
-            <div className="flex flex-col border-t border-line py-2 md:border-t-0">
+            <div className="flex flex-col border-t border-line py-2 @xl/page:border-t-0">
               <p className="px-5 pt-1 pb-1.5 text-[11px] font-medium tracking-wide text-faint uppercase">By memory</p>
               <TopList services={top.services} metric="memory" />
             </div>

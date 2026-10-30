@@ -287,7 +287,7 @@ export function ProxyOptionsCard({
         >
           {(form, set) => (
             <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 @xl/page:grid-cols-3">
                 <Field label="Max request body" optional description="Like 10m or 1g. Server default otherwise.">
                   <Input value={form.maxBodySize} onChange={(e) => set("maxBodySize", e.target.value)} placeholder="100m" className="font-mono" />
                 </Field>

@@ -115,7 +115,7 @@ export function MonitoringSection({
               </Field>
             </>
           )}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 @xl/page:grid-cols-3">
             <Field label="Interval">
               <Select value={v.intervalSeconds} onValueChange={(intervalSeconds) => set({ intervalSeconds })} options={intervals} />
             </Field>

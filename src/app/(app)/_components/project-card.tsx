@@ -78,13 +78,13 @@ export function ProjectRow({ project }: { project: ProjectSummary }) {
         </span>
         <span className="truncate text-xs text-muted">{project.description || (total ? `${total} service${total === 1 ? "" : "s"}` : "No services yet")}</span>
       </span>
-      <span className="hidden w-32 flex-none items-center gap-3 text-xs text-muted sm:flex">
+      <span className="hidden w-32 flex-none items-center gap-3 text-xs text-muted @md/list:flex">
         <Counts counts={counts} />
       </span>
       <span className="w-28 flex-none text-xs text-muted tabular-nums">
         <Health services={project.services} />
       </span>
-      <span className="hidden w-20 flex-none text-right text-xs text-faint lg:block">
+      <span className="hidden w-20 flex-none text-right text-xs text-faint @xl/list:block">
         <TimeAgo date={project.updatedAt} />
       </span>
     </Link>

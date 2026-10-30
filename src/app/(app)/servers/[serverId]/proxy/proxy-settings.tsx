@@ -305,7 +305,7 @@ export function TraefikSettingsCard({
         onCheckedChange={(x) => form.set({ dashboardEnabled: x })}
       />
       {v.dashboardEnabled && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 @xl/page:grid-cols-3">
           <Field label="Hostname">
             <Input value={v.dashboardHost} onChange={(e) => form.set({ dashboardHost: e.target.value.trim().toLowerCase() })} placeholder="traefik.example.com" />
           </Field>

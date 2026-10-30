@@ -76,7 +76,7 @@ export default async function ServerServicesPage(props: PageProps<"/servers/[ser
                 </span>
               </span>
               <StatusLabel status={s.status} className="w-28 flex-none text-xs" />
-              <span className="hidden w-20 flex-none text-right text-xs text-faint sm:block">
+              <span className="hidden w-20 flex-none text-right text-xs text-faint @md/page:block">
                 <TimeAgo date={s.updatedAt} />
               </span>
             </Link>

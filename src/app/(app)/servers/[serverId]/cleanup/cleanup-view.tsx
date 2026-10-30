@@ -212,7 +212,7 @@ function StorageBody({
         </div>
       )}
       {usage.reachable ? (
-        <div className="grid grid-cols-2 divide-line sm:grid-cols-4 sm:divide-x">
+        <div className="grid grid-cols-2 divide-line @2xl/page:grid-cols-4 sm:divide-x">
           {(
             [
               ["Images", "image", usage.images?.size, usage.images && `${usage.images.count} images · ${usage.images.unused} unused`],

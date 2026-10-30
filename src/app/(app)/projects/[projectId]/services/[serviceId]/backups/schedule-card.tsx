@@ -228,7 +228,7 @@ export function ScheduleCard(props: {
                 }}
                 disabled={!props.canEdit}
               />
-              <div className="grid grid-cols-1 gap-4 @md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 @@2xl/page:grid-cols-2">
                 {local && (
                   <Field label={bucket ? "Keep on this server" : "Keep the latest"} description="Older backups are deleted.">
                     <InputGroup suffix="backups" className="w-full">
@@ -561,7 +561,7 @@ export function StoragePlaces({
 /** One part of the settings: its name on the left where the card is wide, above its controls where it is narrow. */
 function Group({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
   return (
-    <section className="grid grid-cols-1 gap-4 py-6 @3xl:grid-cols-[13rem_minmax(0,1fr)] @3xl:gap-10">
+    <section className="grid grid-cols-1 gap-4 py-6 @3@4xl/page:grid-cols-[13rem_minmax(0,1fr)] @3@4xl/page:gap-10">
       <div className="flex flex-col gap-1">
         <h3 className="text-sm font-medium text-fg">{title}</h3>
         <p className="text-[13px] leading-relaxed text-muted">{description}</p>

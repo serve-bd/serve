@@ -39,7 +39,7 @@ export function ProjectsScreen({ projects, initialView, canCreate }: { projects:
             <EmptyState icon={<Blocks />} title="No projects yet" description="Create a project to deploy your first app or database." action={newButton} />
           </Card>
         ) : view === "list" ? (
-          <Card className="divide-y divide-line overflow-hidden">
+          <Card className="@container/list divide-y divide-line overflow-hidden">
             {projects.map((p) => (
               <ProjectRow key={p.id} project={p} />
             ))}

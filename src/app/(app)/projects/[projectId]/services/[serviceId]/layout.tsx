@@ -7,6 +7,8 @@ import { serversForOrg } from "@/server/servers/access";
 import { publishedPorts } from "@/server/services/ports";
 import { serviceIssues } from "@/server/services/issues";
 import { ServiceHeader } from "./service-header";
+import { domainsNav } from "./domains/domains-nav";
+import { composeServiceNames } from "@/server/deploy/compose";
 import { settingsGroup, settingsNav } from "./settings/settings-nav";
 import { engines } from "@/server/databases/engines";
 
@@ -24,6 +26,7 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
         publicIp: schema.server.publicIp,
         isLocal: schema.server.isLocal,
         metricsEnabled: schema.server.metricsEnabled,
+        proxyKind: schema.server.proxyKind,
       })
       .from(schema.server)
       .where(eq(schema.server.id, service.serverId)),
@@ -110,6 +113,15 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
         maintenance={service.type === "database" ? null : { enabled: !!service.maintenance?.enabled, since: service.maintenance?.since ?? null }}
         subNav={{
           ...(ctx.can("services.manage") ? { settings: settingsNavOf(service) } : {}),
+          ...(service.type !== "database"
+            ? {
+                domains: domainsNav({
+                  type: service.type,
+                  composeServiceCount: service.compose ? composeServiceNames(service.compose.content).length : 0,
+                  proxy: (server?.proxyKind ?? "nginx") !== "none",
+                }),
+              }
+            : {}),
           // A database's backups, importing one and the schedule are pages of their own.
           ...(service.database && ctx.can("databases.backups")
             ? { backups: [{ id: "", label: "Backups" }, ...(ctx.isAdmin ? [{ id: "import", label: "Import backup" }] : []), { id: "auto", label: "Auto backup" }] }

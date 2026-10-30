@@ -22,7 +22,8 @@ export default async function KeysLayout({ children }: LayoutProps<"/keys">) {
             ...(ctx.isRoot && canAddServers(ctx) ? [{ title: "Instance", items: [{ href: "/keys/ssh", label: "SSH keys", icon: "LockKeyhole" as const }] }] : []),
           ]}
         />
-        <div className="flex min-w-0 flex-1 flex-col gap-6">{children}</div>
+        {/* Sections size their columns by this area, not the window: the menu beside it takes room. */}
+        <div className="@container/page flex min-w-0 flex-1 flex-col gap-6">{children}</div>
       </div>
     </>
   );

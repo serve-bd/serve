@@ -60,8 +60,8 @@ export function DatabaseOverview(props: {
   // The same URL, naming the chosen database (its last path part; the user name may match it).
   const swap = (url: string) => (db === props.creds.database ? url : url.replace(/\/[^/?]*(?=\?|$)/, `/${encodeURIComponent(db)}`));
   return (
-    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="flex flex-col gap-6">
+    <div className="grid grid-cols-1 items-start gap-6 @4xl/page:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="@container/col flex flex-col gap-6">
         <Card>
           <CardHeader title="Connect" description="Other services in this environment connect over the private network." />
           <CardBody className="flex flex-col gap-4">
@@ -78,7 +78,7 @@ export function DatabaseOverview(props: {
                 <SecretField value={swap(props.replicaUrl)} hidden={props.hideSecrets} shape={swap(props.replicaUrl)} />
               </Field>
             )}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 @md/col:grid-cols-2">
               <Field label="Host">
                 <CopyField value={props.host} />
               </Field>

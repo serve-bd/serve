@@ -3,7 +3,7 @@
 import { tagColorClass } from "@/lib/tags";
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
 import {
@@ -99,6 +99,7 @@ export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
 
 export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance, issues, siblings, subNav, children }: Props) {
   const pathname = usePathname();
+  const search = useSearchParams();
   const router = useRouter();
   const confirm = useConfirm();
   const { data, mutate } = useServiceLive(service.id, initialLive);
@@ -171,6 +172,12 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   // A page's own pages: "" is the page itself (Backups), others are segments below it.
   const subPages = (segment: string) => {
     const root = `${base}/${segment}`;
+    // Domains & ports shows one section at a time on one page (?section=…; the first is the page itself).
+    if (segment === "domains") {
+      const list = subNav.domains ?? [];
+      const current = pathname === root ? (search.get("section") ?? list[0]?.id) : null;
+      return list.map((s, i) => ({ href: i === 0 ? root : `${root}?section=${s.id}`, label: s.label, active: s.id === current }));
+    }
     const here = pathname.startsWith(`${root}/`) ? pathname.slice(root.length + 1).split("/")[0] : "";
     return (subNav[segment] ?? []).map((s) => ({ href: s.id ? `${root}/${s.id}` : root, label: s.label, group: s.group, active: s.id === here, danger: s.id === "danger" }));
   };
@@ -460,7 +467,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
       {/* Wide screens: the pages beside the content. Narrow ones use the picker above. */}
       <div className="mx-auto flex w-full max-w-[1400px] lg:px-8">
         <ServiceSidebar items={navItems} back={{ href: base }} />
-        <div className="min-w-0 flex-1">{children}</div>
+        {/* Pages size their columns by this area, not the window: the menu beside it takes room. */}
+        <div className="@container/page min-w-0 flex-1">{children}</div>
       </div>
     </>
   );

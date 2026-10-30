@@ -61,7 +61,7 @@ export function BrandingSettings({ initial, brand, has }: { initial: Values; bra
           }}
         >
           <CardHeader title="Branding" description="Your name, logo and colour replace the defaults across the dashboard, the sign-in page, the browser tab and emails." />
-          <CardBody className="grid grid-cols-1 gap-6 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
+          <CardBody className="grid grid-cols-1 gap-6 py-5 @3xl/page:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
             <div className="flex min-w-0 flex-col gap-5">
               <Field label="Product name" optional description={`Shown next to the logo, in page titles and in emails. Empty shows ${DEFAULT_PRODUCT_NAME}.`}>
                 <Input value={v.name} onChange={(e) => set("name")(e.target.value)} maxLength={40} placeholder={DEFAULT_PRODUCT_NAME} className="sm:max-w-sm" />

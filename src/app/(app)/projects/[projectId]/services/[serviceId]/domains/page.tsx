@@ -19,7 +19,7 @@ import { entryDomains, entryServers } from "@/server/services/entry-servers";
 import { balanceWarning } from "@/server/services/balance";
 import { PortsCard } from "./ports-card";
 import { ProxyOptionsCard, type ProxySection } from "./proxy-options-card";
-import { DomainsSidebar, type DomainsSectionItem } from "./domains-sidebar";
+import { domainsNav } from "./domains-nav";
 import { getTemplate } from "@/server/services/templates";
 import { ProxyConfigCard } from "./proxy-config-card";
 import { generatedSite } from "@/server/proxy/nginx";
@@ -123,27 +123,14 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
     service.type === "app" && balances(service.serverId, service.distribution)
       ? await balanceWarning(service.serverId, runServerIds(service.serverId, service.distribution).slice(1)).catch(() => null)
       : null;
-  // One section at a time, picked in the sidebar.
-  const showPorts = service.type === "app" || (service.type === "compose" && composeServices.length > 0);
-  const nav: DomainsSectionItem[] = [
-    { id: "domains", label: "Domains" },
-    ...(showPorts ? [{ id: "ports", label: "Ports" }] : []),
-    ...(kind !== "none"
-      ? [
-          { id: "traffic", label: "Limits & balancing" },
-          { id: "access", label: "Access" },
-          { id: "headers", label: "Headers" },
-          { id: "performance", label: "Performance" },
-          { id: "proxy", label: "Proxy" },
-        ]
-      : []),
-  ];
+  // One section at a time, picked under Domains & ports in the service's menu.
+  const nav = domainsNav({ type: service.type, composeServiceCount: composeServices.length, proxy: kind !== "none" });
+  const showPorts = nav.some((n) => n.id === "ports");
   const asked = (await props.searchParams).section;
   const section = nav.find((n) => n.id === asked)?.id ?? "domains";
   return (
     <PageBody>
-      <div className="flex flex-col gap-6 xl:flex-row xl:gap-10">
-        <DomainsSidebar base={`/projects/${projectId}/services/${serviceId}/domains`} nav={nav} current={section} />
+      <div className="flex flex-col gap-6">
         <div className="flex min-w-0 flex-1 flex-col gap-6">
           {section === "domains" && (
             <DomainsManager

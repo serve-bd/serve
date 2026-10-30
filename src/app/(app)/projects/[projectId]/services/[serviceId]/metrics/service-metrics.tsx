@@ -184,7 +184,7 @@ export function ServiceMetrics({
         </div>
       </div>
       {tab === "traffic" && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
+        <div className="grid grid-cols-1 gap-4 @4xl/page:grid-cols-[2fr_1fr]">
           <Panel title="Requests" value={req ? compact(req.totals.requests) : "—"}>
             <StatusBars series={points} picked={picked} setPicked={setPicked} />
             <div className="flex flex-wrap gap-4 text-xs text-muted">
@@ -231,7 +231,7 @@ export function ServiceMetrics({
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 @3xl/page:grid-cols-2">
             <Panel title="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"}>
               <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} format={(v) => `${v.toFixed(1)}%`} height={160} />
             </Panel>

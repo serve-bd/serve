@@ -301,8 +301,8 @@ function TableBrowser({
   }
 
   return (
-    <div className="grid lg:grid-cols-[15rem_minmax(0,1fr)]">
-      <aside className="hidden max-h-[44rem] flex-col border-r border-line lg:flex">
+    <div className="grid @3xl/page:grid-cols-[15rem_minmax(0,1fr)]">
+      <aside className="hidden max-h-[44rem] flex-col border-r border-line @3xl/page:flex">
         <div className="flex items-center gap-1.5 border-b border-line p-2">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-faint" />
@@ -348,7 +348,7 @@ function TableBrowser({
         </nav>
       </aside>
       <div className="min-w-0">
-        <div className="border-b border-line p-3 lg:hidden">
+        <div className="border-b border-line p-3 @3xl/page:hidden">
           <Combobox
             size="sm"
             value={selected ? keyOf(selected) : null}
@@ -1074,8 +1074,8 @@ function KvBrowser({ serviceId, database }: { serviceId: string; database: strin
   }, [load, applied]);
 
   return (
-    <div className="grid lg:grid-cols-[19rem_minmax(0,1fr)]">
-      <aside className="flex min-w-0 flex-col border-b border-line lg:max-h-[44rem] lg:border-r lg:border-b-0">
+    <div className="grid @3xl/page:grid-cols-[19rem_minmax(0,1fr)]">
+      <aside className="flex min-w-0 flex-col border-b border-line @3xl/page:max-h-[44rem] @3xl/page:border-r @3xl/page:border-b-0">
         <form
           className="flex items-center gap-1.5 border-b border-line p-2"
           onSubmit={(e) => {

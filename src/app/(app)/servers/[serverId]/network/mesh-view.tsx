@@ -570,7 +570,7 @@ function Addresses({ mesh, services }: { mesh: MeshOverview; services: number })
   return (
     <Card>
       <CardHeader title="Services" description="Containers use the same names as on a single server. Only services of the same environment reach each other." />
-      <div className="grid divide-y divide-line lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+      <div className="grid divide-y divide-line @3xl/page:grid-cols-2 lg:divide-x lg:divide-y-0">
         <section className="flex min-w-0 flex-col">
           <h4 className="px-5 pt-4 pb-2 text-[11px] font-medium tracking-wide text-faint uppercase">Reachable from other servers</h4>
           {exposed.length === 0 ? (

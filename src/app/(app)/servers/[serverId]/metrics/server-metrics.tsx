@@ -89,7 +89,7 @@ export function ServerMetrics({ serverId, retentionHours, canManage }: { serverI
   return (
     <div className="flex flex-col gap-6">
       <Card className="overflow-hidden">
-        <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-2 @3xl/page:grid-cols-4">
           <Live icon={<Cpu />} label="CPU" value={now ? `${now.cpu.toFixed(0)}%` : "—"} sub={now ? `${now.cores} cores` : undefined} meter={[now?.cpu ?? 0, 100]} />
           <Live
             icon={<MemoryStick />}
@@ -152,7 +152,7 @@ export function ServerMetrics({ serverId, retentionHours, canManage }: { serverI
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 @3xl/page:grid-cols-2">
         <Panel title="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"}>
           <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} max={100} format={(v) => `${v.toFixed(1)}%`} height={160} />
         </Panel>
@@ -171,7 +171,7 @@ export function ServerMetrics({ serverId, retentionHours, canManage }: { serverI
         ) : top.services.length === 0 ? (
           <EmptyState icon={<Activity />} title="No running services" description="Usage shows up here once services are running." />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-line">
+          <div className="grid grid-cols-1 @xl/page:grid-cols-2 md:divide-x md:divide-line">
             <div className="flex flex-col py-2">
               <p className="px-5 pt-1 pb-1.5 text-[11px] font-medium tracking-wide text-faint uppercase">By CPU</p>
               <TopList services={top.services} metric="cpu" />

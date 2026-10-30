@@ -143,7 +143,7 @@ export function ResourcesView({
           <EmptyState icon={<Boxes />} title="No containers" description={q ? "Nothing matches your search." : "No containers in this view."} />
         ) : (
           <>
-            <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_140px_100px_32px] gap-4 border-b border-line bg-surface-2/50 px-5 py-2 text-[11px] font-medium tracking-wide text-faint uppercase md:grid">
+            <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_140px_100px_32px] gap-4 border-b border-line bg-surface-2/50 px-5 py-2 text-[11px] font-medium tracking-wide text-faint uppercase @2xl/page:grid">
               <span>Container</span>
               <span>Image</span>
               <span>Usage</span>
@@ -156,7 +156,7 @@ export function ResourcesView({
                 return (
                   <div
                     key={c.id}
-                    className="grid grid-cols-[minmax(0,1fr)_32px] items-center gap-x-4 gap-y-1.5 px-4 py-3 sm:px-5 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_140px_100px_32px]"
+                    className="grid grid-cols-[minmax(0,1fr)_32px] items-center gap-x-4 gap-y-1.5 px-4 py-3 sm:px-5 @2xl/page:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_140px_100px_32px]"
                   >
                     <div className="flex min-w-0 items-start gap-3">
                       <span className="mt-1.5 size-2 flex-none rounded-full" style={{ background: stateColor[c.state] ?? "var(--idle)" }} title={c.state} />
@@ -181,7 +181,7 @@ export function ResourcesView({
                         </span>
                       </div>
                     </div>
-                    <div className="col-start-2 row-start-1 md:col-start-5">
+                    <div className="col-start-2 row-start-1 @2xl/page:col-start-5">
                       {c.kind === "unmanaged" && (
                         <Menu>
                           <MenuTrigger className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label={`Actions for ${c.name}`}>
@@ -230,20 +230,20 @@ export function ResourcesView({
                         </Menu>
                       )}
                     </div>
-                    <div className="col-span-2 flex min-w-0 flex-col gap-0.5 pl-5 md:col-span-1 md:col-start-2 md:row-start-1 md:pl-0">
+                    <div className="col-span-2 flex min-w-0 flex-col gap-0.5 pl-5 @2xl/page:col-span-1 @2xl/page:col-start-2 @2xl/page:row-start-1 @2xl/page:pl-0">
                       <span className="truncate font-mono text-[11.5px] text-fg-2" title={c.image}>
                         {c.image}
                       </span>
                       {c.ports.length > 0 && <span className="truncate font-mono text-[11px] text-faint">{c.ports.join("  ")}</span>}
                     </div>
-                    <div className="col-span-2 flex items-center gap-3 pl-5 text-xs md:col-span-1 md:col-start-3 md:row-start-1 md:pl-0">
+                    <div className="col-span-2 flex items-center gap-3 pl-5 text-xs @2xl/page:col-span-1 @2xl/page:col-start-3 @2xl/page:row-start-1 @2xl/page:pl-0">
                       <Usage stats={stats[c.id]} running={isRunning} cpus={cpus} />
-                      <span className="text-faint md:hidden">·</span>
-                      <span className="text-muted md:hidden">
+                      <span className="text-faint @2xl/page:hidden">·</span>
+                      <span className="text-muted @2xl/page:hidden">
                         <TimeAgo date={c.created} />
                       </span>
                     </div>
-                    <span className="hidden text-xs text-muted md:col-start-4 md:row-start-1 md:block">
+                    <span className="hidden text-xs text-muted @2xl/page:col-start-4 @2xl/page:row-start-1 @2xl/page:block">
                       <TimeAgo date={c.created} />
                     </span>
                   </div>

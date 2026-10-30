@@ -143,8 +143,8 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
   const primary = data.domains.find((d) => d.primary) ?? data.domains[0];
 
   return (
-    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <ImageUpdatesCard serviceId={service.id} base={base} check={service.imageCheck} isDatabase={false} className="lg:col-span-2" />
+    <div className="grid grid-cols-1 items-start gap-6 @4xl/page:grid-cols-[minmax(0,1fr)_340px]">
+      <ImageUpdatesCard serviceId={service.id} base={base} check={service.imageCheck} isDatabase={false} className="@4xl/page:col-span-2" />
       <ContainerDialog
         serviceId={service.id}
         base={base}
@@ -161,7 +161,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
         consoleTarget={openContainer ? (openContainer.server ? `${openContainer.server.id}:${openContainer.name}` : openContainer.name) : null}
         onOpenChange={(o) => !o && setOpenContainer(null)}
       />
-      <div className="flex min-w-0 flex-col gap-6">
+      <div className="@container/col flex min-w-0 flex-col gap-6">
         {/* Current deployment */}
         <Card>
           <CardHeader
@@ -300,7 +300,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
             }
           />
           {data.metrics && (
-            <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-px bg-line @xl/col:grid-cols-3">
               <Stat icon={<Cpu />} label="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"} sub={service.cpuLimit ? `Limit ${service.cpuLimit} cores` : "No limit"}>
                 <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} format={(v) => `${v.toFixed(1)}%`} height={44} />
               </Stat>
@@ -377,7 +377,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                 </Link>
               }
             />
-            <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-px bg-line @xl/col:grid-cols-3">
               <Stat icon={<Globe />} label="Requests" value={req ? compact(req.totals.requests) : "—"} sub={req ? `${formatBytes(req.totals.bytes)} sent` : undefined}>
                 <AreaChart data={(req?.series ?? []).map((p) => ({ t: p.t, v: p.requests }))} format={(v) => compact(v)} height={44} />
               </Stat>

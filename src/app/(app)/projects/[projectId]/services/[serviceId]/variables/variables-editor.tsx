@@ -171,7 +171,7 @@ export function VariablesEditor({
       )}
       {/* Both panels stay mounted, so unsaved edits survive switching tabs. */}
       <TabsPanel value="main" keepMounted className="data-[hidden]:hidden">
-        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="grid grid-cols-1 items-start gap-6 @4xl/page:grid-cols-[minmax(0,1fr)_300px]">
           <div className="flex min-w-0 flex-col gap-4">
             {fileMissing.length > 0 && (
               <div role="alert" className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/30 bg-warn-soft px-4 py-3 text-[13px]">

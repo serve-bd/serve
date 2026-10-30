@@ -381,8 +381,33 @@ export async function createDeployKey(name: string) {
 export async function deleteGitCredential(id: string) {
   return act(async () => {
     const ctx = await requirePermission("integrations.manage");
+    // Services that used it switch to another login of the organization for the same host now;
+    // the ones no login fits are named, so someone can choose one before their next deploy.
+    const { replacementGitLogin } = await import("@/server/deploy/git");
+    const users = (
+      await db
+        .select({ id: schema.service.id, name: schema.service.name, source: schema.service.source })
+        .from(schema.service)
+        .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+        .where(eq(schema.project.organizationId, ctx.org.id))
+    ).filter((s) => s.source?.type === "git" && s.source.credentialId === id);
+    const stranded: string[] = [];
+    for (const s of users) {
+      if (s.source?.type !== "git") continue;
+      const login = await replacementGitLogin(ctx.org.id, s.source.repository, id);
+      if (login)
+        await db
+          .update(schema.service)
+          .set({ source: { ...s.source, credentialId: login.id } })
+          .where(eq(schema.service.id, s.id));
+      else stranded.push(s.name);
+    }
     await db.delete(schema.gitCredential).where(and(eq(schema.gitCredential.id, id), eq(schema.gitCredential.organizationId, ctx.org.id)));
-    return null;
+    return stranded.length
+      ? {
+          warning: `${stranded.join(", ")} used this login and no other login fits ${stranded.length === 1 ? "its repository" : "their repositories"}: choose one in Settings → Source before the next deploy.`,
+        }
+      : null;
   });
 }
 

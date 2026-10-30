@@ -304,7 +304,7 @@ export function GitProviders({
   const confirm = useConfirm();
   const router = useRouter();
   const params = useSearchParams();
-  const remove = useAction(deleteGitCredential);
+  const remove = useAction(deleteGitCredential, { onSuccess: (d) => d?.warning && toast.warning("Provider removed", d.warning) });
   const configure = useAction(githubAppInstallUrl, {
     refresh: false,
     onSuccess: (url) => {

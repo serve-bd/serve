@@ -4,7 +4,7 @@ import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { run } from "@/server/process";
-import type { GitSource } from "@/server/services/types";
+import type { GitSource, SourceConfig } from "@/server/services/types";
 
 export type CloneResult = {
   dir: string;
@@ -455,4 +455,39 @@ export async function listRemoteBranches(source: GitSource, organizationId?: str
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
+}
+
+/**
+ * Another of the organization's git logins for a repository's host, for a service whose login was
+ * removed (a provider deleted and added again): the GitHub App first, then the newest. Null: none.
+ */
+export async function replacementGitLogin(organizationId: string, repository: string, except?: string) {
+  const url = normalizeRepoUrl(repository);
+  const ssh = url.startsWith("git@") || url.startsWith("ssh://");
+  const origin = URL.canParse(url) ? new URL(url).origin.toLowerCase() : null;
+  const logins = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.organizationId, organizationId));
+  const fits = logins
+    .filter((c) => c.id !== except)
+    .filter((c) => (ssh ? c.provider === "ssh" : c.provider !== "ssh" && !!origin && credentialOrigin(c) === origin))
+    .sort((a, b) => Number(b.provider === "github-app") - Number(a.provider === "github-app") || b.createdAt.getTime() - a.createdAt.getTime());
+  return fits[0] ?? null;
+}
+
+/**
+ * Before cloning: a service whose git login no longer exists switches to another login of the
+ * organization for the same host (saved, and said in the log), or stops with where to choose one.
+ */
+export async function repairGitLogin(service: { id: string; source: SourceConfig | null }, organizationId: string, log: (line: string) => void) {
+  const source = service.source;
+  if (source?.type !== "git" || !source.credentialId) return;
+  const [exists] = await db
+    .select({ id: schema.gitCredential.id })
+    .from(schema.gitCredential)
+    .where(and(eq(schema.gitCredential.id, source.credentialId), eq(schema.gitCredential.organizationId, organizationId)));
+  if (exists) return;
+  const login = await replacementGitLogin(organizationId, source.repository);
+  if (!login) throw new Error("The git login this service used was removed, and no other login fits this repository. Choose one in Settings → Source.");
+  source.credentialId = login.id;
+  await db.update(schema.service).set({ source }).where(eq(schema.service.id, service.id));
+  log(`The git login this service used was removed: using ${login.name} instead (saved on the service).`);
 }

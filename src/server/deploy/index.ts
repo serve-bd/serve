@@ -26,7 +26,7 @@ import { engines } from "@/server/databases/engines";
 import { logActivity } from "@/server/activity";
 import { notify, orgOfService } from "@/server/notify";
 import { buildImage } from "./builders";
-import { cloneRepository, staleEntries } from "./git";
+import { cloneRepository, repairGitLogin, staleEntries } from "./git";
 import { extractArchive } from "./upload-archive";
 import { hasRoom, KEEP_UPLOADS, uploadExists, uploadPath } from "./uploads";
 import { NO_UPLOAD } from "@/server/services/create";
@@ -306,6 +306,7 @@ async function prepareAppImage(
     } else if (source.type === "git") {
       log.step("Cloning repository");
       if (build.noCache) log.line("Building without cache");
+      await repairGitLogin(service, await orgIdOf(service), log.line);
       const clone = await cloneRepository(source, workDir, log.line, buildSignal, await orgIdOf(service), { submodules: build.submodules });
       if (workSuffix) {
         // A second build must be of the commit the first one built: every server runs the same code.
@@ -1485,6 +1486,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   if (cfg.mode === "git") {
     if (service.source?.type !== "git") throw new Error("Compose from git needs a git source.");
     log.step(rollback ? `Checking out commit ${rollback.commitSha!.slice(0, 7)}` : "Cloning repository");
+    await repairGitLogin(service, await orgIdOf(service), log.line);
     const repoDir = path.join(serviceDir, "repo");
     // Updated in place: relative bind mounts keep their data in the repository directory.
     const clone = await cloneRepository(service.source, repoDir, log.line, signal, await orgIdOf(service), { inPlace: true, commit: rollback?.commitSha ?? undefined }).catch(

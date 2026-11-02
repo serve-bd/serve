@@ -9,6 +9,7 @@ import {
   chLiteral,
   changesScript,
   editCellScript,
+  cleanError,
   explorerFamily,
   MAX_CELL,
   unchangedConditions,
@@ -50,9 +51,7 @@ import {
 const creds = { username: "app", password: "pa'ss$word`x", database: "app" };
 /** Every base64 payload a script decodes. */
 const decoded = (lines: string[]) =>
-  [...lines.join("\n").matchAll(/printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d|FROM_BASE64\('([A-Za-z0-9+/=]+)'\)|SERVE_INPUT='([A-Za-z0-9+/=]+)'/g)]
-    .map((m) => Buffer.from(m[1] ?? m[2] ?? m[3], "base64").toString("utf8"))
-    .join("\n");
+  [...lines.join("\n").matchAll(/printf '%s' '([A-Za-z0-9+/=]+)'|FROM_BASE64\('([A-Za-z0-9+/=]+)'\)/g)].map((m) => Buffer.from(m[1] ?? m[2], "base64").toString("utf8")).join("\n");
 /** Stand-ins for the database clients (they print their arguments) and for `id` (it leaves a mark). */
 const stubs = fs.mkdtempSync(path.join(os.tmpdir(), "serve-explorer-"));
 for (const name of ["psql", "mysql", "mariadb", "clickhouse-client", "mongosh", "redis-cli", "valkey-cli"])
@@ -157,8 +156,11 @@ describe("database explorer", () => {
 
     it("runs PostgreSQL in a read-only transaction, read-only by default too", () => {
       const s = pg.query("app", "SELECT 1", opts, "N").join("\n");
-      expect(s).toContain("-c 'BEGIN READ ONLY' -c \"$Q\"");
-      expect(s).toContain("-c 'ROLLBACK'");
+      expect(s).toContain("-f -");
+      const input = decoded(pg.query("app", "SELECT 1", opts, "N"));
+      expect(input).toMatch(/^BEGIN READ ONLY;\n\\set QUIET off\nSELECT convert_from\(decode\('[A-Za-z0-9+/=]+', 'base64'\), 'UTF8'\) \\gexec\n/);
+      expect(input).toContain(`'${Buffer.from("SELECT 1").toString("base64")}'`);
+      expect(input).toMatch(/SERVE_DONE\nROLLBACK;\n$/);
       expect(s).toContain("default_transaction_read_only=on");
       expect(s).toContain("statement_timeout=30000");
       expect(s).toContain("standard_conforming_strings=on");
@@ -185,10 +187,21 @@ describe("database explorer", () => {
       expect(() => pg.query("app", "COPY t TO STDOUT", { ...opts, readOnly: false }, "N")).not.toThrow();
     });
 
+    it("drops the psql input line from errors", () => {
+      expect(cleanError("postgres", "psql:<stdin>:3: ERROR:  cannot execute CREATE TABLE in a read-only transaction\n")).toBe(
+        "ERROR:  cannot execute CREATE TABLE in a read-only transaction",
+      );
+    });
+
     it("refuses psql commands", () => {
       expect(() => pg.query("app", "\\! id", { ...opts, readOnly: false }, "N")).toThrow(/psql commands/);
-      // Later lines are SQL for the server, not psql commands (psql -c does not read them).
-      expect(() => pg.query("app", "SELECT 1\n\\! id", opts, "N")).not.toThrow();
+      // Anything else goes to the server as base64, never read by psql: no command, no :variable runs.
+      for (const q of ["SELECT 1\n\\! id", "SELECT 1 :E'\\' \\! id #'", "SELECT 1.E'\\' \\! id #'", "SELECT $E'\\' ' \\! id #'", "SELECT :DBNAME, :'x'"]) {
+        const input = decoded(pg.query("app", q, { ...opts, readOnly: false }, "N"));
+        expect(input).not.toContain("\\!");
+        expect(input).not.toContain(":");
+        expect(input).toContain(`'${Buffer.from(q).toString("base64")}'`);
+      }
     });
 
     it("sends MySQL statements as prepared statements from base64, read-only", () => {
@@ -216,6 +229,8 @@ describe("database explorer", () => {
 
     it("allows only read commands on Redis and Valkey", () => {
       const check = (line: string, readOnly = true) => checkKvCommand(tokenizeCommand(line), readOnly);
+      // redis-cli's own commands: CONNECT would point it at another server.
+      for (const own of ["CONNECT evil.example 6379", "exit", "HELP", "CLEAR", "RESTART"]) expect(check(own, false), own).toMatch(/cannot run/);
       for (const ok of [
         "GET a",
         "get a",
@@ -278,7 +293,7 @@ describe("database explorer", () => {
       value: "it's",
     };
     it("finds the row by its whole primary key, with quoted names and values", () => {
-      expect(decoded(editCellScript("postgres", creds, edit))).toBe(`UPDATE "s'x"."t""y" SET "c""z" = 'it''s' WHERE "id" = '1'' OR ''1''=''1' AND "k\`2" = 'b'`);
+      expect(decoded(editCellScript("postgres", creds, edit))).toContain(`UPDATE "s'x"."t""y" SET "c""z" = 'it''s' WHERE "id" = '1'' OR ''1''=''1' AND "k\`2" = 'b';\n`);
       expect(decoded(editCellScript("postgres", creds, { ...edit, value: null }))).toContain(`SET "c""z" = NULL WHERE`);
       const my = decoded(editCellScript("mysql", creds, edit));
       expect(my).toContain("START TRANSACTION;");
@@ -392,15 +407,18 @@ describe("database explorer", () => {
     });
 
     it("reads a PostgreSQL query result", () => {
-      expect(parsePgQuery("a,b\n1,N\nSERVE_ROWS 1\n", "N", false)).toEqual({ kind: "rows", columns: ["a", "b"], rows: [["1", null]], truncated: false, rowCount: 1 });
-      expect(parsePgQuery("SERVE_ROWS 4\n", "N", false)).toEqual({ kind: "done", affected: 4, message: null });
-      expect(parsePgQuery("a\nSERVE_ROWS 0\n", "N", false)).toMatchObject({ kind: "rows", columns: ["a"], rows: [] });
+      expect(parsePgQuery("a,b\n1,N\nSERVE_DONE\n", "N", false)).toEqual({ kind: "rows", columns: ["a", "b"], rows: [["1", null]], truncated: false, rowCount: 1 });
+      expect(parsePgQuery("UPDATE 4\nSERVE_DONE\n", "N", false)).toEqual({ kind: "done", affected: 4, message: null });
+      expect(parsePgQuery("INSERT 0 2\nSERVE_DONE\n", "N", false)).toEqual({ kind: "done", affected: 2, message: null });
+      expect(parsePgQuery("CREATE TABLE\nSERVE_DONE\n", "N", false)).toEqual({ kind: "done", affected: null, message: null });
+      expect(parsePgQuery("SERVE_DONE\n", "N", false)).toEqual({ kind: "done", affected: null, message: null });
+      expect(parsePgQuery("a\nSERVE_DONE\n", "N", false)).toMatchObject({ kind: "rows", columns: ["a"], rows: [] });
       // Cut at the size limit: the rows before, marked as cut.
       expect(parsePgQuery('a\n1\n2\n"3', "N", true)).toMatchObject({ kind: "rows", rows: [["1"], ["2"]], truncated: true });
-      const many = `n\n${Array.from({ length: 1001 }, (_, i) => i).join("\n")}\nSERVE_ROWS 1001\n`;
+      const many = `n\n${Array.from({ length: 1001 }, (_, i) => i).join("\n")}\nSERVE_DONE\n`;
       expect(parsePgQuery(many, "N", false)).toMatchObject({ truncated: true });
       // A value that looks like the marker line stays a value unless it is the last line.
-      expect(parsePgQuery("a\nSERVE_ROWS 9\nSERVE_ROWS 1\n", "N", false)).toMatchObject({ rows: [["SERVE_ROWS 9"]], rowCount: 1 });
+      expect(parsePgQuery("a\nSERVE_DONE\nSERVE_DONE\n", "N", false)).toMatchObject({ rows: [["SERVE_DONE"]], rowCount: 1 });
     });
 
     it("reads a page of PostgreSQL rows with its count", () => {
@@ -494,6 +512,8 @@ z</field>
       const s = mongoScript(creds, { op: "find", db: "d", collection: "c", query: '{"$where": "x"}`); process.exit(1); (`' });
       expect(s.join("\n")).not.toContain("process.exit(1)");
       expect(JSON.parse(decoded(s))).toMatchObject({ op: "find", db: "d", collection: "c", query: '{"$where": "x"}`); process.exit(1); (`' });
+      // The input file goes even when mongosh fails before it reads it.
+      expect(s.at(-1)).toMatch(/; r=\$\?; rm -f "\$SERVE_INPUT_FILE"; \(exit \$r\)$/);
     });
   });
 
@@ -542,7 +562,8 @@ z</field>
     it("checks the database number and passes the password in the environment", () => {
       expect(() => kvCommandScript("redis", creds, 256, [Buffer.from("PING")])).toThrow();
       const s = kvCommandScript("valkey", { ...creds, tlsRequired: true }, 2, [Buffer.from("PING")]).join("\n");
-      expect(s).toContain("valkey-cli --no-auth-warning --tls --insecure --quoted-input --quoted-json -n 2 '\"PING\"'");
+      expect(s).toContain("| $T valkey-cli --no-auth-warning --tls --insecure --quoted-input --quoted-json -n 2");
+      expect(decoded(s.split("\n"))).toBe('"PING"\n');
       expect(s).toContain(`REDISCLI_AUTH='pa'\\''ss$word\`x'`);
     });
   });

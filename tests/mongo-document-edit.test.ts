@@ -10,8 +10,9 @@ const creds = { username: "app", password: "pw", database: "app" };
  */
 function run(input: MongoInput, docs: Record<string, unknown>[], between?: () => void) {
   const lines = mongoScript(creds, input);
-  const env = /SERVE_INPUT='([^']*)'/.exec(lines[0])![1];
-  const quoted = lines[1].slice(lines[1].indexOf("--eval ") + "--eval ".length);
+  const file = /printf '%s' '([^']*)' > "\$SERVE_INPUT_FILE"/.exec(lines.join("\n"))![1];
+  const run = lines.find((l) => l.includes("--eval "))!;
+  const quoted = run.slice(run.indexOf("--eval ") + "--eval ".length, run.lastIndexOf("; r=$?"));
   const code = quoted.slice(1, -1).replaceAll("'\\''", "'");
   const printed: string[] = [];
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -35,7 +36,14 @@ function run(input: MongoInput, docs: Record<string, unknown>[], between?: () =>
   };
   const db = { getSiblingDB: () => ({ getCollection: () => coll }) };
   const EJSON = { parse: (s: string) => JSON.parse(s), stringify: (v: unknown) => JSON.stringify(v) };
-  vm.runInNewContext(code, { db, EJSON, Buffer, process: { env: { SERVE_INPUT: env } }, print: (s: string) => printed.push(s) });
+  vm.runInNewContext(code, {
+    db,
+    EJSON,
+    Buffer,
+    process: { env: { SERVE_INPUT_FILE: "in" } },
+    require: () => ({ readFileSync: () => file, unlinkSync: () => {} }),
+    print: (s: string) => printed.push(s),
+  });
   return JSON.parse(printed[0].slice("SERVE_JSON".length));
 }
 

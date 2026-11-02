@@ -18,8 +18,6 @@ export const PAGE_SIZE = 50;
 export const QUERY_LIMIT = 1000;
 /** Seconds a query may run. */
 export const QUERY_TIMEOUT = 30;
-/** Longest query or command accepted (bytes): the script carries it on the exec command line. */
-export const MAX_QUERY_BYTES = 64 * 1024;
 /** Output kept from the database (bytes); the rest is cut in the container. */
 export const MAX_OUTPUT = 4_000_000;
 /** Characters kept of one value when browsing. */
@@ -124,6 +122,8 @@ export function unframe(output: string): Framed | null {
 /** An engine's error message without the noise its client adds. */
 export function cleanError(engine: string, stderr: string) {
   let text = stderr.replace(/\r/g, "").trim();
+  // psql reads the script from stdin and names the line in it, which means nothing to the user.
+  if (engine === "postgres") text = text.replace(/^psql:<stdin>:\d+: /gm, "");
   if (engine === "mysql" || engine === "mariadb") text = text.replace(/^ERROR (\d+) \(([0-9A-Z]+)\) at line \d+: /m, "ERROR $1 ($2): ");
   if (engine === "clickhouse") {
     text = text
@@ -393,6 +393,15 @@ function pgEnv(c: EngineCreds, opts: Opts) {
 }
 const psql = (c: EngineCreds, database: string, flags: string) =>
   `$T psql -X -q -v ON_ERROR_STOP=1 -v SHOW_ALL_RESULTS=off ${flags} -U ${sh(c.username)} -d ${sh(pgConninfo(database))}`;
+/**
+ * psql reading `lines` from its input instead of -c: an argument holds at most 128 KB, input has no
+ * limit. `single`: one transaction, as several statements in one -c are. psql runs its own commands
+ * (\\!) and fills in :variables in its input, so only SQL built here goes in: never the user's text.
+ */
+function psqlInput(c: EngineCreds, database: string, flags: string, lines: string[], single = false) {
+  return `${pipe(`${lines.join("\n")}\n`)} | ${psql(c, database, flags)}${single ? " -1" : ""} -f -`;
+}
+
 /** One SQL statement printing one JSON value, run read-only. */
 function pgJson(c: EngineCreds, database: string, sql: string, timeoutSeconds = QUERY_TIMEOUT) {
   return [...pgEnv(c, { readOnly: true, timeoutSeconds }), shVar("S", sql), `${psql(c, database, "-At")} -c "$S"`];
@@ -502,31 +511,45 @@ function pgQuery(c: EngineCreds, database: string, sql: string, opts: Opts & { n
   if (opts.readOnly && statements.length > 1) throw new ExplorerInputError("Read only mode runs one statement at a time. Run them one by one, or allow changes.");
   // COPY reads or writes files and runs programs on the server, even in a read-only transaction.
   if (opts.readOnly && /^copy\b/i.test(stripLeadingComments(statements[0]))) throw new ExplorerInputError("COPY is not available in read only mode. Use SELECT to read rows.");
-  const text = sql.trim();
-  // A -c string that starts with a backslash would be a psql command, not SQL.
-  if (text.startsWith("\\")) throw new ExplorerInputError("psql commands (like \\d) are not available here. Write SQL instead.");
+  // Sent as SQL, it would only fail on the server: say why.
+  if (sql.trim().startsWith("\\")) throw new ExplorerInputError("psql commands (like \\d) are not available here. Write SQL instead.");
   // FETCH_COUNT streams a big result instead of holding it all; psql allows it for one statement only.
   const flags = `--csv -P ${sh(`null=${opts.nullMarker}`)}${statements.length === 1 ? ` -v FETCH_COUNT=${QUERY_LIMIT + 1}` : ""}`;
-  return [
-    ...pgEnv(c, opts),
-    shVar("Q", text),
-    `${psql(c, database, flags)}${opts.readOnly ? " -c 'BEGIN READ ONLY'" : ""} -c "$Q" -c '\\echo SERVE_ROWS :ROW_COUNT'${opts.readOnly ? " -c 'ROLLBACK'" : ""}`,
+  // \gexec sends the decoded text to the server as one query, as -c does (one transaction, the last
+  // result shown), without psql reading it: no psql commands, no :variables. Not quiet while it
+  // runs, so a statement without rows prints its tag (UPDATE 3), the only count \gexec leaves.
+  const lines = [
+    ...(opts.readOnly ? ["BEGIN READ ONLY;"] : []),
+    "\\set QUIET off",
+    `SELECT convert_from(decode('${b64(sql.trim())}', 'base64'), 'UTF8') \\gexec`,
+    "\\set QUIET on",
+    "\\echo SERVE_DONE",
+    ...(opts.readOnly ? ["ROLLBACK;"] : []),
   ];
+  return [...pgEnv(c, opts), psqlInput(c, database, flags, lines)];
 }
 
+/** psql's tag for a statement without rows: CREATE TABLE, UPDATE 3, INSERT 0 2. */
+const PG_TAG = /^[A-Z]+(?: [A-Z]+)*((?: \d+)*)\n?$/;
+
 export function parsePgQuery(stdout: string, nullMarker: string, truncated: boolean, limit = QUERY_LIMIT): QueryResult {
-  const m = /(?:^|\n)SERVE_ROWS (\d+)\n?$/.exec(stdout);
+  const m = /(?:^|\n)SERVE_DONE\n?$/.exec(stdout);
   const csv = m ? stdout.slice(0, m.index + (m[0].startsWith("\n") ? 1 : 0)) : stdout;
-  const rowCount = m ? Number(m[1]) : null;
-  if (!csv.trim() && m) return { kind: "done", affected: rowCount, message: null };
+  // ponytail: a header-only result whose one column is named like a tag ("CREATE TABLE") reads as done.
+  const tag = m ? PG_TAG.exec(csv) : null;
+  if (m && (!csv.trim() || tag)) {
+    const n = tag?.[1].trim().split(" ").pop();
+    return { kind: "done", affected: n ? Number(n) : null, message: null };
+  }
   const { records, complete } = parseCsv(csv, nullMarker);
   const [columns = [], ...rows] = records;
+  const whole = complete && !!m && !truncated;
   return {
     kind: "rows",
     columns: columns.map((c) => c ?? ""),
     rows: rows.slice(0, limit),
-    truncated: rows.length > limit || truncated || !complete || !m,
-    rowCount,
+    truncated: rows.length > limit || !whole,
+    rowCount: whole && rows.length <= limit ? rows.length : null,
   };
 }
 
@@ -805,7 +828,7 @@ export function pipelineWrites(value: unknown): boolean {
  * (exact types and numbers) and are made readable by readableEjson.
  */
 const MONGO_SCRIPT = `
-const input = JSON.parse(Buffer.from(process.env.SERVE_INPUT, "base64").toString("utf8"));
+const input = JSON.parse(Buffer.from((() => { const fs = require("fs"); const t = fs.readFileSync(process.env.SERVE_INPUT_FILE, "utf8"); fs.unlinkSync(process.env.SERVE_INPUT_FILE); return t; })(), "base64").toString("utf8"));
 const ej = (s, fallback) => (s === undefined || s === null || String(s).trim() === "" ? fallback : EJSON.parse(String(s), { relaxed: false }));
 const out = (d) => { const s = EJSON.stringify(d, { relaxed: false }); return s.length > 200000 ? EJSON.stringify({ _id: d && d._id, "(too large to show)": s.length + " characters" }, { relaxed: false }) : s; };
 // A fingerprint of a document as stored (canonical Extended JSON, so types count): an edit is saved
@@ -960,8 +983,10 @@ export type MongoInput = {
 export function mongoScript(c: EngineCreds, input: MongoInput, timeoutSeconds = QUERY_TIMEOUT) {
   const payload = { skip: 0, limit: QUERY_LIMIT, countCap: COUNT_CAP, readOnly: true, ...input, timeoutMs: timeoutSeconds * 1000 };
   return [
-    `export SERVE_INPUT=${sh(b64(JSON.stringify(payload)))}`,
-    `$T mongosh --quiet --norc${c.tlsRequired ? " --tls --tlsAllowInvalidCertificates" : ""} -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin admin --eval ${sh(MONGO_SCRIPT)}`,
+    // In a file, not the environment: one variable holds at most 128 KB. Removed after, even when mongosh fails.
+    `export SERVE_INPUT_FILE="$(mktemp)"`,
+    `printf '%s' ${sh(b64(JSON.stringify(payload)))} > "$SERVE_INPUT_FILE"`,
+    `$T mongosh --quiet --norc${c.tlsRequired ? " --tls --tlsAllowInvalidCertificates" : ""} -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin admin --eval ${sh(MONGO_SCRIPT)}; r=$?; rm -f "$SERVE_INPUT_FILE"; (exit $r)`,
   ];
 }
 
@@ -1043,6 +1068,12 @@ const KV_NEVER = new Set([
   "HELLO",
   "RESET",
   "QUIT",
+  // redis-cli's own commands when it reads its input: CONNECT would point it at another server.
+  "CONNECT",
+  "EXIT",
+  "CLEAR",
+  "HELP",
+  "RESTART",
   "SHUTDOWN",
   "DEBUG",
 ]);
@@ -1138,7 +1169,8 @@ function kvRun(engine: string, c: EngineCreds, database: number, args: (Buffer |
   if (!Number.isInteger(database) || database < 0 || database > 255) throw new ExplorerInputError("Unknown database number.");
   return [
     `export REDISCLI_AUTH=${sh(c.password)} VALKEYCLI_AUTH=${sh(c.password)}`,
-    `$T ${kvBin(engine)} --no-auth-warning${c.tlsRequired ? " --tls --insecure" : ""} --quoted-input --quoted-json -n ${database} ${args.map((a) => sh(kvQuote(a))).join(" ")}`,
+    // On the client's input, one line: as arguments, one of them holds at most 128 KB.
+    `${pipe(`${args.map(kvQuote).join(" ")}\n`)} | $T ${kvBin(engine)} --no-auth-warning${c.tlsRequired ? " --tls --insecure" : ""} --quoted-input --quoted-json -n ${database}`,
   ];
 }
 
@@ -1382,7 +1414,7 @@ export function editCellScript(engine: "postgres" | "mysql" | "mariadb", c: Engi
   if (engine === "postgres") {
     const where = [...edit.key.map((k) => `${pgIdent(k.column)} = ${pgLiteral(k.value)}`), ...unchanged].join(" AND ");
     const sql = `UPDATE ${pgIdent(edit.schema ?? "public")}.${pgIdent(edit.table)} SET ${pgIdent(edit.column)} = ${edit.value === null ? "NULL" : pgLiteral(edit.value)} WHERE ${where}`;
-    return [...pgEnv(c, { readOnly: false, timeoutSeconds: QUERY_TIMEOUT }), shVar("U", sql), `${psql(c, edit.database, "-At")} -c "$U" -c '\\echo SERVE_ROWS :ROW_COUNT'`];
+    return [...pgEnv(c, { readOnly: false, timeoutSeconds: QUERY_TIMEOUT }), psqlInput(c, edit.database, "-At", [`${sql};`, "\\echo SERVE_ROWS :ROW_COUNT"])];
   }
   const where = [...edit.key.map((k) => `${myIdent(k.column)} = ${myLiteral(k.value)}`), ...unchanged].join(" AND ");
   const table = `${myIdent(edit.database)}.${myIdent(edit.table)}`;
@@ -1450,8 +1482,8 @@ export function changesScript(engine: "postgres" | "mysql" | "mariadb", c: Engin
       const cols = Object.keys(i.values);
       statements.push(`INSERT INTO ${table} (${cols.map(pgIdent).join(", ")}) VALUES (${cols.map((col) => value(i.values[col])).join(", ")});`);
     }
-    // One -c with several statements is one transaction: an error in any undoes all.
-    return [...pgEnv(c, { readOnly: false, timeoutSeconds: QUERY_TIMEOUT }), shVar("U", statements.join("\n")), `${psql(c, ch.database, "-At")} -c "$U" -c '\\echo SERVE_SAVED'`];
+    // One transaction: an error in any undoes all.
+    return [...pgEnv(c, { readOnly: false, timeoutSeconds: QUERY_TIMEOUT }), psqlInput(c, ch.database, "-At", [...statements, "\\echo SERVE_SAVED"], true)];
   }
   const table = `${myIdent(ch.database)}.${myIdent(ch.table)}`;
   const value = (v: string | null) => (v === null ? "NULL" : myLiteral(v));

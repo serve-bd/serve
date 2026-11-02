@@ -39,7 +39,6 @@ import {
   kvKeyspaceScript,
   kvScanScript,
   MAX_OUTPUT,
-  MAX_QUERY_BYTES,
   MONGO_READ_OPS,
   MONGO_WRITE_OPS,
   type MongoInput,
@@ -97,7 +96,6 @@ async function explorerService(serviceId: string, write = false) {
   return { ctx, service: service as DatabaseService };
 }
 
-const MAX_SCRIPT_BYTES = 125_000;
 const credsOf = (service: DatabaseService) => databaseCreds(service.database, decrypt(service.database.password));
 const nonce = () => crypto.randomBytes(8).toString("hex");
 
@@ -106,14 +104,13 @@ async function runInDatabase(service: DatabaseService, body: string[], timeoutSe
   if (service.status !== "running") throw new UserError(`${service.name} is not running. Start it to see its data.`);
   const password = decrypt(service.database.password);
   const script = framed(body, nonce(), timeoutSeconds);
-  // The script is one argument of the exec, and Linux takes at most 128 KB for one.
-  if (Buffer.byteLength(script, "utf8") > MAX_SCRIPT_BYTES) throw new UserError("This is too long to run here. Shorten the query or the values in it.");
   const { docker } = await serverOf(service);
   const started = Date.now();
   let res;
   try {
     const container = await databaseContainer(docker, service);
-    res = await execCommand(container.id, script, { docker, timeoutSeconds: timeoutSeconds + 15, maxOutput: Math.ceil(MAX_OUTPUT * 1.4) + 65_536 });
+    // On standard input: as one argument of the exec, Linux would take at most 128 KB of script.
+    res = await execCommand(container.id, script, { docker, viaStdin: true, timeoutSeconds: timeoutSeconds + 15, maxOutput: Math.ceil(MAX_OUTPUT * 1.4) + 65_536 });
   } catch (e) {
     throw new UserError(`Could not reach the database container: ${(e as Error).message}`);
   }
@@ -160,7 +157,7 @@ const rowsSchema = refSchema.extend({
   /** The order without a sort: the primary key, so pages stay put. */
   order: z.array(nameSchema.min(1)).max(32).optional(),
   /** MongoDB: a filter and a sort as Extended JSON. */
-  mongoFilter: z.string().max(MAX_QUERY_BYTES).optional(),
+  mongoFilter: z.string().optional(),
   mongoSort: z.string().max(10_000).optional(),
 });
 
@@ -307,11 +304,7 @@ export async function explorerKey(serviceId: string, input: { database: string; 
   return act(async (): Promise<KeyValue> => {
     const { service } = await explorerService(serviceId);
     if (explorerFamily(service.database.engine) !== "kv") throw new UserError("Keys are for Redis and Valkey.");
-    const key = z
-      .string()
-      .min(1)
-      .max(64 * 1024)
-      .parse(input.key);
+    const key = z.string().min(1).parse(input.key);
     const r = await runOk(
       service,
       scripted(() => kvKeyScript(service.database.engine, credsOf(service), databaseNumber(input.database), kvBytes(key), input.at ?? "0")),
@@ -343,7 +336,6 @@ export async function explorerQuery(serviceId: string, input: z.input<typeof que
   return act(async (): Promise<ExplorerQueryResult> => {
     const req = querySchema.parse(input);
     const { ctx, service } = await explorerService(serviceId, !req.readOnly);
-    if (Buffer.byteLength(req.query, "utf8") > MAX_QUERY_BYTES) throw new UserError(`Queries are limited to ${MAX_QUERY_BYTES / 1024} KB.`);
     const engine = service.database.engine;
     const family = explorerFamily(engine);
     const c = credsOf(service);
@@ -429,16 +421,9 @@ const editSchema = z.object({
     .min(1)
     .max(32),
   column: nameSchema.min(1),
-  value: z
-    .string()
-    .max(MAX_QUERY_BYTES / 2)
-    .nullable(),
+  value: z.string().nullable(),
   /** The value the row showed: when the row holds another one now, nothing is changed. */
-  original: z
-    .string()
-    .max(MAX_QUERY_BYTES / 2)
-    .nullable()
-    .optional(),
+  original: z.string().nullable().optional(),
 });
 
 /** The values a row showed, with their columns' types; a value shown cut short cannot be changed. */
@@ -511,7 +496,7 @@ const keySchema = z
   .array(z.object({ column: nameSchema.min(1), value: z.string().max(10_000) }))
   .min(1)
   .max(32);
-const valuesSchema = z.record(nameSchema.min(1), z.string().max(MAX_QUERY_BYTES).nullable());
+const valuesSchema = z.record(nameSchema.min(1), z.string().nullable());
 /** The values the row showed (some or all of its columns): a row that holds others now is not changed. */
 const originalSchema = valuesSchema.optional();
 const changesSchema = z.object({
@@ -627,7 +612,7 @@ const documentSchema = z.object({
   database: nameSchema,
   collection: nameSchema.min(1),
   id: z.string().min(1).max(10_000),
-  document: z.string().max(MAX_QUERY_BYTES),
+  document: z.string(),
   /** The version of the document as it was shown (from explorerRows): a document changed since is not overwritten. */
   version: z.string().min(1).max(100).optional(),
 });

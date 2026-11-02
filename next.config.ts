@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["dockerode", "ssh2", "cpu-features", "postgres"],
   poweredByHeader: false,
+  // Queries and values typed in a database's Data tab travel in an action's body: room for a big
+  // migration or dump. It holds for every action and is read before sign-in is checked, so it stays
+  // bounded. Bigger: Backups → Import.
+  experimental: { serverActions: { bodySizeLimit: "16mb" } },
   // No other site may frame the dashboard (clickjacking).
   async headers() {
     return [

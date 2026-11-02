@@ -58,19 +58,39 @@ export type ExecResult = { exitCode: number; output: string; timedOut: boolean }
 export async function execCommand(
   containerId: string,
   command: string,
-  opts: { onData?: (text: string) => void; signal?: AbortSignal; timeoutSeconds?: number; maxOutput?: number; docker?: Docker } = {},
+  opts: {
+    onData?: (text: string) => void;
+    signal?: AbortSignal;
+    timeoutSeconds?: number;
+    maxOutput?: number;
+    docker?: Docker;
+    /**
+     * Send `command` on standard input instead of as an argument: Linux takes at most 128 KB for
+     * one argument, so a long script (a big query) goes this way. It is saved to a file first, so
+     * what it runs reads an empty input, not the rest of the script.
+     */
+    viaStdin?: boolean;
+  } = {},
 ): Promise<ExecResult> {
   const docker = opts.docker ?? localDocker;
   const container = docker.getContainer(containerId);
   // Marks the command's processes (children inherit it), so a timeout can find and stop them.
   const marker = `SERVE_EXEC=${randomBytes(8).toString("hex")}`;
   const exec = await container.exec({
-    Cmd: ["sh", "-c", command],
+    Cmd: opts.viaStdin
+      ? ["sh", "-c", 'f="$(mktemp)" || exit 125; cat > "$f" || { rm -f "$f"; exit 125; }; exec 3< "$f"; rm -f "$f"; exec sh /proc/self/fd/3 < /dev/null']
+      : ["sh", "-c", command],
+    AttachStdin: !!opts.viaStdin,
     AttachStdout: true,
     AttachStderr: true,
     Env: ["TERM=dumb", marker],
   });
-  const stream = await exec.start({ hijack: true, stdin: false });
+  const stream = await exec.start({ hijack: true, stdin: !!opts.viaStdin });
+  if (opts.viaStdin) {
+    // The script, then the end of input: the shell saves it and runs it.
+    (stream as unknown as NodeJS.WritableStream).write(command);
+    (stream as unknown as NodeJS.WritableStream & { end: () => void }).end();
+  }
   const max = opts.maxOutput ?? 256_000;
   let output = "";
   const sink = new PassThrough();

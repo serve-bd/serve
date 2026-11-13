@@ -584,12 +584,63 @@ export const service = pgTable(
     previewDatabase: jsonb("preview_database").$type<PreviewDatabaseConfig>(),
     /** Maintenance page on every domain of the service. */
     maintenance: jsonb("maintenance").$type<MaintenanceConfig>(),
+    /** Set when a serve-compose.yml made the service: the stack's name and the service's key in it. */
+    stackName: text("stack_name"),
+    stackKey: text("stack_key"),
+    /** What the stack file set last: a value changed in the dashboard since keeps winning. */
+    stackFile: jsonb("stack_file").$type<StackFileRecord>(),
     webhookSecret: text("webhook_secret").notNull(),
     currentDeploymentId: text("current_deployment_id"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("service_project_idx").on(t.projectId), index("service_env_idx").on(t.environmentId), index("service_server_idx").on(t.serverId)],
+  (t) => [
+    index("service_project_idx").on(t.projectId),
+    index("service_env_idx").on(t.environmentId),
+    index("service_server_idx").on(t.serverId),
+    uniqueIndex("service_stack_idx").on(t.environmentId, t.stackName, t.stackKey),
+  ],
+);
+
+/** What a stack file set on a service when it was last applied, compared on the next `up`. */
+export type StackFileRecord = {
+  appliedAt: string;
+  /** Variables by key, as the file wrote them (before ${{ }} links are resolved). */
+  variables: Record<string, string>;
+  domains: string[];
+  /** The serve.json-style settings, as JSON, applied like a serve.json. */
+  settings: string | null;
+  port: number | null;
+};
+
+export type StackRunStep = {
+  key: string;
+  serviceId: string;
+  wave: number;
+  state: "waiting" | "deploying" | "success" | "failed" | "skipped" | "unchanged";
+  deploymentId: string | null;
+  /** Why it failed or was skipped. */
+  note: string | null;
+  /** The keys it waits for, and how far (healthy: its deploy succeeded; started: it is running). */
+  needs: { on: string; condition: "healthy" | "started" }[];
+};
+
+/** One `serve compose up` deploy: services go wave by wave, each after what it needs. */
+export const stackRun = pgTable(
+  "stack_run",
+  {
+    id: id(),
+    environmentId: text("environment_id")
+      .notNull()
+      .references(() => environment.id, { onDelete: "cascade" }),
+    stackName: text("stack_name").notNull(),
+    status: text("status").$type<"running" | "success" | "failed" | "cancelled">().notNull().default("running"),
+    steps: jsonb("steps").$type<StackRunStep[]>().notNull(),
+    userId: text("user_id"),
+    createdAt: createdAt(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index("stack_run_env_idx").on(t.environmentId, t.stackName)],
 );
 
 export const envVar = pgTable(

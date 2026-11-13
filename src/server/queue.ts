@@ -51,6 +51,7 @@ export type JobType =
   | "instance.update"
   | "notification.deliver"
   | "environment.copy-data"
+  | "stack.advance"
   | "preview.database"
   | "database.branch"
   | "mesh.sync"
@@ -115,6 +116,8 @@ export type JobPayloads = {
   "instance.update": { to: string };
   "notification.deliver": { deliveryId: string };
   "environment.copy-data": { environmentId: string; pairs: { from: string; to: string }[]; userId?: string | null };
+  /** One look at a serve compose up run: follows its deployments, starts the next ones. */
+  "stack.advance": { runId: string; trigger: import("@/server/db/schema").DeploymentTrigger };
   "database.branch": {
     branchId: string;
     op: "create" | "reset" | "delete";

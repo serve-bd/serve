@@ -86,6 +86,11 @@ async function handle(job: Job, signal: AbortSignal) {
       return destroyService(job.payload as never);
     case "environment.copy-data":
       return copyEnvironmentData(job.payload as JobPayloads["environment.copy-data"]);
+    case "stack.advance": {
+      const p = job.payload as JobPayloads["stack.advance"];
+      const { advanceStackRun } = await import("@/server/stacks/run");
+      return advanceStackRun(p.runId, p.trigger);
+    }
     case "preview.database":
       return preparePreviewDatabase(job.payload as JobPayloads["preview.database"]);
     case "database.branch":

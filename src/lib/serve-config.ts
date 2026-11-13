@@ -220,7 +220,7 @@ const monitor = z
   .partial();
 
 /** Everything a serve.json sets for one deploy: the file, or an environment's or previews' block. */
-const settingsShape = {
+export const settingsShape = {
   build: build.optional(),
   deploy: deploy.optional(),
   healthcheck: healthcheck.optional(),
@@ -233,7 +233,7 @@ const settingsShape = {
   monitor: monitor.optional(),
 };
 
-function settingsChecks(c: z.infer<z.ZodObject<typeof settingsShape>>, ctx: z.RefinementCtx) {
+export function settingsChecks(c: z.infer<z.ZodObject<typeof settingsShape>>, ctx: z.RefinementCtx) {
   const names = new Set<string>();
   for (const [i, t] of (c.tasks ?? []).entries()) {
     if (names.has(t.name)) ctx.addIssue({ code: "custom", path: ["tasks", i, "name"], message: `Two tasks are named "${t.name}". Give each task its own name.` });
@@ -321,12 +321,12 @@ export function resolveServeConfig(config: ServeConfig, at: { environment: strin
   return { errors: result.error.issues.slice(0, 20).map((i) => `${where(i.path)}${issueText(i)}${from}`) };
 }
 
-function where(path: PropertyKey[]) {
+export function where(path: PropertyKey[]) {
   if (!path.length) return "";
   return `${path.map((p, i) => (typeof p === "number" ? `[${p}]` : `${i ? "." : ""}${String(p)}`)).join("")}: `;
 }
 
-function issueText(i: z.core.$ZodIssue) {
+export function issueText(i: z.core.$ZodIssue) {
   if (i.code === "unrecognized_keys") return `unknown ${i.keys.length === 1 ? "setting" : "settings"} ${i.keys.map((k) => `"${k}"`).join(", ")}`;
   return i.message;
 }

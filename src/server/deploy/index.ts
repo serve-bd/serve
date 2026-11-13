@@ -1,3 +1,4 @@
+import { STACK_FILE } from "@/lib/stack";
 import { newId } from "@/server/id";
 import { replicasSupported } from "@/server/services/types";
 import { configFingerprint } from "@/server/services/fingerprint";
@@ -256,7 +257,8 @@ async function prepareAppImage(
       return;
     }
     if (!file) {
-      if (dep.trigger !== "redeploy") await forgetServeConfig(service, log);
+      // Settings a serve-compose.yml applied stay its own: only a repository's serve.json is gone here.
+      if (dep.trigger !== "redeploy" && !service.configFile?.path.startsWith(STACK_FILE)) await forgetServeConfig(service, log);
     } else if (dep.trigger === "redeploy") {
       log.line(`Redeploy: ${file.path} is not applied again, so changes made in the dashboard stay. Deploy to apply it.`);
     } else {

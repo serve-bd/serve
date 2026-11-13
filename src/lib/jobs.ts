@@ -49,6 +49,7 @@ export const JOB_LABELS: Record<string, string> = {
   cleanup: "Docker cleanup",
   "database.branch": "Database branch",
   "environment.copy-data": "Data copy",
+  "stack.advance": "Stack deploy",
   "instance.backup": "Instance backup",
   "instance.update": "Instance update",
   "mesh.sync": "Private network",

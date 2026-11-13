@@ -462,15 +462,18 @@ export async function listRemoteBranches(source: GitSource, organizationId?: str
  * removed (a provider deleted and added again): the GitHub App first, then the newest. Null: none.
  */
 export async function replacementGitLogin(organizationId: string, repository: string, except?: string) {
+  return (await gitLoginsFor(organizationId, repository)).find((c) => c.id !== except) ?? null;
+}
+
+/** The organization's git logins for a repository's host: the GitHub App first, then the newest. */
+export async function gitLoginsFor(organizationId: string, repository: string) {
   const url = normalizeRepoUrl(repository);
   const ssh = url.startsWith("git@") || url.startsWith("ssh://");
   const origin = URL.canParse(url) ? new URL(url).origin.toLowerCase() : null;
   const logins = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.organizationId, organizationId));
-  const fits = logins
-    .filter((c) => c.id !== except)
+  return logins
     .filter((c) => (ssh ? c.provider === "ssh" : c.provider !== "ssh" && !!origin && credentialOrigin(c) === origin))
     .sort((a, b) => Number(b.provider === "github-app") - Number(a.provider === "github-app") || b.createdAt.getTime() - a.createdAt.getTime());
-  return fits[0] ?? null;
 }
 
 /**

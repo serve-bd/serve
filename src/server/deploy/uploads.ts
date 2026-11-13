@@ -126,6 +126,10 @@ export async function pruneUploads(serviceId: string, keep = KEEP_UPLOADS) {
     .from(schema.deployment)
     .where(and(eq(schema.deployment.serviceId, serviceId), isNotNull(schema.deployment.upload), inArray(schema.deployment.status, ["queued", "waiting", "building", "deploying"])));
   const kept = new Set([...recent, ...waiting].map((r) => path.basename(r.upload!.archive)));
+  // Files sent for a serve compose up run wait there until the service's turn.
+  const runs = await db.select({ steps: schema.stackRun.steps }).from(schema.stackRun).where(eq(schema.stackRun.status, "running"));
+  for (const step of runs.flatMap((r) => r.steps as { serviceId: string; upload?: { archive: string } | null }[]))
+    if (step.serviceId === serviceId && step.upload) kept.add(path.basename(step.upload.archive));
   const dir = path.join(paths.uploads, serviceId);
   const names = await fs.promises.readdir(dir).catch(() => [] as string[]);
   const removed: string[] = [];

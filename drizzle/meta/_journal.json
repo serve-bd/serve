@@ -687,6 +687,13 @@
       "when": 1793134486831,
       "tag": "0097_env_var_drop_may_borrow",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1794611134680,
+      "tag": "0098_stacks",
+      "breakpoints": true
     }
   ]
 }

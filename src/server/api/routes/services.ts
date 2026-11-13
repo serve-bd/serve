@@ -261,6 +261,7 @@ export const serviceRoutes: ApiRoute[] = [
       'For apps with source {type:"upload"}, and as a one-off deploy of local files for apps built from Git or a Dockerfile (that also needs services.manage). Not for image apps, compose stacks or databases.',
       "Query: message, commit, branch (shown with the deployment), dirty=1 (the folder had changes that were not committed), noCache=1.",
       "Redeploying the deployment builds the same files again; the files of the last 5 uploads are kept.",
+      "stackRun={runId}: the files are for a service waiting in a serve compose up run; it deploys when its turn comes (the answer has no deploymentId then).",
     ].join(" "),
     needs: ["services.deploy"],
     query: z.object({
@@ -272,6 +273,7 @@ export const serviceRoutes: ApiRoute[] = [
       branch: z.string().max(255).optional(),
       dirty: z.enum(["0", "1", "true", "false"]).optional(),
       noCache: z.enum(["0", "1", "true", "false"]).optional(),
+      stackRun: z.string().max(64).optional(),
     }),
     status: 202,
     handler: async ({ auth, params, query, request }) => {
@@ -316,13 +318,19 @@ export const serviceRoutes: ApiRoute[] = [
             .where(eq(schema.service.id, service.id));
           setNoCache = !service.build.noCacheOnce;
         }
+        const upload = { archive: stored.archive, size: stored.size, files: stored.files, dirty: yes(query.dirty) };
+        if (query.stackRun) {
+          const { attachStackUpload } = await import("@/server/stacks/run");
+          if (!(await attachStackUpload(query.stackRun, service.id, upload))) throw new ApiError(409, "This service is not waiting for files in that stack run.");
+          return { deploymentId: null, stackRun: query.stackRun };
+        }
         await queueDeployment(service.id, "cli", {
           id: deploymentId,
           userId: auth.userId,
           commitSha: query.commit?.toLowerCase() ?? null,
           commitMessage: query.message?.trim() || null,
           branch: query.branch?.trim() || null,
-          upload: { archive: stored.archive, size: stored.size, files: stored.files, dirty: yes(query.dirty) },
+          upload,
         });
         await pruneUploads(service.id).catch(() => {});
         return { deploymentId };

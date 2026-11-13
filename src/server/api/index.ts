@@ -11,6 +11,7 @@ import { networkingRoutes } from "./routes/networking";
 import { orgRoutes } from "./routes/org";
 import { projectRoutes } from "./routes/projects";
 import { serviceRoutes } from "./routes/services";
+import { stackRoutes } from "./routes/stacks";
 import { statusPageRoutes } from "./routes/status-pages";
 import { type ApiRoute, createRouter, needLabel } from "./router";
 
@@ -18,6 +19,7 @@ export const apiRoutes: ApiRoute[] = [
   ...orgRoutes,
   ...projectRoutes,
   ...serviceRoutes,
+  ...stackRoutes,
   ...consoleRoutes,
   ...fileRoutes,
   ...databaseRoutes,
@@ -36,6 +38,7 @@ const TAGS = [
   ["Environments", "Each project has environments (production, staging, ...) with their own services."],
   ["Services", "Apps, databases and compose stacks."],
   ["Deployments", "Builds and rollouts."],
+  ["Stacks", "serve-compose.yml: many services of an environment in one file, deployed in dependency order."],
   ["Variables", "Environment variables of services, and shared variables."],
   ["Domains", "Domains of services."],
   ["Databases", "Connection details, settings, domains and branches of databases."],

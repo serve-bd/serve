@@ -11,6 +11,7 @@ import {
   ArchiveRestore,
   ArrowLeft,
   ArrowUpRight,
+  Boxes,
   Braces,
   CalendarClock,
   Construction,
@@ -24,8 +25,8 @@ import {
   Play,
   Plug,
   Power,
-  RotateCw,
   Rocket,
+  RotateCw,
   ScrollText,
   Settings,
   Square,
@@ -64,6 +65,8 @@ type Props = {
     name: string;
     type: string;
     icon: string | null;
+    /** The serve-compose.yml stack that made it. */
+    stack?: string | null;
     engine: string | null;
     sourceType: "git" | "image" | "dockerfile" | "upload" | null;
     sourceLabel: string;
@@ -263,6 +266,12 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 ))}
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
+                {service.stack && (
+                  <span className="inline-flex items-center gap-1" title={`Part of the ${service.stack} stack (serve-compose.yml)`}>
+                    <Boxes className="size-3 shrink-0 text-faint" />
+                    {service.stack}
+                  </span>
+                )}
                 {service.sourceLabel && <span className="max-w-full truncate font-mono text-[12px]">{service.sourceLabel}</span>}
                 {primary && (
                   <a

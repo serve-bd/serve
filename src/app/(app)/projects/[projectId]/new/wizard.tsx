@@ -8,6 +8,7 @@ import { useRouter } from "@/hooks/use-router";
 import {
   ArrowLeft,
   ArrowUpRight,
+  Boxes,
   ChevronRight,
   Container,
   Database,
@@ -37,6 +38,9 @@ import { TemplateLogo } from "@/components/template-logo";
 import { CodeEditor } from "@/components/code-editor";
 import { useAction, showError } from "@/hooks/use-action";
 import { createAppService, createComposeService, createDatabaseService } from "@/server/actions/services";
+import { planStackAction, upStack } from "@/server/actions/stacks";
+import type { StackPlan } from "@/server/stacks/plan";
+import { parseEnvFile } from "@/lib/env-file";
 import { fetchBranches, fetchRepositories } from "@/server/actions/integrations";
 import { cn } from "@/lib/utils";
 import { parseEnv } from "@/lib/env";
@@ -47,7 +51,7 @@ import type { DbEngine } from "@/server/services/types";
 import { NixpacksHint } from "@/components/nixpacks-hint";
 import { toVolumes, type VolumeRow, volumeName, volumeRowsIssue } from "./volume-rows";
 
-type Kind = "git" | "image" | "dockerfile" | "database" | "compose";
+type Kind = "git" | "image" | "dockerfile" | "database" | "compose" | "stack";
 /** How a Git repository is reached: by URL, with an SSH deploy key, or through a connected account. */
 type GitAccess = "public" | "key" | "account";
 
@@ -116,6 +120,7 @@ const starts: { id: Kind; key: string; access?: GitAccess; title: string; body: 
   { id: "dockerfile", key: "dockerfile", title: "Dockerfile", body: "Paste a Dockerfile and Serve builds it; no repository needed.", icon: <FileCode /> },
   { id: "compose", key: "compose", title: "Docker Compose", body: "A multi-container stack from a compose file.", icon: <Layers /> },
   { id: "database", key: "database", title: "Database", body: "PostgreSQL, MySQL, Redis and more, with backups.", icon: <Database /> },
+  { id: "stack", key: "stack", title: "Stack", body: "Many services from one serve-compose.yml, deployed in order.", icon: <Boxes /> },
 ];
 
 function repoName(url: string) {
@@ -917,6 +922,105 @@ volumes:
   web-data:
 `;
 
+const sampleStack = `name: my-stack
+services:
+  db:
+    database: postgres:18
+  web:
+    image: nginx:alpine
+    port: 80
+    env:
+      DATABASE_URL: \${{ db.DATABASE_URL }}
+`;
+
+/**
+ * A serve-compose.yml pasted in: checked against the environment (what each service would get),
+ * then applied and deployed in order. Files it names (env_file, compose) are pasted below it.
+ */
+function StackForm({ props, onBack }: { props: Props; onBack: () => void }) {
+  const router = useRouter();
+  const [text, setText] = React.useState(sampleStack);
+  const [dotenv, setDotenv] = React.useState("");
+  const [files, setFiles] = React.useState<Record<string, string>>({});
+  const [plan, setPlan] = React.useState<StackPlan | null>(null);
+  const parsed = parseEnvFile(dotenv);
+  const input = () => ({ text, values: "values" in parsed ? parsed.values : {}, files, folder: "stack" });
+  const check = useAction(planStackAction, { refresh: false, onSuccess: (p) => setPlan(p) });
+  const apply = useAction(upStack, {
+    refresh: false,
+    onSuccess: () => router.push(`/projects/${props.projectId}?env=${encodeURIComponent(props.environmentName)}`),
+  });
+  // A changed file needs a new check before it is applied.
+  const edit = (f: (v: string) => void) => (v: string) => {
+    f(v);
+    setPlan(null);
+  };
+  const wanted = plan?.needs.files ?? [];
+  const missing = (plan?.needs.variables ?? []).filter((v) => !("values" in parsed && v in parsed.values) && !new RegExp(`\\$\\{${v}:?-`).test(text));
+  return (
+    <FormShell
+      title="Add a stack"
+      description="Services, databases and how they connect, from one serve-compose.yml. The serve compose up command of the CLI reads the same file."
+      onBack={onBack}
+      onSubmit={() => (plan?.ready ? apply.run(props.environmentId, input(), { dashboard: true }) : check.run(props.environmentId, input(), { dashboard: true }))}
+      footer={
+        plan?.ready ? (
+          <Button type="submit" variant="primary" size="sm" loading={apply.pending}>
+            Create and deploy
+          </Button>
+        ) : (
+          <Button type="submit" variant="primary" size="sm" loading={check.pending}>
+            Check
+          </Button>
+        )
+      }
+    >
+      <Field label="serve-compose.yml">
+        <CodeEditor value={text} onChange={edit(setText)} minRows={14} aria-label="serve-compose.yml" />
+      </Field>
+      <Field label="Values for ${VAR}" description="KEY=value lines, like a .env file next to serve-compose.yml." error={"error" in parsed ? parsed.error : null} optional>
+        <Textarea value={dotenv} onChange={(e) => edit(setDotenv)(e.target.value)} rows={3} placeholder="API_SECRET=..." className="font-mono text-[13px]" />
+      </Field>
+      {wanted.map((path) => (
+        <Field key={path} label={path} description="The file names it: paste its content.">
+          <CodeEditor value={files[path] ?? ""} onChange={edit((v) => setFiles((f) => ({ ...f, [path]: v })))} minRows={4} aria-label={path} />
+        </Field>
+      ))}
+      {plan && <StackPlanView plan={plan} missing={missing} />}
+    </FormShell>
+  );
+}
+
+function StackPlanView({ plan, missing }: { plan: StackPlan; missing: string[] }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-line p-3 text-[13px]">
+      {plan.errors.map((e) => (
+        <p key={e} className="flex gap-2 text-bad">
+          <TriangleAlert className="mt-0.5 size-3.5 flex-none" />
+          {e}
+        </p>
+      ))}
+      {!!missing.length && <p className="text-muted">Give a value for {missing.join(", ")} above.</p>}
+      {plan.services.map((s) => (
+        <div key={s.key} className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-medium text-fg">{s.name}</span>
+          <Badge>{s.action === "create" ? "new" : s.action}</Badge>
+          <span className="text-faint">
+            {s.kind}, deploys in step {s.wave + 1}
+            {s.needs.length ? ` after ${s.needs.map((n) => n.on).join(", ")}` : ""}
+          </span>
+          {!!s.changes.length && <span className="basis-full text-muted">{s.changes.join("; ")}</span>}
+        </div>
+      ))}
+      {plan.warnings.map((w) => (
+        <p key={w} className="text-warn">
+          {w}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const router = useRouter();
   const [mode, setMode] = React.useState<"inline" | "git">("inline");
@@ -1377,5 +1481,6 @@ function WizardSteps({ props, step, setStep }: { props: Props; step: Step; setSt
   if (step.kind === "image") return <ImageForm props={props} onBack={back} onDatabase={(engine) => setStep({ kind: "database", engine })} />;
   if (step.kind === "dockerfile") return <DockerfileForm props={props} onBack={back} />;
   if (step.kind === "database") return <DatabaseForm props={props} onBack={back} initialEngine={step.engine} />;
+  if (step.kind === "stack") return <StackForm props={props} onBack={back} />;
   return <ComposeForm props={props} onBack={back} />;
 }

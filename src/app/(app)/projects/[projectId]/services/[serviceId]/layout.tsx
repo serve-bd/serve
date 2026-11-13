@@ -81,6 +81,7 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
           tags: (await (await import("@/server/tags")).tagsOf([service.id])).get(service.id) ?? [],
           parent: parent && service.previewPr !== null ? { id: parent.id, name: parent.name, pr: service.previewPr } : null,
           icon: service.icon,
+          stack: service.stackName,
           engine: service.database?.engine ?? null,
           sourceType: service.source?.type ?? null,
           sourceLabel:

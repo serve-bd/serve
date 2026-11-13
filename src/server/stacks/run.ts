@@ -129,7 +129,8 @@ async function advance(tx: Tx, run: Run, trigger: DeploymentTrigger) {
     }
     try {
       const { queueDeployment } = await import("@/server/services/create");
-      const id = await queueDeployment(s.serviceId, trigger, { userId: run.userId, upload: s.upload ?? null });
+      // "cli" reads as a CLI upload: a service the CLI sent no files for deploys as from the API.
+      const id = await queueDeployment(s.serviceId, trigger === "cli" && !s.upload ? "api" : trigger, { userId: run.userId, upload: s.upload ?? null });
       const [dep] = await db.select({ status: schema.deployment.status, error: schema.deployment.error }).from(schema.deployment).where(eq(schema.deployment.id, id));
       if (dep?.status === "failed" || dep?.status === "cancelled") {
         s.state = "failed";

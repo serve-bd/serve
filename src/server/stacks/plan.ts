@@ -273,7 +273,8 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
         if (last?.port != null && existing.runtime.port !== last.port && !opts.force) item.kept.push("port");
         else item.changes.push(`port: ${existing.runtime.port ?? "none"} → ${spec.port}`);
       }
-      if ((last?.settings ?? null) !== settings) item.changes.push("settings");
+      // Settings the file no longer lists stay as they are: only new ones count.
+      if (settings !== null && (last?.settings ?? null) !== settings) item.changes.push("settings");
       const rows = await db.select({ key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(eq(schema.envVar.serviceId, existing.id));
       const current = new Map(rows.map((r) => [r.key, decryptOrNull(r.value) ?? ""]));
       const v = variableChanges(current, rewriteLinks(env, names), last?.variables ?? {}, !!opts.force);

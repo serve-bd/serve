@@ -85,6 +85,31 @@ export const stackRoutes: ApiRoute[] = [
   }),
   route({
     method: "GET",
+    path: "/environments/{environmentId}/stacks/export",
+    tag: "Stacks",
+    summary: "Write an environment's services as a serve-compose.yml",
+    description:
+      "file: the serve-compose.yml text; files: the files it names (.env.<service>, compose files), by path; notes: what did not fit. stack: only that stack's services; services: only these (names, comma separated). values=1 puts variable values in the env files (needs variables.view-secrets); otherwise they list the names only.",
+    needs: ["projects.view"],
+    query: z.object({ stack: z.string().max(100).optional(), services: z.string().max(5000).optional(), values: z.enum(["0", "1", "true", "false"]).optional() }),
+    handler: async ({ auth, params, query }) => {
+      await loadEnvironment(auth, params.environmentId);
+      const values = query.values === "1" || query.values === "true";
+      if (values) assertCan(auth, "variables.view-secrets");
+      return unwrap(
+        stacks.exportStackAction(params.environmentId, {
+          stack: query.stack,
+          services: query.services
+            ?.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          values,
+        }),
+      );
+    },
+  }),
+  route({
+    method: "GET",
     path: "/stack-runs/{runId}",
     tag: "Stacks",
     summary: "A stack deploy's progress",

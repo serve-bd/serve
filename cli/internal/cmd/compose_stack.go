@@ -613,3 +613,83 @@ included) stay unless --volumes. Without a name: the stack of serve-compose.yml 
 	fl.BoolVar(&asJSON, "json", false, "print as JSON")
 	return cmd
 }
+
+func (a *App) composeExportCmd() *cobra.Command {
+	var out, stack, services string
+	var values, force bool
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Write an environment's services as a serve-compose.yml",
+		Long: `Write the environment's services (or one stack's, or --services) as a serve-compose.yml
+with the files it names, ready for serve compose up in another project or another Serve.
+Links between services stay as ${{ }}. Variable values go to .env.<service> files only with
+--with-values; otherwise the files list the names to fill in. Database data is not part of
+it: restore a backup in the new place.`,
+		Example: "  serve compose export -o ./shop\n  serve compose export --stack shop --with-values -o ./copy",
+		Args:    noArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			_, env, err := a.stackEnvironment(ctx)
+			if err != nil {
+				return err
+			}
+			q := url.Values{}
+			if stack != "" {
+				q.Set("stack", stack)
+			}
+			if services != "" {
+				q.Set("services", services)
+			}
+			if values {
+				q.Set("values", "1")
+			}
+			var r struct {
+				File  string            `json:"file"`
+				Files map[string]string `json:"files"`
+				Notes []string          `json:"notes"`
+			}
+			if err := a.client.Get(ctx, "/environments/"+api.P(env.ID)+"/stacks/export", q, &r); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(out, 0o755); err != nil {
+				return err
+			}
+			all := map[string]string{StackFile: r.File}
+			for p, text := range r.Files {
+				all[p] = text
+			}
+			// Nothing is written unless every file can be: no half export over existing files.
+			doc := &stackDoc{dir: out}
+			for p := range all {
+				clean := filepath.Clean(filepath.FromSlash(p))
+				if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") || strings.ContainsRune(clean, filepath.Separator) {
+					return fmt.Errorf("the server named a file outside the folder: %s", p)
+				}
+				if _, err := os.Lstat(filepath.Join(doc.dir, clean)); err == nil && !force {
+					return usagef("%s already exists. Pass --force to write over it, or -o another folder", filepath.Join(out, clean))
+				}
+			}
+			for p, text := range all {
+				mode := os.FileMode(0o644)
+				if strings.HasPrefix(p, ".env") {
+					mode = 0o600
+				}
+				if err := os.WriteFile(filepath.Join(out, p), []byte(text), mode); err != nil {
+					return err
+				}
+			}
+			ui.Success("Wrote %s and %d more file(s) to %s.", StackFile, len(r.Files), out)
+			for _, n := range r.Notes {
+				ui.Warn("%s", n)
+			}
+			return nil
+		},
+	}
+	fl := cmd.Flags()
+	fl.StringVarP(&out, "output", "o", ".", "the `folder` to write to")
+	fl.StringVar(&stack, "stack", "", "only this stack's services")
+	fl.StringVar(&services, "services", "", "only these services (`names`, comma separated)")
+	fl.BoolVar(&values, "with-values", false, "write variable values into the .env files (needs the right to view secrets)")
+	fl.BoolVar(&force, "force", false, "write over files that exist")
+	return cmd
+}

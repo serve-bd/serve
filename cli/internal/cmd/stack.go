@@ -169,7 +169,7 @@ named, or --service.`,
 			return nil
 		},
 	}
-	for _, sub := range []*cobra.Command{a.composeUpCmd(), a.composeDownCmd(), a.composePsCmd(), a.composeConfigCmd()} {
+	for _, sub := range []*cobra.Command{a.composeUpCmd(), a.composeDownCmd(), a.composePsCmd(), a.composeConfigCmd(), a.composeExportCmd()} {
 		sub.Flags().StringVarP(&a.project, "project", "p", "", "project name or id (default: the linked one)")
 		cmd.AddCommand(sub)
 	}

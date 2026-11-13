@@ -181,3 +181,18 @@ export async function downStack(environmentId: string, name: string, volumes: bo
     return { removed };
   });
 }
+
+/**
+ * An environment's services (or one stack's, or the ones named) as a serve-compose.yml with the
+ * files it names. Values of variables only with `values`, which needs the right to see secrets.
+ */
+export async function exportStackAction(environmentId: string, opts: { stack?: string | null; services?: string[]; values?: boolean } = {}) {
+  return act(async () => {
+    const ctx = await requirePermission("projects.view");
+    if (opts.values && !ctx.can("variables.view-secrets")) throw new UserError("Exporting variable values needs the right to view secrets. Export without values.");
+    const env = await environmentOf(environmentId, ctx.org.id);
+    const [project] = await db.select({ name: schema.project.name }).from(schema.project).where(eq(schema.project.id, env.projectId));
+    const { exportStack } = await import("@/server/stacks/export");
+    return exportStack(environmentId, { stack: opts.stack, services: opts.services, values: !!opts.values, name: opts.stack ?? project?.name ?? "stack" });
+  });
+}

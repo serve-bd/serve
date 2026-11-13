@@ -1,5 +1,4 @@
-import { and, desc, eq, gt } from "drizzle-orm";
-import { UserError } from "@/server/action";
+import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
@@ -10,8 +9,6 @@ type Step = StackRunStep & { upload?: DeploymentUpload | null; awaitingUpload?: 
 
 /** How long a run waits for the CLI's upload of a folder before that service fails. */
 const UPLOAD_WAIT_MS = 30 * 60_000;
-/** A run still "running" after this is taken as stuck: a new up may start. */
-const STALE_MS = 6 * 60 * 60_000;
 const TICK_MS = 3000;
 
 export type RunPart = { key: string; serviceId: string; wave: number; needs: StackRunStep["needs"]; deploy: boolean; upload: boolean };
@@ -22,18 +19,12 @@ export type RunPart = { key: string; serviceId: string; wave: number; needs: Sta
  * folder next (attachStackUpload); the service waits for it.
  */
 export async function startStackRun(environmentId: string, stackName: string, parts: RunPart[], opts: { userId: string | null; trigger: DeploymentTrigger }) {
-  const [busy] = await db
-    .select({ id: schema.stackRun.id })
+  // A newer up takes over: what the older run had not started yet is skipped.
+  const older = await db
+    .select()
     .from(schema.stackRun)
-    .where(
-      and(
-        eq(schema.stackRun.environmentId, environmentId),
-        eq(schema.stackRun.stackName, stackName),
-        eq(schema.stackRun.status, "running"),
-        gt(schema.stackRun.createdAt, new Date(Date.now() - STALE_MS)),
-      ),
-    );
-  if (busy) throw new UserError(`${stackName} is still deploying (run ${busy.id}). Wait for it, or run serve compose up --wait.`);
+    .where(and(eq(schema.stackRun.environmentId, environmentId), eq(schema.stackRun.stackName, stackName), eq(schema.stackRun.status, "running")));
+  for (const run of older) await cancelStackRun(run, "A newer serve compose up took over.");
   const id = newId();
   const steps: Step[] = parts.map((p) => ({
     key: p.key,
@@ -70,8 +61,20 @@ const over = (s: Step) => done(s) || s.state === "failed" || s.state === "skippe
 
 /** One look at a run: follows its deployments and starts what may start. Queued again until it ends. */
 export async function advanceStackRun(runId: string, trigger: DeploymentTrigger) {
-  const [run] = await db.select().from(schema.stackRun).where(eq(schema.stackRun.id, runId));
-  if (!run || run.status !== "running") return;
+  // The run's row stays locked: an upload arriving meanwhile waits instead of being written over.
+  const again = await db.transaction(async (tx) => {
+    const [run] = await tx.select().from(schema.stackRun).where(eq(schema.stackRun.id, runId)).for("update");
+    if (!run || run.status !== "running") return false;
+    return advance(tx, run, trigger);
+  });
+  if (again) await enqueue("stack.advance", { runId, trigger }, { concurrencyKey: `stack:${runId}`, runAt: new Date(Date.now() + TICK_MS) });
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Moves a locked run on; answers whether it is still going. */
+async function advance(tx: Tx, run: Run, trigger: DeploymentTrigger) {
+  const runId = run.id;
   const steps = run.steps as Step[];
   const byKey = new Map(steps.map((s) => [s.key, s]));
 
@@ -143,17 +146,21 @@ export async function advanceStackRun(runId: string, trigger: DeploymentTrigger)
   }
 
   const finished = steps.every(over);
-  await db
+  await tx
     .update(schema.stackRun)
     .set({ steps, ...(finished ? { status: steps.every(done) ? "success" : "failed", finishedAt: new Date() } : {}) })
     .where(eq(schema.stackRun.id, runId));
-  if (!finished) await enqueue("stack.advance", { runId, trigger }, { concurrencyKey: `stack:${runId}`, runAt: new Date(Date.now() + TICK_MS) });
+  return !finished;
 }
 
 /** Stops a run: services not started yet are skipped; deployments already running go on. */
-export async function cancelStackRun(run: Run) {
-  const steps = (run.steps as Step[]).map((s) => (s.state === "waiting" ? { ...s, state: "skipped" as const, note: "The run was cancelled." } : s));
-  await db.update(schema.stackRun).set({ steps, status: "cancelled", finishedAt: new Date() }).where(eq(schema.stackRun.id, run.id));
+export async function cancelStackRun(run: Run, why = "The run was cancelled.") {
+  await db.transaction(async (tx) => {
+    const [now] = await tx.select().from(schema.stackRun).where(eq(schema.stackRun.id, run.id)).for("update");
+    if (!now || now.status !== "running") return;
+    const steps = (now.steps as Step[]).map((s) => (s.state === "waiting" ? { ...s, state: "skipped" as const, note: why } : s));
+    await tx.update(schema.stackRun).set({ steps, status: "cancelled", finishedAt: new Date() }).where(eq(schema.stackRun.id, run.id));
+  });
 }
 
 /** A run as the API shows it (uploads left out: they are internal). */

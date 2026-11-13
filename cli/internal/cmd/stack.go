@@ -123,13 +123,17 @@ func (a *App) setMaintenance(cmd *cobra.Command, args []string, body map[string]
 }
 
 func (a *App) composeCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "compose [stack]",
-		Short: "Print the compose file of a stack as it was deployed",
-		Long: `Print the compose file Serve last deployed for a Docker Compose stack: your file with the
-labels, networks and ports Serve adds. Values of variables stay in its .env, not here.
-Works on the linked stack, the one named, or --service.`,
-		Example: "  serve compose\n  serve compose plausible > deployed.yml",
+		Short: "Run a serve-compose.yml (up, down, ps, config), or print a compose file as deployed",
+		Long: `serve compose up deploys the services of serve-compose.yml in dependency order; down,
+ps and config manage the stack it made.
+
+With a name instead (or alone in a compose stack's folder): print the compose file Serve last
+deployed for a Docker Compose stack: your file with the labels, networks and ports Serve
+adds. Values of variables stay in its .env, not here. Works on the linked stack, the one
+named, or --service.`,
+		Example: "  serve compose up\n  serve compose down --volumes\n  serve compose plausible > deployed.yml",
 		Args:    maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -165,6 +169,11 @@ Works on the linked stack, the one named, or --service.`,
 			return nil
 		},
 	}
+	for _, sub := range []*cobra.Command{a.composeUpCmd(), a.composeDownCmd(), a.composePsCmd(), a.composeConfigCmd()} {
+		sub.Flags().StringVarP(&a.project, "project", "p", "", "project name or id (default: the linked one)")
+		cmd.AddCommand(sub)
+	}
+	return cmd
 }
 
 func (a *App) containersCmd() *cobra.Command {

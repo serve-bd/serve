@@ -33,6 +33,8 @@ const (
 type deployFlags struct {
 	noWait, noCache, git, includeEnv, yes bool
 	message, root                         string
+	// stackRun: the files are for a service waiting in a `serve compose up` run.
+	stackRun string
 }
 
 func (a *App) deployCmd() *cobra.Command {
@@ -366,6 +368,9 @@ func (a *App) upload(ctx context.Context, c *api.Client, s *api.Service, dir str
 	}
 	if f.noCache {
 		q.Set("noCache", "1")
+	}
+	if f.stackRun != "" {
+		q.Set("stackRun", f.stackRun)
 	}
 
 	// Ctrl+C during packing or upload stops it and removes the archive.

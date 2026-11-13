@@ -157,6 +157,14 @@ async function assertImageRegistry(registryId: string | null | undefined, image:
   }
 }
 
+/** The organization's first git login with access to a repository; null for a public one none can see. */
+async function gitLoginWithAccess(organizationId: string, repository: string) {
+  const { findGitAccess } = await import("@/server/git/access");
+  const access = await findGitAccess(organizationId, repository);
+  if ("error" in access) throw new UserError(access.error);
+  return access.credentialId;
+}
+
 /** Letters, numbers and hyphens; other text (a template title) is turned into that form. */
 const serviceName = z
   .string()
@@ -217,7 +225,11 @@ export async function createAppService(input: z.input<typeof appSchema>) {
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
 
-    if (data.source.type === "git") await assertCredential(data.source.credentialId, ctx.org.id, data.source.repository);
+    if (data.source.type === "git") {
+      // No login named (the API, the CLI): the first of the organization's logins with access, so pushes deploy.
+      if (data.source.credentialId === undefined) data.source.credentialId = await gitLoginWithAccess(ctx.org.id, data.source.repository);
+      await assertCredential(data.source.credentialId, ctx.org.id, data.source.repository);
+    }
     if (data.source.type === "image") await assertImageRegistry(data.source.registryId, data.source.image, ctx.org.id);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
     const reserved = await requireRoom(ctx.org.id, { services: 1, type: "app", serverId: server.id });
@@ -426,6 +438,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       if (!template || template.custom || template.hostAccess) await assertSafeCompose(ctx, content, data.environmentId);
       else await assertComposeNames(content, data.environmentId, null);
     } else if (!data.source) throw new UserError("Enter a repository.");
+    if (data.source && data.source.credentialId === undefined) data.source.credentialId = await gitLoginWithAccess(ctx.org.id, data.source.repository);
     await assertCredential(data.source?.credentialId, ctx.org.id, data.source?.repository);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
     const reserved = await requireRoom(ctx.org.id, { services: 1, type: "compose", serverId: server.id });

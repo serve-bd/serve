@@ -80,6 +80,30 @@ describe("serve-compose.yml", () => {
     expect(errs("services:\n  a: { image: x, depends_on: [nope] }\n")).toMatch(/"nope" is not a service/);
   });
 
+  it("orders thousands of services quickly", () => {
+    const n = 4000;
+    const lines = ["services:"];
+    for (let i = 0; i < n; i++) lines.push(`  s${i}: { image: x${i < 600 && i > 0 ? `, depends_on: [s${i - 1}]` : ""} }`);
+    const started = Date.now();
+    const s = ok(lines.join("\n"));
+    expect(deployWaves(s).length).toBe(600);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("does not mistake built-in names for services or values", () => {
+    expect(errs("services:\n  a: { image: x, depends_on: [toString] }\n")).toMatch(/"toString" is not a service/);
+    expect(errs("services:\n  a: { image: '${constructor}' }\n")).toMatch(/constructor is not set/);
+    expect(errs("services:\n  a: { database: postgres, deploy: { replicas: 2 } }\n")).toMatch(/Change a database's settings in the dashboard/);
+  });
+
+  it("asks only for the ${VAR}s in values, not in comments", () => {
+    expect(stackVariables("# ${SECRET_IN_COMMENT}\nservices:\n  a: { image: 'x:${TAG}' } # ${ALSO_NOT}\n")).toEqual(["TAG"]);
+    // An alias bomb stays small.
+    expect(errs("a: &a [x, x, x, x, x, x, x, x, x, x]\nb: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a, *a]\nc: &c [*b, *b, *b, *b, *b, *b, *b, *b, *b, *b]\nservices: {}\n")).toMatch(
+      /not valid YAML|alias/i,
+    );
+  });
+
   it("takes depends_on with conditions", () => {
     const s = ok("services:\n  db: { database: mysql }\n  a: { image: x, depends_on: { db: { condition: started } } }\n");
     expect(dependencies(s, "a")).toEqual([{ on: "db", condition: "started" }]);

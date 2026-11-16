@@ -321,7 +321,8 @@ export const serviceRoutes: ApiRoute[] = [
         const upload = { archive: stored.archive, size: stored.size, files: stored.files, dirty: yes(query.dirty) };
         if (query.stackRun) {
           const { attachStackUpload } = await import("@/server/stacks/run");
-          if (!(await attachStackUpload(query.stackRun, service.id, upload))) throw new ApiError(409, "This service is not waiting for files in that stack run.");
+          if (!(await attachStackUpload(query.stackRun, service.id, upload, auth.userId)))
+            throw new ApiError(409, "This service is not waiting for your files in that stack run (only who ran serve compose up sends them).");
           return { deploymentId: null, stackRun: query.stackRun };
         }
         await queueDeployment(service.id, "cli", {

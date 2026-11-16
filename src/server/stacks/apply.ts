@@ -1,10 +1,10 @@
 import { eq } from "drizzle-orm";
 import { UserError, type ActionResult } from "@/server/action";
 import { db, schema } from "@/server/db";
-import { decryptOrNull } from "@/server/crypto";
+import { decryptOrNull, hmac } from "@/server/crypto";
 import type { StackFileRecord } from "@/server/db/schema";
 import { rewriteLinks, STACK_FILE, variableChanges } from "@/lib/stack";
-import type { PlanContext, Resolved, StackOptions, StackPlan } from "./plan";
+import { fingerprints, type PlanContext, type Resolved, type StackOptions, type StackPlan } from "./plan";
 
 type Service = typeof schema.service.$inferSelect;
 
@@ -80,7 +80,14 @@ export async function applyStack(ctx: PlanContext & { userId: string }, plan: St
       const patch: Parameters<typeof services.updateService>[1] = {};
       if (r.git && service.source?.type === "git" && (service.source.repository !== r.git.repository || (r.git.branch && service.source.branch !== r.git.branch)))
         patch.source = { type: "git", repository: r.git.repository, branch: r.git.branch ?? service.source.branch, credentialId: r.git.credentialId };
-      if (r.spec.image && service.source?.type === "image" && service.source.image !== r.spec.image) patch.source = { ...service.source, image: r.spec.image };
+      if (r.spec.image && service.source?.type === "image" && service.source.image !== r.spec.image)
+        patch.source = {
+          // The stored password stays as it is (left out); sent back, it would be encrypted twice.
+          type: "image",
+          image: r.spec.image,
+          registryId: service.source.registryId ?? null,
+          registryUsername: service.source.registryUsername ?? null,
+        };
       const keepPort = last?.port != null && service.runtime.port !== last.port && !opts.force;
       if (r.spec.port !== undefined && service.runtime.port !== r.spec.port && !keepPort) patch.runtime = { port: r.spec.port };
       if (r.kind === "compose" && r.compose !== null && service.compose?.content !== r.compose) patch.compose = { content: r.compose };
@@ -113,16 +120,21 @@ export async function applyStack(ctx: PlanContext & { userId: string }, plan: St
       if ((last?.domains ?? []).includes(h.hostname) && !r.domains.some((d) => d.host === h.hostname)) await must(services.removeDomain(h.id, false), `${r.key}: ${h.hostname}`);
 
     out.push({ key: r.key, serviceId: service.id, name: service.name, action: r.existing ? (item(r.key)?.action ?? "unchanged") : "create", upload: item(r.key)?.upload ?? null });
-    record.variables = rewriteLinks(r.env, names);
-    (r as Resolved & { record?: StackFileRecord }).record = record;
+    // Values are kept here only as fingerprints: the variables themselves are stored encrypted.
+    const values = rewriteLinks(r.env, names);
+    record.variables = fingerprints(values);
+    (r as Resolved & { record?: StackFileRecord; values?: Record<string, string> }).record = record;
+    (r as Resolved & { values?: Record<string, string> }).values = values;
   }
 
-  // 3. Variables, now that every service exists: links bind to the rows they reach.
-  for (const r of resolved) {
+  // 3. Variables, now that every service exists, in deploy order: a link to another service's own
+  // variable binds to its row only when that row is there, and what a service links to comes first.
+  const order = plan.waves.flat();
+  for (const r of [...resolved].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))) {
     const service = serviceOf(r);
-    const record = (r as Resolved & { record: StackFileRecord }).record;
+    const { record, values } = r as Resolved & { record: StackFileRecord; values: Record<string, string> };
     const rows = await db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, service.id));
-    const current = new Map(rows.map((v) => [v.key, decryptOrNull(v.value) ?? ""]));
+    const current = new Map(rows.map((v) => [v.key, hmac(decryptOrNull(v.value) ?? "")]));
     const change = variableChanges(current, record.variables, service.stackFile?.variables ?? {}, !!opts.force);
     if (change.set.length || change.remove.length) {
       const set = new Set(change.set);
@@ -135,11 +147,11 @@ export async function applyStack(ctx: PlanContext & { userId: string }, plan: St
           const old = rows.find((v) => v.key === k);
           return {
             key: k,
-            value: record.variables[k],
+            value: values[k],
             buildTime: old?.buildTime ?? true,
             runtime: old?.runtime ?? true,
             literal: false,
-            multiline: record.variables[k].includes("\n"),
+            multiline: values[k].includes("\n"),
           };
         }),
       ];

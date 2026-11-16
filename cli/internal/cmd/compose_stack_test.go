@@ -27,10 +27,11 @@ func stackDir(t *testing.T, files map[string]string) *stackDoc {
 }
 
 func TestStackValuesSendOnlyWhatTheFileNames(t *testing.T) {
-	d := stackDir(t, map[string]string{StackFile: "services: {}\n", ".env": "A=from-file\nB=from-file\nSECRET=never\n"})
+	d := stackDir(t, map[string]string{StackFile: "services:\n  a: { image: 'x:${A}', env: { B: '${B:-x}', C: '${C}' } }\n", ".env": "A=from-file\nB=from-file\nSECRET=never\n"})
 	t.Setenv("B", "from-shell")
 	t.Setenv("OTHER", "never")
-	got, err := d.values([]string{"A", "B", "C"})
+	// The server asks for more than the file names: those are never read.
+	got, err := d.values([]string{"A", "B", "C", "OTHER", "SECRET"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,5 +92,57 @@ func TestReadStackFindsYamlSpelling(t *testing.T) {
 	d, err := readStack("")
 	if err != nil || filepath.Base(d.path) != "serve-compose.yaml" {
 		t.Fatalf("yaml: %v %v", d, err)
+	}
+}
+
+func TestStackFilesOnlyThoseTheFileNames(t *testing.T) {
+	d := stackDir(t, map[string]string{StackFile: "services:\n  web:\n    env_file: [./.env.web, \"conf/a.env\"]\n    compose: tools.yml # here\n"})
+	for _, p := range []string{".env.web", "conf/a.env", "tools.yml"} {
+		if !d.names(p) {
+			t.Fatalf("%s should be named", p)
+		}
+	}
+	for _, p := range []string{".env", "a.env", ".git/config", "tools"} {
+		if d.names(p) {
+			t.Fatalf("%s is not named", p)
+		}
+	}
+}
+
+func TestStackNameFilledInIsNotGuessed(t *testing.T) {
+	d := &stackDoc{dir: "/x/shop", text: "name: ${STACK}\nservices: {}\n"}
+	if d.name() != "" {
+		t.Fatalf("name: %q", d.name())
+	}
+}
+
+func TestExportFileNamesAndWrites(t *testing.T) {
+	for _, ok := range []string{"serve-compose.yml", ".env.web", "web.compose.yml"} {
+		if !safeFileName(ok) {
+			t.Fatalf("%s should be fine", ok)
+		}
+	}
+	for _, bad := range []string{"../x", "a/b", "C:x", "CON", "con.txt", "..", ".", "a b"} {
+		if safeFileName(bad) {
+			t.Fatalf("%s should be refused", bad)
+		}
+	}
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(outside, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, ".env.web")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skip("no symlinks here")
+	}
+	if err := writeReplacing(link, []byte("A=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(outside); string(b) != "keep" {
+		t.Fatal("wrote through the symlink")
+	}
+	if st, err := os.Lstat(link); err != nil || st.Mode()&os.ModeSymlink != 0 || st.Mode().Perm() != 0o600 {
+		t.Fatalf("replaced file: %v %v", st.Mode(), err)
 	}
 }

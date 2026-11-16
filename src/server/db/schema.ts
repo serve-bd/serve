@@ -605,7 +605,7 @@ export const service = pgTable(
 /** What a stack file set on a service when it was last applied, compared on the next `up`. */
 export type StackFileRecord = {
   appliedAt: string;
-  /** Variables by key, as the file wrote them (before ${{ }} links are resolved). */
+  /** Variables by key: keyed fingerprints (hmac) of the values the file set, never the values. */
   variables: Record<string, string>;
   domains: string[];
   /** The serve.json-style settings, as JSON, applied like a serve.json. */

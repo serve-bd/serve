@@ -48,7 +48,17 @@ const reaches = async (repository: string, credentialId: string | null, organiza
  * get a login too when one can see them, so pushes deploy (a login is what holds the webhook).
  * `preferred`: a login's name; only that one is tried.
  */
-export async function findGitAccess(organizationId: string, repository: string, preferred?: string | null): Promise<GitAccess> {
+export async function findGitAccess(
+  organizationId: string,
+  repository: string,
+  preferred?: string | null,
+  /** Repositories by login id, filled as logins are listed: one plan lists each login once. */
+  cache: Map<string, Promise<RemoteRepo[] | null>> = new Map(),
+): Promise<GitAccess> {
+  const listed = (login: Login) => {
+    if (!cache.has(login.id)) cache.set(login.id, loginRepositories(login));
+    return cache.get(login.id) as Promise<RemoteRepo[] | null>;
+  };
   const logins = await gitLoginsFor(organizationId, repository);
   const wanted = repoPath(repository);
   if (preferred) {
@@ -58,14 +68,14 @@ export async function findGitAccess(organizationId: string, repository: string, 
       .where(and(eq(schema.gitCredential.organizationId, organizationId), eq(schema.gitCredential.name, preferred)));
     if (!named) return { error: `No git login is named "${preferred}". See Settings → Git for the names.` };
     if (!logins.some((l) => l.id === named.id)) return { error: `The git login "${preferred}" is for another host than ${repository}.` };
-    const repos = await loginRepositories(named);
+    const repos = await listed(named);
     if (repos?.some((r) => r.fullName.toLowerCase() === wanted) || (await reaches(repository, named.id, organizationId)))
       return { credentialId: named.id, login: named.name, note: null };
     return { error: `The git login "${preferred}" has no access to ${repository}.` };
   }
   // Listing shows what a login was granted, also for public repositories (ls-remote would pass anyway).
   for (const login of logins) {
-    const repos = await loginRepositories(login);
+    const repos = await listed(login);
     if (wanted && repos?.some((r) => r.fullName.toLowerCase() === wanted)) return { credentialId: login.id, login: login.name, note: null };
   }
   const isPublic = await reaches(repository, null, organizationId);

@@ -2,7 +2,6 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import YAML from "yaml";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
-import { REF } from "@/lib/refs";
 import { STACK_FILE, toStackName } from "@/lib/stack";
 
 type Service = typeof schema.service.$inferSelect;
@@ -24,7 +23,18 @@ const quoteEnv = (v: string) => (/^[A-Za-z0-9_./:@,+=-]*$/.test(v) ? v : `"${v.r
  * go to .env.<key> files only with `values` (the caller checked the right to see secrets);
  * otherwise the files list the names with empty values. Links stay in the file: they are not secret.
  */
-export async function exportStack(environmentId: string, opts: { stack?: string | null; services?: string[]; values: boolean; name: string }): Promise<StackExport> {
+const onlyLinks = (value: string) => /^(\$\{\{[^}]+\}\})+$/.test(value.trim()) && !/replica\.pick\(/i.test(value);
+
+export async function exportStack(
+  environmentId: string,
+  opts: {
+    stack?: string | null;
+    services?: string[];
+    values: boolean;
+    name: string /** Compose files may hold passwords: shown only to those who manage services. */;
+    composeFiles: boolean;
+  },
+): Promise<StackExport> {
   let services = await db
     .select()
     .from(schema.service)
@@ -47,7 +57,7 @@ export async function exportStack(environmentId: string, opts: { stack?: string 
     : [];
 
   for (const s of services.sort((a, b) => Number(b.type === "database") - Number(a.type === "database") || a.name.localeCompare(b.name))) {
-    const entry = source(s, notes);
+    const entry = source(s, notes, opts.composeFiles);
     if (!entry) continue;
     const extra = entry.__file as [string, string] | undefined;
     if (extra) {
@@ -67,8 +77,10 @@ export async function exportStack(environmentId: string, opts: { stack?: string 
       const lines: string[] = [];
       for (const v of vars.filter((x) => x.serviceId === s.id).sort((a, b) => a.key.localeCompare(b.key))) {
         const value = decryptOrNull(v.value) ?? "";
-        // A link reads the same anywhere the services keep their names: it stays in the file.
-        if (!v.literal && value.match(REF)) env[v.key] = value;
+        // A value made only of links reads the same anywhere the services keep their names, and is
+        // not secret (the variables page shows it to everyone): it stays in the file. Text next
+        // to a link, or a replica.pick list, is a value like any other.
+        if (!v.literal && onlyLinks(value)) env[v.key] = value;
         else lines.push(`${v.key}=${opts.values ? quoteEnv(value) : ""}`);
       }
       if (Object.keys(env).length) entry.env = env;
@@ -87,12 +99,16 @@ export async function exportStack(environmentId: string, opts: { stack?: string 
 }
 
 /** Where a service comes from, as the file says it; null (with a note) when a file cannot say it. */
-function source(s: Service, notes: string[]): Record<string, unknown> | null {
+function source(s: Service, notes: string[], composeFiles: boolean): Record<string, unknown> | null {
   if (s.type === "database" && s.database) {
     const { engine, version } = s.database as { engine: string; version: string };
     return { database: `${engine}:${version}` };
   }
   if (s.type === "compose") {
+    if (!composeFiles) {
+      notes.push(`${s.name}: its compose file is shown only to members who manage services. Skipped.`);
+      return null;
+    }
     if (!s.compose?.content) {
       notes.push(`${s.name}: its compose file comes from a repository, which a stack cannot name yet. Skipped.`);
       return null;

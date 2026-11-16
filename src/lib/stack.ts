@@ -100,6 +100,9 @@ const service = z
       });
     if (typeof s.build === "object" && !local && !s.git) ctx.addIssue({ code: "custom", path: ["build"], message: "Build settings need git, or a folder in build.context." });
     if (s.database && (s.build || s.port || s.domains?.length)) ctx.addIssue({ code: "custom", path: [], message: "A database takes no build, port or domains." });
+    const settings = (["deploy", "healthcheck", "tasks", "volumes", "files", "http", "monitor", "resources"] as const).filter((k) => s[k] !== undefined);
+    if (s.database && settings.length)
+      ctx.addIssue({ code: "custom", path: [settings[0]], message: "Change a database's settings in the dashboard: the file only names its engine and version." });
     settingsChecks({ ...s, build: undefined }, ctx);
   });
 
@@ -124,17 +127,31 @@ export type Stack = z.infer<typeof stackSchema> & { name: string };
 // Never ${{ … }}: those are Serve's links.
 const INTERPOLATE = /\$\$|\$\{(?!\{)([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?])([^}]*))?\}/g;
 
-/** The names `${VAR}` asks for, in order, once each. */
+/** The names `${VAR}` asks for in the file's values (not its comments), in order, once each. */
 export function stackVariables(text: string): string[] {
   const out = new Set<string>();
-  for (const m of text.matchAll(INTERPOLATE)) if (m[1]) out.add(m[1]);
+  const walk = (node: unknown) => {
+    if (typeof node === "string") for (const m of node.matchAll(INTERPOLATE)) m[1] && out.add(m[1]);
+    else if (Array.isArray(node)) node.forEach(walk);
+    else if (node && typeof node === "object") Object.values(node).forEach(walk);
+  };
+  try {
+    walk(readYaml(text));
+  } catch {
+    // Not valid YAML: parseStack says so; nothing is asked for.
+  }
   return [...out];
+}
+
+/** The YAML document, with aliases kept to a few (a small file must not grow huge). */
+function readYaml(text: string): unknown {
+  return YAML.parse(text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n"), { maxAliasCount: 10 });
 }
 
 function interpolate(value: string, values: Record<string, string>, where: string, errors: string[]) {
   return value.replace(INTERPOLATE, (_all, key: string | undefined, op: string | undefined, arg: string | undefined) => {
     if (!key) return "$";
-    const v = values[key];
+    const v = Object.hasOwn(values, key) ? values[key] : undefined;
     const unset = v === undefined;
     const empty = unset || v === "";
     if (op === ":-" && empty) return arg ?? "";
@@ -172,7 +189,7 @@ export function parseStack(text: string, values: Record<string, string>, fallbac
   if (Buffer.byteLength(text) > STACK_MAX_BYTES) return { errors: [`${STACK_FILE} is larger than ${STACK_MAX_BYTES / 1000} KB.`] };
   let raw: unknown;
   try {
-    raw = YAML.parse(text.replace(/^﻿/, "").replace(/\r\n/g, "\n"), { maxAliasCount: 100 });
+    raw = readYaml(text);
   } catch (e) {
     return { errors: [`${STACK_FILE} is not valid YAML: ${(e as Error).message.split("\n")[0]}`] };
   }
@@ -279,29 +296,37 @@ export function cleanPath(p: string) {
 
 export type Dependency = { on: string; condition: "healthy" | "started" };
 
-/** What a service waits for: its depends_on, and the stack services its env links to. */
-export function dependencies(stack: Stack, key: string): Dependency[] {
-  const s = stack.services[key];
-  const out = new Map<string, Dependency>();
-  const dep = s.depends_on;
-  if (Array.isArray(dep)) for (const on of dep) out.set(on, { on, condition: "healthy" });
-  else if (dep) for (const [on, d] of Object.entries(dep)) out.set(on, { on, condition: d.condition });
-  for (const on of linkedServices(stack, key)) if (!out.has(on)) out.set(on, { on, condition: "healthy" });
-  return [...out.values()];
+const graphs = new WeakMap<Stack, Map<string, Dependency[]>>();
+
+/** Every service's dependencies, worked out once per stack (lists and loops below read it often). */
+function graph(stack: Stack): Map<string, Dependency[]> {
+  const known = graphs.get(stack);
+  if (known) return known;
+  const keys = new Map(Object.keys(stack.services).map((k) => [k.toLowerCase(), k]));
+  const out = new Map<string, Dependency[]>();
+  for (const [key, s] of Object.entries(stack.services)) {
+    const deps = new Map<string, Dependency>();
+    const dep = s.depends_on;
+    if (Array.isArray(dep)) for (const on of dep) deps.set(on, { on, condition: "healthy" });
+    else if (dep) for (const [on, d] of Object.entries(dep)) deps.set(on, { on, condition: d.condition });
+    for (const v of Object.values(s.env ?? {}))
+      for (const [, ref] of v.matchAll(REF)) {
+        const dot = ref.indexOf(".");
+        const on = dot > 0 ? keys.get(ref.slice(0, dot).toLowerCase()) : undefined;
+        if (on && on !== key && !deps.has(on)) deps.set(on, { on, condition: "healthy" });
+      }
+    out.set(key, [...deps.values()]);
+  }
+  graphs.set(stack, out);
+  return out;
 }
 
-/** Stack services `${{ x.KEY }}` in this service's env points at (itself left out). */
-export function linkedServices(stack: Stack, key: string): string[] {
-  const keys = new Map(Object.keys(stack.services).map((k) => [k.toLowerCase(), k]));
-  const out = new Set<string>();
-  for (const v of Object.values(stack.services[key].env ?? {}))
-    for (const [, ref] of v.matchAll(REF)) {
-      const dot = ref.indexOf(".");
-      const on = dot > 0 ? keys.get(ref.slice(0, dot).toLowerCase()) : undefined;
-      if (on && on !== key) out.add(on);
-    }
-  return [...out];
+/** What a service waits for: its depends_on, and the stack services its env links to. */
+export function dependencies(stack: Stack, key: string): Dependency[] {
+  return graph(stack).get(key) ?? [];
 }
+
+const isService = (stack: Stack, key: string) => Object.hasOwn(stack.services, key);
 
 function graphProblems(stack: Stack): string[] {
   const errors: string[] = [];
@@ -317,53 +342,72 @@ function graphProblems(stack: Stack): string[] {
     const named = Array.isArray(dep) ? dep : Object.keys(dep ?? {});
     for (const on of named) {
       if (on === k) errors.push(`services.${k}.depends_on: a service cannot depend on itself.`);
-      else if (!stack.services[on]) errors.push(`services.${k}.depends_on: "${on}" is not a service in this file.`);
+      else if (!isService(stack, on)) errors.push(`services.${k}.depends_on: "${on}" is not a service in this file.`);
     }
   }
-  if (errors.length) return errors;
+  if (errors.length) return errors.slice(0, 20);
   const loop = findLoop(stack);
   if (loop) errors.push(`services: the services wait for each other in a loop: ${loop.join(" -> ")}. Remove one depends_on or link.`);
   return errors;
 }
 
+/** A loop of dependencies, walked without recursion (a long chain must not overflow the stack). */
 function findLoop(stack: Stack): string[] | null {
+  const g = graph(stack);
   const state = new Map<string, "open" | "done">();
-  const path: string[] = [];
-  const visit = (k: string): string[] | null => {
-    if (state.get(k) === "done") return null;
-    if (state.get(k) === "open") return [...path.slice(path.indexOf(k)), k];
-    state.set(k, "open");
-    path.push(k);
-    for (const d of dependencies(stack, k)) {
-      const loop = visit(d.on);
-      if (loop) return loop;
+  for (const start of g.keys()) {
+    if (state.has(start)) continue;
+    const path: string[] = [start];
+    const next: number[] = [0];
+    state.set(start, "open");
+    while (path.length) {
+      const k = path[path.length - 1];
+      const deps = g.get(k) ?? [];
+      const i = next[next.length - 1]++;
+      if (i >= deps.length) {
+        state.set(k, "done");
+        path.pop();
+        next.pop();
+        continue;
+      }
+      const on = deps[i].on;
+      if (state.get(on) === "open") return [...path.slice(path.indexOf(on)), on];
+      if (!state.has(on)) {
+        state.set(on, "open");
+        path.push(on);
+        next.push(0);
+      }
     }
-    path.pop();
-    state.set(k, "done");
-    return null;
-  };
-  for (const k of Object.keys(stack.services)) {
-    const loop = visit(k);
-    if (loop) return loop;
   }
   return null;
 }
 
 /** Deploy order: each wave holds the services whose dependencies are all in earlier waves. */
 export function deployWaves(stack: Stack): string[][] {
-  const left = new Set(Object.keys(stack.services));
-  const placed = new Set<string>();
-  const waves: string[][] = [];
-  while (left.size) {
-    const wave = [...left].filter((k) => dependencies(stack, k).every((d) => placed.has(d.on)));
-    // graphProblems refused loops; this only guards against a bug turning into a hang.
-    if (!wave.length) throw new Error("The services wait for each other in a loop.");
-    for (const k of wave) {
-      left.delete(k);
-      placed.add(k);
-    }
-    waves.push(wave);
+  const g = graph(stack);
+  const waiting = new Map<string, number>();
+  const users = new Map<string, string[]>();
+  for (const [k, deps] of g) {
+    waiting.set(k, deps.length);
+    for (const d of deps) users.set(d.on, [...(users.get(d.on) ?? []), k]);
   }
+  const waves: string[][] = [];
+  let wave = [...g.keys()].filter((k) => waiting.get(k) === 0);
+  let placed = 0;
+  while (wave.length) {
+    waves.push(wave);
+    placed += wave.length;
+    const next: string[] = [];
+    for (const k of wave)
+      for (const u of users.get(k) ?? []) {
+        const left = (waiting.get(u) ?? 0) - 1;
+        waiting.set(u, left);
+        if (left === 0) next.push(u);
+      }
+    wave = next;
+  }
+  // graphProblems refused loops; this only guards against a bug turning into a wrong order.
+  if (placed !== g.size) throw new Error("The services wait for each other in a loop.");
   return waves;
 }
 

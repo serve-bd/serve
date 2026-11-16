@@ -10,6 +10,8 @@ type Step = StackRunStep & { upload?: DeploymentUpload | null; awaitingUpload?: 
 /** How long a run waits for the CLI's upload of a folder before that service fails. */
 const UPLOAD_WAIT_MS = 30 * 60_000;
 const TICK_MS = 3000;
+/** A run still going after this (a deploy waiting for approval all day) ends: what had not started is skipped. */
+const RUN_LIMIT_MS = 6 * 60 * 60_000;
 
 export type RunPart = { key: string; serviceId: string; wave: number; needs: StackRunStep["needs"]; deploy: boolean; upload: boolean };
 
@@ -38,17 +40,18 @@ export async function startStackRun(environmentId: string, stackName: string, pa
     upload: null,
   }));
   await db.insert(schema.stackRun).values({ id, environmentId, stackName, steps, userId: opts.userId, status: steps.some((s) => s.state === "waiting") ? "running" : "success" });
-  if (steps.some((s) => s.state === "waiting")) await enqueue("stack.advance", { runId: id, trigger: opts.trigger }, { concurrencyKey: `stack:${id}` });
+  if (steps.some((s) => s.state === "waiting")) await enqueue("stack.advance", { runId: id, trigger: opts.trigger }, { concurrencyKey: `stack:${id}`, maxAttempts: 3 });
   return id;
 }
 
 /** The CLI's upload of a folder for a service waiting in a run. */
-export async function attachStackUpload(runId: string, serviceId: string, upload: DeploymentUpload) {
+export async function attachStackUpload(runId: string, serviceId: string, upload: DeploymentUpload, userId: string) {
   return db.transaction(async (tx) => {
     const [run] = await tx.select().from(schema.stackRun).where(eq(schema.stackRun.id, runId)).for("update");
     const steps = (run?.steps ?? []) as Step[];
     const step = steps.find((s) => s.serviceId === serviceId);
-    if (!run || run.status !== "running" || !step?.awaitingUpload || step.state !== "waiting") return false;
+    // Only who ran up sends its files: the deploy is recorded (and approved) as theirs.
+    if (run?.status !== "running" || run.userId !== userId || !step?.awaitingUpload || step.state !== "waiting") return false;
     step.upload = upload;
     step.awaitingUpload = false;
     await tx.update(schema.stackRun).set({ steps }).where(eq(schema.stackRun.id, runId));
@@ -64,10 +67,10 @@ export async function advanceStackRun(runId: string, trigger: DeploymentTrigger)
   // The run's row stays locked: an upload arriving meanwhile waits instead of being written over.
   const again = await db.transaction(async (tx) => {
     const [run] = await tx.select().from(schema.stackRun).where(eq(schema.stackRun.id, runId)).for("update");
-    if (!run || run.status !== "running") return false;
+    if (run?.status !== "running") return false;
     return advance(tx, run, trigger);
   });
-  if (again) await enqueue("stack.advance", { runId, trigger }, { concurrencyKey: `stack:${runId}`, runAt: new Date(Date.now() + TICK_MS) });
+  if (again) await enqueue("stack.advance", { runId, trigger }, { concurrencyKey: `stack:${runId}`, runAt: new Date(Date.now() + TICK_MS), maxAttempts: 3 });
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -77,6 +80,8 @@ async function advance(tx: Tx, run: Run, trigger: DeploymentTrigger) {
   const runId = run.id;
   const steps = run.steps as Step[];
   const byKey = new Map(steps.map((s) => [s.key, s]));
+  if (Date.now() - run.createdAt.getTime() > RUN_LIMIT_MS)
+    for (const s of steps) if (s.state === "waiting") Object.assign(s, { state: "skipped", note: "The run took longer than 6 hours." });
 
   for (const s of steps.filter((x) => x.state === "deploying" && x.deploymentId)) {
     let [dep] = await db
@@ -97,7 +102,11 @@ async function advance(tx: Tx, run: Run, trigger: DeploymentTrigger) {
     } else if (dep.status === "failed" || dep.status === "cancelled") {
       s.state = "failed";
       s.note = dep.status === "cancelled" ? "Its deployment was cancelled." : (dep.error?.split("\n")[0] ?? "Its deployment failed.");
-    } else if (dep.status === "waiting") s.note = "Waiting for approval.";
+    } else if (dep.status === "waiting") {
+      const late = Date.now() - run.createdAt.getTime() > RUN_LIMIT_MS;
+      s.state = late ? "failed" : s.state;
+      s.note = late ? "Its deployment still waits for approval: approve it in the dashboard." : "Waiting for approval.";
+    }
   }
 
   const started = async (s: Step) => {

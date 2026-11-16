@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import YAML from "yaml";
 import { db, schema } from "@/server/db";
-import { decryptOrNull } from "@/server/crypto";
+import { decryptOrNull, hmac } from "@/server/crypto";
 import { REF, referencedService, SCOPE_NAMES } from "@/lib/refs";
 import {
   cleanPath,
@@ -105,7 +105,24 @@ export type Resolved = {
   settings: string | null;
 };
 
-export type PlanContext = { organizationId: string; projectId: string; environmentId: string };
+export type PlanContext = {
+  organizationId: string;
+  projectId: string;
+  environmentId: string;
+  /** The caller may see secrets: the plan compares the file with the stored values. */
+  seesSecrets: boolean;
+  /** The caller may change HTTP options (an organization admin with domains.manage). */
+  mayChangeHttp: boolean;
+};
+
+/** Fingerprints of the file's variables: compared and stored instead of the values. */
+export const fingerprints = (env: Record<string, string>) => Object.fromEntries(Object.entries(env).map(([k, v]) => [k, hmac(v)]));
+
+/** Fingerprints of a service's stored variables. */
+export async function storedFingerprints(serviceId: string) {
+  const rows = await db.select({ key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
+  return new Map(rows.map((r) => [r.key, hmac(decryptOrNull(r.value) ?? "")]));
+}
 
 const SETTING_KEYS = ["deploy", "healthcheck", "resources", "tasks", "volumes", "files", "http", "monitor"] as const;
 
@@ -144,8 +161,8 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
   }
   const stack = parsed.stack;
   plan.stack = stack.name;
-  const files = Object.fromEntries(Object.entries(input.files ?? {}).map(([p, t]) => [cleanPath(p), t]));
-  plan.needs.files = stackFiles(stack).filter((f) => !(f in files));
+  const files = new Map(Object.entries(input.files ?? {}).map(([p, t]) => [cleanPath(p), t]));
+  plan.needs.files = stackFiles(stack).filter((f) => !files.has(f));
   if (plan.needs.files.length) return { plan, resolved: [], stack };
 
   const services = await db.select().from(schema.service).where(eq(schema.service.environmentId, ctx.environmentId));
@@ -157,6 +174,8 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
   plan.waves = waves;
   const waveOf = new Map(waves.flatMap((w, i) => w.map((k) => [k, i] as const)));
   const resolved: Resolved[] = [];
+  // Each login's repositories are listed once per plan, however many services use git.
+  const gitCache = new Map();
   // Links in the file name stack keys; a stack service with another name is linked by that name.
   const names = new Map([...mine].map(([k, s]) => [k.toLowerCase(), s.name]));
   const err = (key: string, message: string) => plan.errors.push(`services.${key}: ${message}`);
@@ -184,7 +203,7 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
     // Variables: env files in order, then env.
     const env: Record<string, string> = {};
     for (const f of typeof spec.env_file === "string" ? [spec.env_file] : (spec.env_file ?? [])) {
-      const r = parseEnvFile(files[cleanPath(f)] ?? "");
+      const r = parseEnvFile(files.get(cleanPath(f)) ?? "");
       if ("error" in r) err(key, `env_file ${f}: ${r.error}`);
       else Object.assign(env, r.values);
     }
@@ -225,9 +244,11 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
       }
     }
 
+    if (spec.http && !ctx.mayChangeHttp) err(key, "http: only organization admins who manage domains can set HTTP options. Leave it out, or ask one of them.");
+
     let compose: string | null = null;
     if (spec.compose) {
-      compose = typeof spec.compose === "string" ? (files[cleanPath(spec.compose)] ?? "") : YAML.stringify(spec.compose);
+      compose = typeof spec.compose === "string" ? (files.get(cleanPath(spec.compose)) ?? "") : YAML.stringify(spec.compose);
       try {
         parseCompose(compose);
       } catch (e) {
@@ -247,12 +268,14 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
     let git: Resolved["git"] = null;
     if (spec.git) {
       const g = gitSource(spec.git);
+      const host = URL.canParse(g.repository) ? new URL(g.repository).hostname : null;
+      if (host !== null && !host.includes(".") && host !== "localhost") err(key, `git: name the host too, like github.com/${g.repository.replace(/^https:\/\//, "")}.`);
       const current = existing?.source?.type === "git" ? existing.source : null;
       // A repository the service already uses keeps its login; a new one looks for a login with access.
       if (current && current.repository === g.repository && !g.account) {
         git = { ...g, credentialId: current.credentialId ?? null };
       } else {
-        const access = await findGitAccess(ctx.organizationId, g.repository, g.account);
+        const access = await findGitAccess(ctx.organizationId, g.repository, g.account, gitCache);
         if ("error" in access) err(key, `git: ${access.error}`);
         else {
           git = { ...g, credentialId: access.credentialId };
@@ -275,12 +298,17 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
       }
       // Settings the file no longer lists stay as they are: only new ones count.
       if (settings !== null && (last?.settings ?? null) !== settings) item.changes.push("settings");
-      const rows = await db.select({ key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(eq(schema.envVar.serviceId, existing.id));
-      const current = new Map(rows.map((r) => [r.key, decryptOrNull(r.value) ?? ""]));
-      const v = variableChanges(current, rewriteLinks(env, names), last?.variables ?? {}, !!opts.force);
-      if (v.set.length) item.changes.push(`variables: ${v.set.map((k) => (current.has(k) ? `~${k}` : `+${k}`)).join(" ")}`);
-      if (v.remove.length) item.changes.push(`variables: ${v.remove.map((k) => `-${k}`).join(" ")}`);
-      item.kept.push(...v.kept.map((k) => `variable ${k}`));
+      const current = await storedFingerprints(existing.id);
+      const v = variableChanges(current, fingerprints(rewriteLinks(env, names)), last?.variables ?? {}, !!opts.force);
+      if (ctx.seesSecrets) {
+        if (v.set.length) item.changes.push(`variables: ${v.set.map((k) => (current.has(k) ? `~${k}` : `+${k}`)).join(" ")}`);
+        if (v.remove.length) item.changes.push(`variables: ${v.remove.map((k) => `-${k}`).join(" ")}`);
+        item.kept.push(...v.kept.map((k) => `variable ${k}`));
+      } else if (Object.keys(env).length || Object.keys(last?.variables ?? {}).length) {
+        // Saying which values differ would tell whether a guess at a secret is right: without the
+        // right to see secrets, the file's variables are set again, as if all had changed.
+        item.changes.push("variables: set again (values are compared only for members who may see secrets)");
+      }
     }
 
     // Domains: taken by another service is an error before anything changes.

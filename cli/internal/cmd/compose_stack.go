@@ -156,7 +156,15 @@ func (d *stackDoc) values(names []string) (map[string]string, error) {
 		}
 	}
 	out := map[string]string{}
+	inFile := map[string]bool{}
+	for _, m := range varRef.FindAllStringSubmatch(d.text, -1) {
+		inFile[m[1]] = true
+	}
 	for _, n := range names {
+		// Only what the file itself names: a server asking for more (SERVE_TOKEN, cloud keys) gets nothing.
+		if !inFile[n] {
+			continue
+		}
 		if v, ok := os.LookupEnv(n); ok {
 			out[n] = v
 		} else if v, ok := fromFile[n]; ok {
@@ -166,12 +174,26 @@ func (d *stackDoc) values(names []string) (map[string]string, error) {
 	return out, nil
 }
 
+// varRef is a ${NAME} the file uses (not a ${{ }} link).
+var varRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)`)
+
+// names says whether the file itself names this path as a value (env_file, compose), so a server
+// can only ever get the files the file points at.
+func (d *stackDoc) names(p string) bool {
+	re := regexp.MustCompile(`(?m)(^|[\s\[,:'"])(\./)?` + regexp.QuoteMeta(p) + `(['"\],\s#]|$)`)
+	return re.MatchString(d.text)
+}
+
 var stackNameLine = regexp.MustCompile(`(?m)^name:\s*["']?([A-Za-z0-9-]+)["']?\s*(#.*)?$`)
 
 // name is the stack's name: the file's name: line, else its folder's name as the server makes it.
 func (d *stackDoc) name() string {
 	if m := stackNameLine.FindStringSubmatch(d.text); m != nil {
 		return m[1]
+	}
+	// A name the file fills in (name: ${STACK}) is not known here: the folder's name could be another stack's.
+	if regexp.MustCompile(`(?m)^name:`).MatchString(d.text) {
+		return ""
 	}
 	n := regexp.MustCompile(`[^A-Za-z0-9-]+`).ReplaceAllString(strings.ReplaceAll(strings.TrimSpace(filepath.Base(d.dir)), " ", "-"), "")
 	return strings.Trim(regexp.MustCompile(`-+`).ReplaceAllString(n, "-"), "-")
@@ -213,6 +235,9 @@ func (a *App) stackPlan(ctx context.Context, envID string, d *stackDoc, f stackF
 	if len(r.Plan.Needs.Files) > 0 {
 		files := map[string]string{}
 		for _, p := range r.Plan.Needs.Files {
+			if !d.names(p) {
+				return nil, nil, fmt.Errorf("the server asked for %s, which %s does not name. Nothing was sent", p, filepath.Base(d.path))
+			}
 			full, err := d.local(p)
 			if err != nil {
 				return nil, nil, err
@@ -662,8 +687,8 @@ it: restore a backup in the new place.`,
 			doc := &stackDoc{dir: out}
 			for p := range all {
 				clean := filepath.Clean(filepath.FromSlash(p))
-				if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") || strings.ContainsRune(clean, filepath.Separator) {
-					return fmt.Errorf("the server named a file outside the folder: %s", p)
+				if !safeFileName(p) || clean != p {
+					return fmt.Errorf("the server named a file this folder cannot hold: %s", p)
 				}
 				if _, err := os.Lstat(filepath.Join(doc.dir, clean)); err == nil && !force {
 					return usagef("%s already exists. Pass --force to write over it, or -o another folder", filepath.Join(out, clean))
@@ -674,7 +699,7 @@ it: restore a backup in the new place.`,
 				if strings.HasPrefix(p, ".env") {
 					mode = 0o600
 				}
-				if err := os.WriteFile(filepath.Join(out, p), []byte(text), mode); err != nil {
+				if err := writeReplacing(filepath.Join(out, p), []byte(text), mode); err != nil {
 					return err
 				}
 			}
@@ -692,4 +717,35 @@ it: restore a backup in the new place.`,
 	fl.BoolVar(&values, "with-values", false, "write variable values into the .env files (needs the right to view secrets)")
 	fl.BoolVar(&force, "force", false, "write over files that exist")
 	return cmd
+}
+
+// safeFileName is a plain file name: no folders, nothing Windows treats as a device or a drive.
+func safeFileName(p string) bool {
+	if !regexp.MustCompile(`^[A-Za-z0-9._-]+$`).MatchString(p) || p == "." || p == ".." {
+		return false
+	}
+	base := strings.ToUpper(strings.SplitN(p, ".", 2)[0])
+	return !regexp.MustCompile(`^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$`).MatchString(base)
+}
+
+// writeReplacing writes a new file and renames it into place: an existing file or symlink there
+// is replaced, never written through, and the new file gets mode from the start.
+func writeReplacing(path string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".serve-export-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }

@@ -40,6 +40,28 @@ async function environmentOf(environmentId: string, orgId: string) {
   return env;
 }
 
+const planContext = (ctx: Awaited<ReturnType<typeof requirePermission>>, env: { id: string; projectId: string }) => ({
+  organizationId: ctx.org.id,
+  projectId: env.projectId,
+  environmentId: env.id,
+  seesSecrets: ctx.can("variables.view-secrets"),
+  mayChangeHttp: ctx.isAdmin && ctx.can("domains.manage"),
+});
+
+// ponytail: one dashboard process; several processes would need a database lock here.
+const busy = new Map<string, Promise<unknown>>();
+/** One up per environment at a time: two at once would both create the same new services. */
+async function oneAtATime<T>(environmentId: string, fn: () => Promise<T>): Promise<T> {
+  const before = busy.get(environmentId) ?? Promise.resolve();
+  const mine = before.catch(() => {}).then(fn);
+  busy.set(environmentId, mine);
+  try {
+    return await mine;
+  } finally {
+    if (busy.get(environmentId) === mine) busy.delete(environmentId);
+  }
+}
+
 const problems = (plan: StackPlan) => {
   if (plan.needs.files.length) return `${STACK_FILE} names files that were not sent: ${plan.needs.files.join(", ")}.`;
   return plan.errors.length ? `${STACK_FILE} has ${plan.errors.length === 1 ? "a problem" : "problems"}:\n${plan.errors.map((e) => `  ${e}`).join("\n")}` : null;
@@ -51,7 +73,7 @@ export async function planStackAction(environmentId: string, input: StackInputDa
     const ctx = await requirePermission("services.manage");
     const env = await environmentOf(environmentId, ctx.org.id);
     const opts = optionsSchema.parse(options);
-    const { plan } = await planStack({ organizationId: ctx.org.id, projectId: env.projectId, environmentId }, inputSchema.parse(input), opts);
+    const { plan } = await planStack(planContext(ctx, env), inputSchema.parse(input), opts);
     return plan;
   });
 }
@@ -66,37 +88,42 @@ export async function upStack(environmentId: string, input: StackInputData, opti
     const opts = optionsSchema.parse(options);
     if (!opts.noDeploy && !ctx.can("services.deploy")) throw new UserError("Deploying the stack needs the right to deploy services. Use noDeploy to only make the changes.");
     const env = await environmentOf(environmentId, ctx.org.id);
-    const planCtx = { organizationId: ctx.org.id, projectId: env.projectId, environmentId };
-    const { plan, resolved } = await planStack(planCtx, inputSchema.parse(input), opts);
-    const problem = problems(plan);
-    if (problem) throw new UserError(problem);
-    const applied = await applyStack({ ...planCtx, userId: ctx.user.id }, plan, resolved, opts);
-    await logActivity({
-      userId: ctx.user.id,
-      projectId: env.projectId,
-      action: "stack.applied",
-      targetType: "environment",
-      targetId: environmentId,
-      message: `Applied stack ${plan.stack}: ${applied.filter((a) => a.action === "create").length} created, ${applied.filter((a) => a.action === "update").length} changed`,
+    return oneAtATime(environmentId, async () => {
+      const planCtx = planContext(ctx, env);
+      const { plan, resolved } = await planStack(planCtx, inputSchema.parse(input), opts);
+      const problem = problems(plan);
+      if (problem) throw new UserError(problem);
+      // Rights each step needs, checked before anything changes: a refusal halfway leaves half a stack.
+      if (resolved.some((r) => Object.keys(r.env).length) && !ctx.can("variables.edit")) throw new UserError("The stack sets variables, which needs the right to edit variables.");
+      if (resolved.some((r) => r.domains.length) && !ctx.can("domains.manage")) throw new UserError("The stack sets domains, which needs the right to manage domains.");
+      const applied = await applyStack({ ...planCtx, userId: ctx.user.id }, plan, resolved, opts);
+      await logActivity({
+        userId: ctx.user.id,
+        projectId: env.projectId,
+        action: "stack.applied",
+        targetType: "environment",
+        targetId: environmentId,
+        message: `Applied stack ${plan.stack}: ${applied.filter((a) => a.action === "create").length} created, ${applied.filter((a) => a.action === "update").length} changed`,
+      });
+      if (opts.noDeploy) return { plan, services: applied, runId: null as string | null };
+      const rows = await stackServices(environmentId, plan.stack as string);
+      const parts = applied.map((a) => {
+        const p = plan.services.find((s) => s.key === a.key);
+        const row = rows.find((r) => r.id === a.serviceId);
+        const stale = !row || ["idle", "failed", "crashed", "stopped"].includes(row.status);
+        return {
+          key: a.key,
+          serviceId: a.serviceId,
+          wave: p?.wave ?? 0,
+          needs: p?.needs ?? [],
+          // A folder is sent on every up: its files may have changed, so it always deploys.
+          deploy: opts.redeploy || a.action !== "unchanged" || stale || !!a.upload,
+          upload: !!a.upload,
+        };
+      });
+      const runId = await startStackRun(environmentId, plan.stack as string, parts, { userId: ctx.user.id, trigger: opts.trigger as DeploymentTrigger });
+      return { plan, services: applied, runId };
     });
-    if (opts.noDeploy) return { plan, services: applied, runId: null as string | null };
-    const rows = await stackServices(environmentId, plan.stack as string);
-    const parts = applied.map((a) => {
-      const p = plan.services.find((s) => s.key === a.key);
-      const row = rows.find((r) => r.id === a.serviceId);
-      const stale = !row || ["idle", "failed", "crashed", "stopped"].includes(row.status);
-      return {
-        key: a.key,
-        serviceId: a.serviceId,
-        wave: p?.wave ?? 0,
-        needs: p?.needs ?? [],
-        // A folder is sent on every up: its files may have changed, so it always deploys.
-        deploy: opts.redeploy || a.action !== "unchanged" || stale || !!a.upload,
-        upload: !!a.upload,
-      };
-    });
-    const runId = await startStackRun(environmentId, plan.stack as string, parts, { userId: ctx.user.id, trigger: opts.trigger as DeploymentTrigger });
-    return { plan, services: applied, runId };
   });
 }
 
@@ -193,6 +220,12 @@ export async function exportStackAction(environmentId: string, opts: { stack?: s
     const env = await environmentOf(environmentId, ctx.org.id);
     const [project] = await db.select({ name: schema.project.name }).from(schema.project).where(eq(schema.project.id, env.projectId));
     const { exportStack } = await import("@/server/stacks/export");
-    return exportStack(environmentId, { stack: opts.stack, services: opts.services, values: !!opts.values, name: opts.stack ?? project?.name ?? "stack" });
+    return exportStack(environmentId, {
+      stack: opts.stack,
+      services: opts.services,
+      values: !!opts.values,
+      name: opts.stack ?? project?.name ?? "stack",
+      composeFiles: ctx.can("services.manage"),
+    });
   });
 }

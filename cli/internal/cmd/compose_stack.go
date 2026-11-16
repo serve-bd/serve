@@ -157,7 +157,7 @@ func (d *stackDoc) values(names []string) (map[string]string, error) {
 		}
 	}
 	out := map[string]string{}
-	refs, err := d.refs()
+	refs, err := d.refs(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,9 @@ var varRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)`)
 // files, compose files and folders. The CLI sends only these, whatever a server asks for.
 type stackRefs struct{ vars, files, folders map[string]bool }
 
-func (d *stackDoc) refs() (*stackRefs, error) {
+// values fill in ${VAR}s in the paths, as the server does before it names them; nil keeps them as written.
+func (d *stackDoc) refs(values map[string]string) (*stackRefs, error) {
+	path := func(p string) string { return cleanStackPath(fillVars(p, values)) }
 	var doc any
 	if err := yaml.Unmarshal([]byte(d.text), &doc); err != nil {
 		return nil, fmt.Errorf("%s is not valid YAML: %w", filepath.Base(d.path), err)
@@ -213,27 +215,48 @@ func (d *stackDoc) refs() (*stackRefs, error) {
 		m, _ := svc.(map[string]any)
 		switch f := m["env_file"].(type) {
 		case string:
-			r.files[cleanStackPath(f)] = true
+			r.files[path(f)] = true
 		case []any:
 			for _, x := range f {
 				if s, ok := x.(string); ok {
-					r.files[cleanStackPath(s)] = true
+					r.files[path(s)] = true
 				}
 			}
 		}
 		if c, ok := m["compose"].(string); ok {
-			r.files[cleanStackPath(c)] = true
+			r.files[path(c)] = true
 		}
 		switch b := m["build"].(type) {
 		case string:
-			r.folders[cleanStackPath(b)] = true
+			r.folders[path(b)] = true
 		case map[string]any:
 			if c, ok := b["context"].(string); ok {
-				r.folders[cleanStackPath(c)] = true
+				r.folders[path(c)] = true
 			}
 		}
 	}
 	return r, nil
+}
+
+var fillPattern = regexp.MustCompile(`\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?])([^}]*))?\}`)
+
+// fillVars fills in ${VAR}, ${VAR:-default} and ${VAR-default} the way the server does.
+func fillVars(s string, values map[string]string) string {
+	if values == nil {
+		return s
+	}
+	return fillPattern.ReplaceAllStringFunc(s, func(m string) string {
+		if m == "$$" {
+			return "$"
+		}
+		g := fillPattern.FindStringSubmatch(m)
+		v, set := values[g[1]]
+		switch {
+		case g[2] == ":-" && v == "", g[2] == "-" && !set:
+			return g[3]
+		}
+		return v
+	})
 }
 
 // cleanStackPath spells a path the way the server does: "./a//b/" is "a/b".
@@ -297,7 +320,7 @@ func (a *App) stackPlan(ctx context.Context, envID string, d *stackDoc, f stackF
 	}
 	if len(r.Plan.Needs.Files) > 0 {
 		files := map[string]string{}
-		refs, err := d.refs()
+		refs, err := d.refs(values)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -451,7 +474,8 @@ func (a *App) composeUp(ctx context.Context, f stackFlags) error {
 		if s.Upload == nil {
 			continue
 		}
-		refs, err := d.refs()
+		values, _ := body["values"].(map[string]string)
+		refs, err := d.refs(values)
 		if err != nil {
 			return err
 		}

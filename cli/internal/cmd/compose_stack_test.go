@@ -97,7 +97,7 @@ func TestReadStackFindsYamlSpelling(t *testing.T) {
 
 func TestStackFilesOnlyThoseTheFileNames(t *testing.T) {
 	d := stackDir(t, map[string]string{StackFile: "# values come from .env\nservices:\n  web:\n    image: nginx\n    env_file: [./.env.web, \"conf/a.env\"]\n  tools:\n    compose: tools.yml # here\n  site:\n    build: ./site\n  api:\n    build: { context: ./api/, builder: dockerfile }\n"})
-	refs, err := d.refs()
+	refs, err := d.refs(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,5 +151,16 @@ func TestExportFileNamesAndWrites(t *testing.T) {
 	}
 	if st, err := os.Lstat(link); err != nil || st.Mode()&os.ModeSymlink != 0 || st.Mode().Perm() != 0o600 {
 		t.Fatalf("replaced file: %v %v", st.Mode(), err)
+	}
+}
+
+func TestStackPathsWithVariables(t *testing.T) {
+	d := stackDir(t, map[string]string{StackFile: "services:\n  web:\n    env_file: .env.${STAGE}\n    build: ./${APP:-site}\n"})
+	refs, err := d.refs(map[string]string{"STAGE": "prod"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !refs.files[".env.prod"] || refs.files[".env.${STAGE}"] || !refs.folders["site"] {
+		t.Fatalf("filled: %v %v", refs.files, refs.folders)
 	}
 }

@@ -268,6 +268,12 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
       const lastHttp = existing?.stackFile?.settings ? (JSON.parse(existing.stackFile.settings) as { http?: unknown }).http : undefined;
       if (JSON.stringify(spec.http ?? null) !== JSON.stringify(lastHttp ?? null))
         err(key, "http: only organization admins who manage domains can change HTTP options. Keep the file's http: block as it was, or ask one of them.");
+      // --force puts the file's HTTP options back over an admin's changes.
+      else if (opts.force && spec.http) err(key, "http: --force would put back HTTP options an admin may have changed. Run up without --force, or ask an admin.");
+      // Settings from the stack replace a repository's serve.json, HTTP options included.
+      const repoFile = existing?.configFile;
+      if (repoFile && !repoFile.path.startsWith(STACK_FILE) && repoFile.httpKeys?.length && settingsOf(spec) !== null)
+        err(key, `its ${repoFile.path} sets HTTP options, which these settings would replace. Only admins who manage domains can do that.`);
     }
 
     let compose: string | null = null;

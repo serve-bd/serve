@@ -96,16 +96,23 @@ func TestReadStackFindsYamlSpelling(t *testing.T) {
 }
 
 func TestStackFilesOnlyThoseTheFileNames(t *testing.T) {
-	d := stackDir(t, map[string]string{StackFile: "services:\n  web:\n    env_file: [./.env.web, \"conf/a.env\"]\n    compose: tools.yml # here\n"})
+	d := stackDir(t, map[string]string{StackFile: "# values come from .env\nservices:\n  web:\n    image: nginx\n    env_file: [./.env.web, \"conf/a.env\"]\n  tools:\n    compose: tools.yml # here\n  site:\n    build: ./site\n  api:\n    build: { context: ./api/, builder: dockerfile }\n"})
+	refs, err := d.refs()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, p := range []string{".env.web", "conf/a.env", "tools.yml"} {
-		if !d.names(p) {
+		if !refs.files[p] {
 			t.Fatalf("%s should be named", p)
 		}
 	}
-	for _, p := range []string{".env", "a.env", ".git/config", "tools"} {
-		if d.names(p) {
-			t.Fatalf("%s is not named", p)
+	for _, p := range []string{".env", "nginx", ".git/config", "site"} {
+		if refs.files[p] {
+			t.Fatalf("%s is not an env or compose file of the stack", p)
 		}
+	}
+	if !refs.folders["site"] || !refs.folders["api"] || refs.folders[".ssh"] || len(refs.folders) != 2 {
+		t.Fatalf("folders: %v", refs.folders)
 	}
 }
 

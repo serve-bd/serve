@@ -94,8 +94,12 @@ export async function upStack(environmentId: string, input: StackInputData, opti
       const problem = problems(plan);
       if (problem) throw new UserError(problem);
       // Rights each step needs, checked before anything changes: a refusal halfway leaves half a stack.
-      if (resolved.some((r) => Object.keys(r.env).length) && !ctx.can("variables.edit")) throw new UserError("The stack sets variables, which needs the right to edit variables.");
-      if (resolved.some((r) => r.domains.length) && !ctx.can("domains.manage")) throw new UserError("The stack sets domains, which needs the right to manage domains.");
+      // What the file set before counts too: dropping it removes it, which needs the same right.
+      const before = (r: (typeof resolved)[number]) => r.existing?.stackFile;
+      if (resolved.some((r) => Object.keys(r.env).length || Object.keys(before(r)?.variables ?? {}).length) && !ctx.can("variables.edit"))
+        throw new UserError("The stack sets variables, which needs the right to edit variables.");
+      if (resolved.some((r) => r.domains.length || before(r)?.domains.length) && !ctx.can("domains.manage"))
+        throw new UserError("The stack sets domains, which needs the right to manage domains.");
       const applied = await applyStack({ ...planCtx, userId: ctx.user.id }, plan, resolved, opts);
       await logActivity({
         userId: ctx.user.id,

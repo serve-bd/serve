@@ -129,17 +129,23 @@ const INTERPOLATE = /\$\$|\$\{(?!\{)([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?])([^}]*))?
 
 /** The names `${VAR}` asks for in the file's values (not its comments), in order, once each. */
 export function stackVariables(text: string): string[] {
+  try {
+    return variablesIn(readYaml(text));
+  } catch {
+    // Not valid YAML: parseStack says so; nothing is asked for.
+    return [];
+  }
+}
+
+/** The ${VAR} names in a parsed document's strings. */
+export function variablesIn(doc: unknown): string[] {
   const out = new Set<string>();
   const walk = (node: unknown) => {
     if (typeof node === "string") for (const m of node.matchAll(INTERPOLATE)) m[1] && out.add(m[1]);
     else if (Array.isArray(node)) node.forEach(walk);
     else if (node && typeof node === "object") Object.values(node).forEach(walk);
   };
-  try {
-    walk(readYaml(text));
-  } catch {
-    // Not valid YAML: parseStack says so; nothing is asked for.
-  }
+  walk(doc);
   return [...out];
 }
 
@@ -178,7 +184,18 @@ function interpolateAll(node: unknown, values: Record<string, string>, path: Pro
 
 /* ------------------------------------------------------------------ parsing */
 
-export const STACK_MAX_BYTES = 1_000_000;
+/** A stack is settings, not data: YAML is read on the dashboard's main thread, so it stays small. */
+export const STACK_MAX_BYTES = 256_000;
+
+/** The file's YAML, read once (its size checked first). */
+export function readStackYaml(text: string): { doc: unknown } | { errors: string[] } {
+  if (Buffer.byteLength(text) > STACK_MAX_BYTES) return { errors: [`${STACK_FILE} is larger than ${STACK_MAX_BYTES / 1000} KB.`] };
+  try {
+    return { doc: readYaml(text) };
+  } catch (e) {
+    return { errors: [`${STACK_FILE} is not valid YAML: ${(e as Error).message.split("\n")[0]}`] };
+  }
+}
 
 /**
  * Reads the file with `${VAR}` filled in from `values`. `fallbackName`: the stack's name when the
@@ -186,13 +203,12 @@ export const STACK_MAX_BYTES = 1_000_000;
  * with where it is: "services.api.port: …".
  */
 export function parseStack(text: string, values: Record<string, string>, fallbackName: string): { stack: Stack } | { errors: string[] } {
-  if (Buffer.byteLength(text) > STACK_MAX_BYTES) return { errors: [`${STACK_FILE} is larger than ${STACK_MAX_BYTES / 1000} KB.`] };
-  let raw: unknown;
-  try {
-    raw = readYaml(text);
-  } catch (e) {
-    return { errors: [`${STACK_FILE} is not valid YAML: ${(e as Error).message.split("\n")[0]}`] };
-  }
+  const read = readStackYaml(text);
+  return "errors" in read ? read : parseStackDoc(read.doc, values, fallbackName);
+}
+
+/** parseStack for a document already read (readStackYaml). */
+export function parseStackDoc(raw: unknown, values: Record<string, string>, fallbackName: string): { stack: Stack } | { errors: string[] } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { errors: [`${STACK_FILE} must hold a map with services:, like services: { api: { image: nginx } }.`] };
   const errors: string[] = [];
   const filled = interpolateAll(raw, values, [], errors);
@@ -328,7 +344,8 @@ export function dependencies(stack: Stack, key: string): Dependency[] {
 
 const isService = (stack: Stack, key: string) => Object.hasOwn(stack.services, key);
 
-function graphProblems(stack: Stack): string[] {
+/** Names that are no service, and loops: for the file, and again once env files add their links. */
+export function graphProblems(stack: Stack): string[] {
   const errors: string[] = [];
   const keys = Object.keys(stack.services);
   const lower = new Map<string, string>();
@@ -389,7 +406,11 @@ export function deployWaves(stack: Stack): string[][] {
   const users = new Map<string, string[]>();
   for (const [k, deps] of g) {
     waiting.set(k, deps.length);
-    for (const d of deps) users.set(d.on, [...(users.get(d.on) ?? []), k]);
+    for (const d of deps) {
+      const list = users.get(d.on);
+      if (list) list.push(k);
+      else users.set(d.on, [k]);
+    }
   }
   const waves: string[][] = [];
   let wave = [...g.keys()].filter((k) => waiting.get(k) === 0);

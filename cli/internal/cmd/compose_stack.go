@@ -16,6 +16,7 @@ import (
 	"github.com/serve-bd/serve/cli/internal/dotenv"
 	"github.com/serve-bd/serve/cli/internal/ui"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 // StackFile is the file `serve compose up` reads when -f is not given.
@@ -156,10 +157,11 @@ func (d *stackDoc) values(names []string) (map[string]string, error) {
 		}
 	}
 	out := map[string]string{}
-	inFile := map[string]bool{}
-	for _, m := range varRef.FindAllStringSubmatch(d.text, -1) {
-		inFile[m[1]] = true
+	refs, err := d.refs()
+	if err != nil {
+		return nil, err
 	}
+	inFile := refs.vars
 	for _, n := range names {
 		// Only what the file itself names: a server asking for more (SERVE_TOKEN, cloud keys) gets nothing.
 		if !inFile[n] {
@@ -177,11 +179,72 @@ func (d *stackDoc) values(names []string) (map[string]string, error) {
 // varRef is a ${NAME} the file uses (not a ${{ }} link).
 var varRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)`)
 
-// names says whether the file itself names this path as a value (env_file, compose), so a server
-// can only ever get the files the file points at.
-func (d *stackDoc) names(p string) bool {
-	re := regexp.MustCompile(`(?m)(^|[\s\[,:'"])(\./)?` + regexp.QuoteMeta(p) + `(['"\],\s#]|$)`)
-	return re.MatchString(d.text)
+// stackRefs is what the file itself names: the ${VAR}s in its values, and the paths of its env
+// files, compose files and folders. The CLI sends only these, whatever a server asks for.
+type stackRefs struct{ vars, files, folders map[string]bool }
+
+func (d *stackDoc) refs() (*stackRefs, error) {
+	var doc any
+	if err := yaml.Unmarshal([]byte(d.text), &doc); err != nil {
+		return nil, fmt.Errorf("%s is not valid YAML: %w", filepath.Base(d.path), err)
+	}
+	r := &stackRefs{vars: map[string]bool{}, files: map[string]bool{}, folders: map[string]bool{}}
+	var walk func(any)
+	walk = func(n any) {
+		switch v := n.(type) {
+		case string:
+			for _, m := range varRef.FindAllStringSubmatch(v, -1) {
+				r.vars[m[1]] = true
+			}
+		case []any:
+			for _, x := range v {
+				walk(x)
+			}
+		case map[string]any:
+			for _, x := range v {
+				walk(x)
+			}
+		}
+	}
+	walk(doc)
+	top, _ := doc.(map[string]any)
+	services, _ := top["services"].(map[string]any)
+	for _, svc := range services {
+		m, _ := svc.(map[string]any)
+		switch f := m["env_file"].(type) {
+		case string:
+			r.files[cleanStackPath(f)] = true
+		case []any:
+			for _, x := range f {
+				if s, ok := x.(string); ok {
+					r.files[cleanStackPath(s)] = true
+				}
+			}
+		}
+		if c, ok := m["compose"].(string); ok {
+			r.files[cleanStackPath(c)] = true
+		}
+		switch b := m["build"].(type) {
+		case string:
+			r.folders[cleanStackPath(b)] = true
+		case map[string]any:
+			if c, ok := b["context"].(string); ok {
+				r.folders[cleanStackPath(c)] = true
+			}
+		}
+	}
+	return r, nil
+}
+
+// cleanStackPath spells a path the way the server does: "./a//b/" is "a/b".
+func cleanStackPath(p string) string {
+	parts := []string{}
+	for _, x := range strings.Split(strings.ReplaceAll(p, "\\", "/"), "/") {
+		if x != "" && x != "." {
+			parts = append(parts, x)
+		}
+	}
+	return strings.Join(parts, "/")
 }
 
 var stackNameLine = regexp.MustCompile(`(?m)^name:\s*["']?([A-Za-z0-9-]+)["']?\s*(#.*)?$`)
@@ -234,8 +297,12 @@ func (a *App) stackPlan(ctx context.Context, envID string, d *stackDoc, f stackF
 	}
 	if len(r.Plan.Needs.Files) > 0 {
 		files := map[string]string{}
+		refs, err := d.refs()
+		if err != nil {
+			return nil, nil, err
+		}
 		for _, p := range r.Plan.Needs.Files {
-			if !d.names(p) {
+			if !refs.files[cleanStackPath(p)] {
 				return nil, nil, fmt.Errorf("the server asked for %s, which %s does not name. Nothing was sent", p, filepath.Base(d.path))
 			}
 			full, err := d.local(p)
@@ -383,6 +450,13 @@ func (a *App) composeUp(ctx context.Context, f stackFlags) error {
 	for _, s := range r.Services {
 		if s.Upload == nil {
 			continue
+		}
+		refs, err := d.refs()
+		if err != nil {
+			return err
+		}
+		if !refs.folders[cleanStackPath(*s.Upload)] {
+			return fmt.Errorf("the server asked to upload %s, which %s does not name. Nothing was sent", *s.Upload, filepath.Base(d.path))
 		}
 		dir, err := d.local(*s.Upload)
 		if err != nil {

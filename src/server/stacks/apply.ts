@@ -129,8 +129,8 @@ export async function applyStack(ctx: PlanContext & { userId: string }, plan: St
 
   // 3. Variables, now that every service exists, in deploy order: a link to another service's own
   // variable binds to its row only when that row is there, and what a service links to comes first.
-  const order = plan.waves.flat();
-  for (const r of [...resolved].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))) {
+  const position = new Map(plan.waves.flat().map((k, i) => [k, i]));
+  for (const r of [...resolved].sort((a, b) => (position.get(a.key) ?? 0) - (position.get(b.key) ?? 0))) {
     const service = serviceOf(r);
     const { record, values } = r as Resolved & { record: StackFileRecord; values: Record<string, string> };
     const rows = await db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, service.id));

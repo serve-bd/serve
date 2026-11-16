@@ -13,7 +13,9 @@ import {
   gitSource,
   type GitSource,
   parseEnvFile,
-  parseStack,
+  graphProblems,
+  parseStackDoc,
+  readStackYaml,
   rewriteLinks,
   serviceKind,
   type Stack,
@@ -22,7 +24,7 @@ import {
   stackFiles,
   type StackKind,
   type StackService,
-  stackVariables,
+  variablesIn,
   STACK_FILE,
   uploadFolder,
   variableChanges,
@@ -152,9 +154,13 @@ const emptyPlan = (): StackPlan => ({ stack: null, ready: false, needs: { variab
 export async function planStack(ctx: PlanContext, input: StackInput, opts: StackOptions = {}): Promise<{ plan: StackPlan; resolved: Resolved[]; stack: Stack | null }> {
   const plan = emptyPlan();
   const values = input.values ?? {};
-  const asked = stackVariables(input.text);
-  plan.needs.variables = asked.filter((v) => !(v in values));
-  const parsed = parseStack(input.text, values, input.folder ?? "");
+  const read = readStackYaml(input.text);
+  if ("errors" in read) {
+    plan.errors = read.errors;
+    return { plan, resolved: [], stack: null };
+  }
+  plan.needs.variables = variablesIn(read.doc).filter((v) => !Object.hasOwn(values, v));
+  const parsed = parseStackDoc(read.doc, values, input.folder ?? "");
   if ("errors" in parsed) {
     plan.errors = parsed.errors;
     return { plan, resolved: [], stack: null };
@@ -170,7 +176,28 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
   const mine = new Map(live.filter((s) => s.stackName === stack.name && s.stackKey).map((s) => [s.stackKey as string, s]));
   const servers = await serversForOrg(ctx.organizationId);
   const keys = Object.keys(stack.services);
-  const waves = deployWaves(stack);
+  const lowerKeys = new Set(keys.map((k) => k.toLowerCase()));
+  const err = (key: string, message: string) => plan.errors.push(`services.${key}: ${message}`);
+
+  // Variables: env files in order, then env. Links in env files make dependencies too.
+  const envs = new Map<string, Record<string, string>>();
+  for (const key of keys) {
+    const spec = stack.services[key];
+    const env: Record<string, string> = {};
+    for (const f of typeof spec.env_file === "string" ? [spec.env_file] : (spec.env_file ?? [])) {
+      const r = parseEnvFile(files.get(cleanPath(f)) ?? "");
+      if ("error" in r) err(key, `env_file ${f}: ${r.error}`);
+      else Object.assign(env, r.values);
+    }
+    envs.set(key, Object.assign(env, spec.env ?? {}));
+  }
+  const linked: Stack = { ...stack, services: Object.fromEntries(keys.map((k) => [k, { ...stack.services[k], env: envs.get(k) }])) };
+  const order = graphProblems(linked);
+  if (order.length) {
+    plan.errors.push(...order);
+    return { plan, resolved: [], stack };
+  }
+  const waves = deployWaves(linked);
   plan.waves = waves;
   const waveOf = new Map(waves.flatMap((w, i) => w.map((k) => [k, i] as const)));
   const resolved: Resolved[] = [];
@@ -178,7 +205,6 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
   const gitCache = new Map();
   // Links in the file name stack keys; a stack service with another name is linked by that name.
   const names = new Map([...mine].map(([k, s]) => [k.toLowerCase(), s.name]));
-  const err = (key: string, message: string) => plan.errors.push(`services.${key}: ${message}`);
 
   for (const key of keys) {
     const spec = stack.services[key];
@@ -193,27 +219,20 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
       changes: [],
       kept: [],
       wave: waveOf.get(key) ?? 0,
-      needs: dependencies(stack, key),
+      needs: dependencies(linked, key),
       upload: uploadFolder(spec),
       gitLogin: null,
     };
     plan.services.push(item);
     if (item.upload && opts.dashboard) err(key, "local folders are uploaded by the CLI. Use serve compose up, or give git or image.");
 
-    // Variables: env files in order, then env.
-    const env: Record<string, string> = {};
-    for (const f of typeof spec.env_file === "string" ? [spec.env_file] : (spec.env_file ?? [])) {
-      const r = parseEnvFile(files.get(cleanPath(f)) ?? "");
-      if ("error" in r) err(key, `env_file ${f}: ${r.error}`);
-      else Object.assign(env, r.values);
-    }
-    Object.assign(env, spec.env ?? {});
+    const env = envs.get(key) ?? {};
     for (const [k, v] of Object.entries(env))
       for (const [, ref] of v.matchAll(REF)) {
         const dot = ref.indexOf(".");
         if (dot <= 0) continue;
         const target = ref.slice(0, dot);
-        if (SCOPE_NAMES.has(target.toLowerCase()) || keys.some((x) => x.toLowerCase() === target.toLowerCase())) continue;
+        if (SCOPE_NAMES.has(target.toLowerCase()) || lowerKeys.has(target.toLowerCase())) continue;
         if (!referencedService(live, target)) err(key, `env.${k} links to "${target}", which is not in this file or this environment.`);
       }
 
@@ -244,7 +263,12 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
       }
     }
 
-    if (spec.http && !ctx.mayChangeHttp) err(key, "http: only organization admins who manage domains can set HTTP options. Leave it out, or ask one of them.");
+    // HTTP options: set, changed or dropped (a dropped block removes them) only by those who may.
+    if (!ctx.mayChangeHttp) {
+      const lastHttp = existing?.stackFile?.settings ? (JSON.parse(existing.stackFile.settings) as { http?: unknown }).http : undefined;
+      if (JSON.stringify(spec.http ?? null) !== JSON.stringify(lastHttp ?? null))
+        err(key, "http: only organization admins who manage domains can change HTTP options. Keep the file's http: block as it was, or ask one of them.");
+    }
 
     let compose: string | null = null;
     if (spec.compose) {
@@ -348,7 +372,7 @@ export async function planStack(ctx: PlanContext, input: StackInput, opts: Stack
   }
 
   for (const [key, s] of mine) {
-    if (stack.services[key]) continue;
+    if (Object.hasOwn(stack.services, key)) continue;
     plan.orphans.push({ key, serviceId: s.id, name: s.name, remove: !!opts.removeOrphans });
     if (!opts.removeOrphans) plan.warnings.push(`${key} (${s.name}) is no longer in ${STACK_FILE}: it stays. Use --remove-orphans to remove it.`);
   }

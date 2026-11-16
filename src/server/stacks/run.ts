@@ -80,8 +80,13 @@ async function advance(tx: Tx, run: Run, trigger: DeploymentTrigger) {
   const runId = run.id;
   const steps = run.steps as Step[];
   const byKey = new Map(steps.map((s) => [s.key, s]));
+  // Past the limit the run ends: what had not started is skipped, a deploy still going is left
+  // to finish on its own (its own time limit stops it) and no longer followed.
   if (Date.now() - run.createdAt.getTime() > RUN_LIMIT_MS)
-    for (const s of steps) if (s.state === "waiting") Object.assign(s, { state: "skipped", note: "The run took longer than 6 hours." });
+    for (const s of steps) {
+      if (s.state === "waiting") Object.assign(s, { state: "skipped", note: "The run took longer than 6 hours." });
+      if (s.state === "deploying") Object.assign(s, { state: "failed", note: "Its deployment had not finished after 6 hours. See its deployment." });
+    }
 
   for (const s of steps.filter((x) => x.state === "deploying" && x.deploymentId)) {
     let [dep] = await db

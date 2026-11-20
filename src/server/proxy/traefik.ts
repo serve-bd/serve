@@ -374,13 +374,13 @@ export function renderTraefikSite(
   return `${GENERATED} ${site.title}.\n${Object.keys(doc).length ? YAML.stringify(doc) : ""}`;
 }
 
-export type ExpectedRouter = { name: string; service: string; middlewares: string[] };
+export type ExpectedRouter = { name: string; rule: string; service: string; middlewares: string[] };
 
 /** Routers a site file defines, with their service and middlewares (to confirm Traefik loaded this exact version). */
 export function traefikRouters(content: string): ExpectedRouter[] {
   try {
-    const doc = YAML.parse(content) as { http?: { routers?: Record<string, { service?: string; middlewares?: string[] }> } };
-    return Object.entries(doc?.http?.routers ?? {}).map(([name, r]) => ({ name, service: r.service ?? "", middlewares: r.middlewares ?? [] }));
+    const doc = YAML.parse(content) as { http?: { routers?: Record<string, { rule?: string; service?: string; middlewares?: string[] }> } };
+    return Object.entries(doc?.http?.routers ?? {}).map(([name, r]) => ({ name, rule: r.rule ?? "", service: r.service ?? "", middlewares: r.middlewares ?? [] }));
   } catch {
     return [];
   }

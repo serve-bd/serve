@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
-import { renderTraefikSite, traefikBaseDynamic } from "@/server/proxy/traefik";
+import { renderTraefikSite, traefikBaseDynamic, traefikRouters } from "@/server/proxy/traefik";
 import type { ProxyDefaults } from "@/server/proxy/config";
 import type { SiteModel } from "@/server/proxy/model";
 import { maintenanceOf } from "@/server/services/maintenance";
@@ -81,4 +81,8 @@ describe("Traefik unavailable page", () => {
     expect(routers["svc-abc-0-web"].middlewares).toEqual(["serve-errors", "svc-abc-compress", "svc-abc-x-rl"]);
   });
 
+  it("gives the router check each rule", () => {
+    const rules = traefikRouters(renderTraefikSite(site(), { resolver: false, trusted: [] })).map((r) => r.rule);
+    expect(rules).toEqual([`${host} && !${html}`, `${host} && ${html}`]);
+  });
 });

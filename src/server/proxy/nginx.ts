@@ -726,7 +726,7 @@ async function traefikCheckRouters(ctx: ServerCtx, expected: ExpectedRouter[], t
   do {
     const res = await exec(ctx, ["wget", "-q", "-O-", `${TRAEFIK_API}/api/http/routers?per_page=10000`]).catch(() => null);
     if (res?.exitCode === 0) {
-      let routers: { name: string; status: string; error?: string[]; service?: string; middlewares?: string[] }[] = [];
+      let routers: { name: string; status: string; error?: string[]; rule?: string; service?: string; middlewares?: string[] }[] = [];
       try {
         routers = JSON.parse(res.output);
       } catch {
@@ -738,7 +738,11 @@ async function traefikCheckRouters(ctx: ServerCtx, expected: ExpectedRouter[], t
       for (const e of expected) {
         const r = byName.get(e.name);
         if (!r) problems.push(`${e.name}: not loaded`);
-        else if (strip(r.service ?? "") !== strip(e.service) || JSON.stringify((r.middlewares ?? []).map(strip)) !== JSON.stringify(e.middlewares.map(strip))) {
+        else if (
+          (r.rule ?? "") !== e.rule ||
+          strip(r.service ?? "") !== strip(e.service) ||
+          JSON.stringify((r.middlewares ?? []).map(strip)) !== JSON.stringify(e.middlewares.map(strip))
+        ) {
           problems.push(`${e.name}: previous version still active`);
         } else if (r.status !== "enabled") {
           problems.push(`${e.name}: ${(r.error ?? [r.status]).join("; ")}`);
